@@ -42,3 +42,17 @@ set_tests_properties(
   ffmpeg_media_source
   PROPERTIES FIXTURES_REQUIRED media_fixture
 )
+
+add_executable(
+  shareme_playback_session_test
+  playback_session_test.cpp
+)
+target_link_libraries(
+  shareme_playback_session_test
+  PRIVATE ShareMe::Playback
+)
+
+add_test(
+  NAME playback_session
+  COMMAND shareme_playback_session_test
+)
