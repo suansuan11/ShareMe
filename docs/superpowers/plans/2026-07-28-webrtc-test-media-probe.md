@@ -145,7 +145,7 @@ git commit -m "build: lock external libwebrtc dependency"
 - Modify: `CMakePresets.json`
 - Modify: `.github/workflows/core-ci.yml`
 
-- [ ] **Step 1: Verify the option is currently inert**
+- [x] **Step 1: Verify the option is currently inert**
 
 Run:
 
@@ -158,7 +158,7 @@ cmake --fresh -S . -B build/webrtc-missing \
 Expected before implementation: configuration succeeds because the existing
 option is not connected to dependency discovery.
 
-- [ ] **Step 2: Implement strict manifest discovery**
+- [x] **Step 2: Implement strict manifest discovery**
 
 `FindWebRTC.cmake` must:
 
@@ -187,7 +187,7 @@ does not contain a machine path; developers provide `WEBRTC_ROOT`.
 Extend Core CI path filters for `client/rtc/**`, `client/tools/**`, `deps/**`,
 and `scripts/**`. Keep the CI build on default presets with WebRTC disabled.
 
-- [ ] **Step 3: Verify explicit failure and dependency-off behavior**
+- [x] **Step 3: Verify explicit failure and dependency-off behavior**
 
 Run:
 
@@ -203,7 +203,7 @@ ctest --preset test-dev --output-on-failure
 Expected: the enabled configuration fails with a missing-manifest diagnostic;
 the default build still passes 2/2 tests.
 
-- [ ] **Step 4: Commit build discovery**
+- [x] **Step 4: Commit build discovery**
 
 ```bash
 git add CMakeLists.txt CMakePresets.json cmake/FindWebRTC.cmake .github/workflows/core-ci.yml

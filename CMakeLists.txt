@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+endif()
+
 project(
   ShareMe
   VERSION 0.1.0
@@ -37,6 +41,10 @@ if(SHAREME_ENABLE_QT)
   )
   qt_standard_project_setup(REQUIRES 6.8)
   add_subdirectory(client/app)
+endif()
+
+if(SHAREME_ENABLE_WEBRTC)
+  find_package(WebRTC REQUIRED)
 endif()
 
 if(SHAREME_BUILD_TESTS)

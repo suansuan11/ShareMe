@@ -10,6 +10,10 @@ on:
       - "client/app/**"
       - "client/core/**"
       - "client/media/**"
+      - "client/rtc/**"
+      - "client/tools/**"
+      - "deps/**"
+      - "scripts/**"
       - "tests/**"
       - "docs/**"
   pull_request:
@@ -21,6 +25,10 @@ on:
       - "client/app/**"
       - "client/core/**"
       - "client/media/**"
+      - "client/rtc/**"
+      - "client/tools/**"
+      - "deps/**"
+      - "scripts/**"
       - "tests/**"
       - "docs/**"
 
