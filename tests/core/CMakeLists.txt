@@ -12,3 +12,8 @@ add_executable(shareme_probe_contract_test probe_contract_test.cpp)
 target_link_libraries(shareme_probe_contract_test PRIVATE ShareMe::Core)
 
 add_test(NAME probe_contract COMMAND shareme_probe_contract_test)
+
+add_executable(shareme_candidate_stager_test candidate_stager_test.cpp)
+target_link_libraries(shareme_candidate_stager_test PRIVATE ShareMe::Core)
+
+add_test(NAME candidate_stager COMMAND shareme_candidate_stager_test)

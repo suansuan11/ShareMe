@@ -303,7 +303,7 @@ Expected: 3/3 portable tests pass.
 - Create: `tests/core/candidate_stager_test.cpp`
 - Modify: `tests/core/CMakeLists.txt`
 
-- [ ] **Step 1: Write failing bounded-staging tests**
+- [x] **Step 1: Write failing bounded-staging tests**
 
 Define test values with opaque payload strings and require:
 
@@ -324,7 +324,7 @@ REQUIRE(stager.drain().empty());
 Also test `clear`, move-only payloads, and that capacity zero is rejected at
 compile time.
 
-- [ ] **Step 2: Run and observe RED**
+- [x] **Step 2: Run and observe RED**
 
 Run:
 
@@ -334,7 +334,7 @@ cmake --build --preset build-dev --target shareme_candidate_stager_test
 
 Expected: header and target missing.
 
-- [ ] **Step 3: Implement the header-only stager**
+- [x] **Step 3: Implement the header-only stager**
 
 Use `std::array<std::optional<T>, Capacity>` with head and size indices. Reject
 new entries after capacity is reached, increment a saturating overflow counter,
@@ -343,7 +343,7 @@ preserve FIFO drain order, and release stored values on `clear`.
 The class owns no locks; its contract states that the WebRTC signaling thread
 is the sole caller.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 cmake --build --preset build-dev
