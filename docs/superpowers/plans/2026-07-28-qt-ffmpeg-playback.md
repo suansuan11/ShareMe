@@ -20,7 +20,7 @@
 - Modify: `CMakeLists.txt`
 - Modify: `CMakePresets.json`
 
-- [ ] **Step 1: Add FFmpeg imported targets**
+- [x] **Step 1: Add FFmpeg imported targets**
 
 Use `PkgConfig::AVFORMAT`, `PkgConfig::AVCODEC`, `PkgConfig::AVUTIL`,
 `PkgConfig::SWSCALE`, and `PkgConfig::SWRESAMPLE` to expose:
@@ -35,13 +35,13 @@ FFmpeg::swresample
 
 Set `FFmpeg_FOUND` only when all five libraries are present.
 
-- [ ] **Step 2: Gate optional targets**
+- [x] **Step 2: Gate optional targets**
 
 When `SHAREME_ENABLE_FFMPEG=ON`, require FFmpeg and add `client/media`.
 When `SHAREME_ENABLE_QT=ON`, require FFmpeg as well as Qt 6.8 components Core,
 Gui, Qml, Quick, QuickControls2, and Multimedia, then add `client/app`.
 
-- [ ] **Step 3: Add local media and playback presets**
+- [x] **Step 3: Add local media and playback presets**
 
 Create `media-dev`, `build-media-dev`, and `test-media-dev` presets that enable
 only FFmpeg. Create `playback-dev`, `build-playback-dev`, and
@@ -49,7 +49,7 @@ only FFmpeg. Create `playback-dev`, `build-playback-dev`, and
 `Qt6_ROOT` through `CMakeUserPresets.json` or the environment; no machine path
 is committed.
 
-- [ ] **Step 4: Verify dependency-off behavior**
+- [x] **Step 4: Verify dependency-off behavior**
 
 Run:
 
@@ -61,7 +61,7 @@ ctest --preset test-dev
 
 Expected: the existing portable build passes without locating FFmpeg or Qt.
 
-- [ ] **Step 5: Verify dependency-on failure before Qt installation**
+- [x] **Step 5: Verify dependency-on failure before Qt installation**
 
 Run:
 
@@ -72,7 +72,7 @@ cmake --fresh --preset playback-dev
 Expected before Qt installation: configuration fails with a missing Qt package
 message, proving there is no silent fallback.
 
-- [ ] **Step 6: Commit build discovery**
+- [x] **Step 6: Commit build discovery**
 
 ```bash
 git add CMakeLists.txt CMakePresets.json cmake/FindFFmpeg.cmake client/media/CMakeLists.txt client/media/playback/CMakeLists.txt client/app/CMakeLists.txt
@@ -89,7 +89,7 @@ git commit -m "build: add optional Qt and FFmpeg playback targets"
 - Create: `tests/media/media_time_test.cpp`
 - Modify: `tests/CMakeLists.txt`
 
-- [ ] **Step 1: Write the failing timestamp tests**
+- [x] **Step 1: Write the failing timestamp tests**
 
 Verify:
 
@@ -102,7 +102,7 @@ REQUIRE_FALSE(to_milliseconds(kNoTimestamp, Rational{1, 90'000}).has_value());
 
 Also verify invalid zero denominators are rejected.
 
-- [ ] **Step 2: Run and observe RED**
+- [x] **Step 2: Run and observe RED**
 
 ```bash
 cmake --build --preset build-media-dev --target shareme_media_time_test
@@ -110,7 +110,7 @@ cmake --build --preset build-media-dev --target shareme_media_time_test
 
 Expected: compilation fails because `media_time.hpp` is absent.
 
-- [ ] **Step 3: Implement portable media values**
+- [x] **Step 3: Implement portable media values**
 
 Define:
 
@@ -136,7 +136,7 @@ struct AudioFrame {
 Use checked integer rescaling for `Rational`; no FFmpeg type crosses this
 header.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 ```bash
 cmake --build --preset build-media-dev --target shareme_media_time_test
@@ -155,7 +155,7 @@ git commit -m "feat(media): add portable frame and timestamp contracts"
 - Modify: `client/media/playback/CMakeLists.txt`
 - Modify: `tests/media/CMakeLists.txt`
 
-- [ ] **Step 1: Register a generated fixture**
+- [x] **Step 1: Register a generated fixture**
 
 Use the local `ffmpeg` executable from CTest to generate a one-second MP4 under
 the build directory:
@@ -169,7 +169,7 @@ ffmpeg -y \
 
 Mark the generation test as a CTest fixture setup. Do not commit the MP4.
 
-- [ ] **Step 2: Write the failing integration test**
+- [x] **Step 2: Write the failing integration test**
 
 Open the fixture and require:
 
@@ -180,7 +180,7 @@ Open the fixture and require:
 - at least one 48 kHz, two-channel audio frame;
 - nondecreasing PTS within each stream.
 
-- [ ] **Step 3: Run and observe RED**
+- [x] **Step 3: Run and observe RED**
 
 ```bash
 cmake --build --preset build-media-dev --target shareme_ffmpeg_media_source_test
@@ -188,7 +188,7 @@ cmake --build --preset build-media-dev --target shareme_ffmpeg_media_source_test
 
 Expected: compilation fails because `ffmpeg_media_source.hpp` is absent.
 
-- [ ] **Step 4: Implement open and decode**
+- [x] **Step 4: Implement open and decode**
 
 `FfmpegMediaSource` owns `AVFormatContext`, video/audio `AVCodecContext`,
 `SwsContext`, `SwrContext`, `AVPacket`, and `AVFrame` through a private
@@ -215,7 +215,7 @@ public:
 };
 ```
 
-- [ ] **Step 5: Verify decode GREEN**
+- [x] **Step 5: Verify decode GREEN**
 
 ```bash
 cmake --build --preset build-media-dev --target shareme_ffmpeg_media_source_test
@@ -224,13 +224,13 @@ ctest --preset test-media-dev -R "generate_media_fixture|ffmpeg_media_source"
 
 Expected: fixture generation and decode integration pass.
 
-- [ ] **Step 6: Add failing seek assertions**
+- [x] **Step 6: Add failing seek assertions**
 
 Seek to 600 ms, decode until the first video frame, and require its PTS to be at
 or after the nearest keyframe and no later than 700 ms. Require all returned
 frames to carry the new generation.
 
-- [ ] **Step 7: Implement seek and verify**
+- [x] **Step 7: Implement seek and verify**
 
 Use `av_seek_frame`, clear pending events, call `avcodec_flush_buffers` for
 both codecs, reset EOF state, and reinitialize resampler delay.
@@ -252,12 +252,12 @@ git commit -m "feat(media): decode local movies with FFmpeg"
 - Modify: `client/media/playback/CMakeLists.txt`
 - Modify: `tests/media/CMakeLists.txt`
 
-- [ ] **Step 1: Write a deterministic fake source**
+- [x] **Step 1: Write a deterministic fake source**
 
 The fake records open/read/seek/close calls and yields caller-supplied
 generation-tagged frames.
 
-- [ ] **Step 2: Write failing state tests**
+- [x] **Step 2: Write failing state tests**
 
 Verify:
 
@@ -268,7 +268,7 @@ Verify:
 - video queue capacity is three and drops oldest;
 - close requests stop, joins the worker, and calls source close once.
 
-- [ ] **Step 3: Run and observe RED**
+- [x] **Step 3: Run and observe RED**
 
 ```bash
 cmake --build --preset build-media-dev --target shareme_playback_session_test
@@ -276,13 +276,13 @@ cmake --build --preset build-media-dev --target shareme_playback_session_test
 
 Expected: compilation fails because `playback_session.hpp` is absent.
 
-- [ ] **Step 4: Implement the minimum session**
+- [x] **Step 4: Implement the minimum session**
 
 Own one `std::jthread`, one source, bounded video/audio queues, atomic stop and
 state, and a monotonically increasing generation. Never invoke Qt from the
 worker.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 cmake --build --preset build-media-dev
@@ -301,22 +301,22 @@ git commit -m "feat(media): add local playback session"
 - Create: `client/app/qml/PlaybackControls.qml`
 - Modify: `client/app/CMakeLists.txt`
 
-- [ ] **Step 1: Install and verify Qt locally**
+- [x] **Step 1: Install and verify Qt locally**
 
 ```bash
-brew install qt
-cmake --fresh --preset playback-dev -DQt6_ROOT="$(brew --prefix qt)"
+brew install qtbase qtdeclarative qtmultimedia
+cmake --fresh --preset playback-dev -DCMAKE_PREFIX_PATH=/opt/homebrew
 ```
 
 Expected: Qt 6.8 or newer and all required components are found.
 
-- [ ] **Step 2: Add the Qt executable**
+- [x] **Step 2: Add the Qt executable**
 
 Use `qt_add_executable` and `qt_add_qml_module`. Link `ShareMe::Playback`,
 Qt6::Core, Qt6::Gui, Qt6::Qml, Qt6::Quick, Qt6::QuickControls2, and
 Qt6::Multimedia.
 
-- [ ] **Step 3: Implement the controller**
+- [x] **Step 3: Implement the controller**
 
 Expose:
 
@@ -338,13 +338,13 @@ start/end timestamps, and pass it to `QVideoSink::setVideoFrame`. Configure
 `QAudioSink` for 48 kHz, stereo, Int16 and write only available bytes to its
 push-mode `QIODevice`.
 
-- [ ] **Step 4: Implement focused QML**
+- [x] **Step 4: Implement focused QML**
 
 Provide a file dialog, video output, open/play/pause buttons, seek slider,
 current/duration labels, and an inline error banner. Disable invalid actions
 from controller state. Do not add room or network UI.
 
-- [ ] **Step 5: Build and launch**
+- [x] **Step 5: Build and launch**
 
 ```bash
 cmake --build --preset build-playback-dev --target shareme_playback_demo
@@ -353,7 +353,7 @@ cmake --build --preset build-playback-dev --target shareme_playback_demo
 
 Expected: the window opens and remains responsive before a file is selected.
 
-- [ ] **Step 6: Commit the application**
+- [x] **Step 6: Commit the application**
 
 ```bash
 git add client/app
@@ -367,13 +367,13 @@ git commit -m "feat(app): add Qt local playback demonstration"
 - Modify: `.github/workflows/core-ci.yml` only if portable CI needs path coverage.
 - Create: `docs/verification/qt-ffmpeg-playback.md`
 
-- [ ] **Step 1: Document exact local commands and status**
+- [x] **Step 1: Document exact local commands and status**
 
 Record dependency versions, generated-fixture results, manual media used without
 committing its path or contents, and separate verified from environment-bound
 Windows results.
 
-- [ ] **Step 2: Run portable regression**
+- [x] **Step 2: Run portable regression**
 
 ```bash
 cmake --fresh --preset dev
@@ -383,10 +383,10 @@ ctest --preset test-dev
 
 Expected: existing portable tests pass with optional dependencies disabled.
 
-- [ ] **Step 3: Run playback verification**
+- [x] **Step 3: Run playback verification**
 
 ```bash
-cmake --fresh --preset playback-dev -DQt6_ROOT="$(brew --prefix qt)"
+cmake --fresh --preset playback-dev -DCMAKE_PREFIX_PATH=/opt/homebrew
 cmake --build --preset build-playback-dev
 ctest --preset test-playback-dev
 ```

@@ -5,8 +5,8 @@ ShareMe 是面向一名主播和一名观众的桌面影片实时共享与语音
 观众麦克风保持独立。
 
 项目当前处于阶段 0。已经建立可移植 C++ 核心、构建基线、队列约束和
-同步决策测试；FFmpeg/Qt 播放、WebRTC 测试流及 Windows 进程音频捕获
-仍是后续独立技术验证，不应视为已经实现。
+同步决策测试，并完成 macOS ARM64 上的 FFmpeg 解码、Qt/QML 本地播放
+技术验证；WebRTC 测试流及 Windows 进程音频捕获仍是后续独立技术验证。
 
 ## 当前范围
 
@@ -57,8 +57,21 @@ cmake --build --preset build-windows-dev
 ctest --preset test-windows-dev
 ```
 
-Qt、FFmpeg 和 libwebrtc 默认关闭。对应技术验证接入后，通过以下选项
-显式启用，不允许在缺失依赖时悄悄使用替代实现：
+macOS 上构建 FFmpeg 解码与 Qt/QML 播放演示：
+
+```bash
+brew install ffmpeg qtbase qtdeclarative qtmultimedia
+cmake --fresh --preset playback-dev -DCMAKE_PREFIX_PATH=/opt/homebrew
+cmake --build --preset build-playback-dev
+ctest --preset test-playback-dev
+./build/playback-dev/client/app/shareme_playback_demo.app/Contents/MacOS/shareme_playback_demo
+```
+
+只验证不含 Qt 的 FFmpeg 媒体层时，使用 `media-dev`、
+`build-media-dev` 和 `test-media-dev` 三个预设。
+
+Qt、FFmpeg 和 libwebrtc 默认关闭。对应技术验证通过以下选项显式启用，
+不允许在缺失依赖时悄悄使用替代实现：
 
 ```text
 SHAREME_ENABLE_QT
@@ -74,6 +87,8 @@ SHAREME_ENABLE_WEBRTC
 - [性能目标与测量口径](docs/performance-targets.md)
 - [阶段 0 基础设计](docs/superpowers/specs/2026-07-28-phase0-foundation-design.md)
 - [阶段 0 基础实施计划](docs/superpowers/plans/2026-07-28-phase0-foundation.md)
+- [Qt + FFmpeg 播放设计](docs/superpowers/specs/2026-07-28-qt-ffmpeg-playback-design.md)
+- [Qt + FFmpeg 播放验证](docs/verification/qt-ffmpeg-playback.md)
 
 ## 验证状态
 
@@ -81,7 +96,9 @@ SHAREME_ENABLE_WEBRTC
 | --- | --- |
 | macOS ARM64 可移植核心 | 本地与 Core CI 已验证 |
 | Windows x64 可移植核心 | Core CI 已验证 |
-| Windows Qt/FFmpeg/libwebrtc | 尚未接入 |
+| macOS ARM64 Qt/FFmpeg 本地播放 | 自动化通过；首屏人工检查通过 |
+| Windows Qt/FFmpeg 播放 | 环境受限，尚未验证 |
+| libwebrtc | 尚未接入 |
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
 
