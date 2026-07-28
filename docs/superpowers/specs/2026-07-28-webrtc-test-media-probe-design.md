@@ -57,7 +57,8 @@ script:
 3. fetches WebRTC and checks out the locked revision;
 4. runs `gclient sync`;
 5. generates a release-compatible static `webrtc` target with examples and
-   tests disabled;
+   test executables disabled, plus WebRTC's standalone
+   `test_audio_device_module` library for deterministic synthetic capture;
 6. writes a local build manifest containing the revision, platform,
    architecture, include root, archive path, compile definitions, and GN
    arguments.
@@ -68,9 +69,13 @@ not match. The default build remains dependency-free. A developer enables the
 probe explicitly with `SHAREME_ENABLE_WEBRTC=ON`.
 
 The initial GN configuration keeps built-in Opus and VP8 support, disables
-examples and WebRTC's own tests, produces a non-component release library, and
-uses the platform toolchain expected by the locked checkout. H.264 is not
-enabled by this probe; hardware H.264 belongs to the direct-movie phase.
+examples and WebRTC's own test executables, produces non-component release
+libraries, and uses the platform toolchain expected by the locked checkout.
+The only test-support target built is
+`//modules/audio_device:test_audio_device_module`; it supplies the injected
+synthetic Audio Device Module and does not register or run upstream tests.
+H.264 is not enabled by this probe; hardware H.264 belongs to the direct-movie
+phase.
 
 ## Repository Boundaries
 
@@ -150,6 +155,7 @@ struct ProbeResult {
   std::uint64_t audio_packets_received;
   std::uint64_t audio_bytes_sent;
   std::uint64_t audio_bytes_received;
+  std::optional<double> audio_level;
   std::optional<double> round_trip_time_ms;
   std::string selected_candidate_type;
   std::string diagnostic;
