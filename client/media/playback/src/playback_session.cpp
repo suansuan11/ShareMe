@@ -2,6 +2,7 @@
 
 #include "shareme/core/bounded_queue.hpp"
 
+#include <algorithm>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
@@ -38,6 +39,8 @@ public:
         std::scoped_lock state_lock{state_mutex_};
         source_is_open_ = true;
         generation_ = 0;
+        playhead_ms_ = 0;
+        furthest_decoded_pts_ms_ = 0;
         state_ = PlaybackState::paused;
       }
       return info;
@@ -78,6 +81,8 @@ public:
       resume_after_seek = state_ == PlaybackState::playing;
       state_ = PlaybackState::paused;
       ++generation_;
+      playhead_ms_ = target_ms;
+      furthest_decoded_pts_ms_ = target_ms;
     }
 
     video_queue_.clear();
@@ -96,6 +101,19 @@ public:
       std::scoped_lock state_lock{state_mutex_};
       state_ =
           resume_after_seek ? PlaybackState::playing : PlaybackState::paused;
+    }
+    state_changed_.notify_all();
+  }
+
+  void set_playhead_ms(std::int64_t playhead_ms) {
+    {
+      std::scoped_lock state_lock{state_mutex_};
+      if (!source_is_open_) {
+        return;
+      }
+      if (playhead_ms > playhead_ms_) {
+        playhead_ms_ = playhead_ms;
+      }
     }
     state_changed_.notify_all();
   }
@@ -165,6 +183,21 @@ private:
         if (stop_token.stop_requested()) {
           return;
         }
+
+        state_changed_.wait(lock, stop_token, [this] {
+          if (state_ != PlaybackState::playing) {
+            return true;
+          }
+          return furthest_decoded_pts_ms_ <= playhead_ms_ ||
+                 furthest_decoded_pts_ms_ - playhead_ms_ <=
+                     maximum_decode_lead_ms;
+        });
+        if (stop_token.stop_requested()) {
+          return;
+        }
+        if (state_ != PlaybackState::playing) {
+          continue;
+        }
         requested_generation = generation_;
       }
 
@@ -193,6 +226,13 @@ private:
             state_ == PlaybackState::closed) {
           continue;
         }
+        if (const auto* video = std::get_if<VideoFrame>(&event)) {
+          furthest_decoded_pts_ms_ =
+              std::max(furthest_decoded_pts_ms_, video->pts_ms);
+        } else if (const auto* audio = std::get_if<AudioFrame>(&event)) {
+          furthest_decoded_pts_ms_ =
+              std::max(furthest_decoded_pts_ms_, audio->pts_ms);
+        }
       }
 
       if (auto* video = std::get_if<VideoFrame>(&event);
@@ -214,6 +254,9 @@ private:
   PlaybackState state_{PlaybackState::closed};
   std::uint64_t generation_{0};
   bool source_is_open_{false};
+  static constexpr std::int64_t maximum_decode_lead_ms{100};
+  std::int64_t playhead_ms_{0};
+  std::int64_t furthest_decoded_pts_ms_{0};
   core::BoundedQueue<VideoFrame> video_queue_;
   core::BoundedQueue<AudioFrame> audio_queue_;
 };
@@ -237,6 +280,10 @@ void PlaybackSession::pause() {
 
 void PlaybackSession::seek(std::int64_t target_ms) {
   impl_->seek(target_ms);
+}
+
+void PlaybackSession::set_playhead_ms(std::int64_t playhead_ms) {
+  impl_->set_playhead_ms(playhead_ms);
 }
 
 void PlaybackSession::close() noexcept {

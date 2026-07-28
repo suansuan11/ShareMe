@@ -31,6 +31,7 @@ public:
   void play();
   void pause();
   void seek(std::int64_t target_ms);
+  void set_playhead_ms(std::int64_t playhead_ms);
   void close() noexcept;
 
   [[nodiscard]] PlaybackState state() const;

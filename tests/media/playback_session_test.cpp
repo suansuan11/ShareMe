@@ -184,11 +184,32 @@ void drops_oldest_video_when_queue_is_full() {
   REQUIRE(session.pop_video()->pts_ms == 4);
 }
 
+void limits_decode_ahead_of_playhead() {
+  using shareme::media::PlaybackSession;
+  using shareme::media::PlaybackState;
+
+  auto source = std::make_unique<FakeMediaSource>();
+  auto* observed_source = source.get();
+  PlaybackSession session{std::move(source)};
+  static_cast<void>(session.open("movie.mp4"));
+
+  observed_source->push_video(
+      500, FakeMediaSource::use_requested_generation);
+  session.play();
+  REQUIRE(wait_until([&session] { return session.pop_video().has_value(); }));
+  REQUIRE(session.state() == PlaybackState::playing);
+
+  session.set_playhead_ms(500);
+  REQUIRE(wait_until(
+      [&session] { return session.state() == PlaybackState::ended; }));
+}
+
 }  // namespace
 
 int main() {
   opens_paused_and_controls_idempotently();
   seek_increments_generation_and_discards_stale_frames();
   drops_oldest_video_when_queue_is_full();
+  limits_decode_ahead_of_playhead();
   return EXIT_SUCCESS;
 }
