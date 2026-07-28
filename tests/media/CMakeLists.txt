@@ -1,0 +1,4 @@
+add_executable(shareme_media_time_test media_time_test.cpp)
+target_link_libraries(shareme_media_time_test PRIVATE ShareMe::Playback)
+
+add_test(NAME media_time COMMAND shareme_media_time_test)
