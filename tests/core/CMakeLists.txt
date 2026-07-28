@@ -1,1 +1,4 @@
-# Core behavior tests are registered by the feature tasks that own them.
+add_executable(shareme_bounded_queue_test bounded_queue_test.cpp)
+target_link_libraries(shareme_bounded_queue_test PRIVATE ShareMe::Core)
+
+add_test(NAME bounded_queue COMMAND shareme_bounded_queue_test)
