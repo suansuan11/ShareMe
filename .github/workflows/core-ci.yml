@@ -35,29 +35,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-15
-          - windows-2022
+        include:
+          - os: macos-15
+            configure-preset: dev
+            build-preset: build-dev
+            test-preset: test-dev
+          - os: windows-2022
+            configure-preset: windows-dev
+            build-preset: build-windows-dev
+            test-preset: test-windows-dev
 
     steps:
       - name: Check out source
         uses: actions/checkout@v6
 
-      - name: Configure MSVC environment
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
       - name: Show tool versions
-        shell: bash
-        run: |
-          cmake --version
-          ninja --version
+        run: cmake --version
 
       - name: Configure
-        run: cmake --preset dev
+        run: cmake --preset ${{ matrix.configure-preset }}
 
       - name: Build
-        run: cmake --build --preset build-dev
+        run: cmake --build --preset ${{ matrix.build-preset }}
 
       - name: Test
-        run: ctest --preset test-dev
+        run: ctest --preset ${{ matrix.test-preset }}

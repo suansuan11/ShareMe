@@ -133,7 +133,9 @@ Require `cxx_std_20` per target and disable compiler extensions.
 
 Add `dev`, `release`, `build-dev`, `build-release`, `test-dev`, and
 `dev-workflow` presets using Ninja and `${sourceDir}/build/${presetName}`.
-Set tests to output failures. Ignore `CMakeUserPresets.json`.
+Add Windows-specific configure, build, and test presets using the Visual Studio
+17 2022 generator. Set tests to output failures. Ignore
+`CMakeUserPresets.json`.
 
 - [ ] **Step 4: Verify configure/build/test**
 
@@ -329,20 +331,19 @@ git commit -m "feat(core): add playback synchronization decisions"
 
 - [ ] **Step 1: Add the CI matrix**
 
-Run the same preset workflow on `macos-15` and `windows-2025`:
+Run equivalent preset workflows on `macos-15` and `windows-2022`:
 
 ```yaml
 - name: Configure
-  run: cmake --preset dev
+  run: cmake --preset ${{ matrix.configure-preset }}
 - name: Build
-  run: cmake --build --preset build-dev
+  run: cmake --build --preset ${{ matrix.build-preset }}
 - name: Test
-  run: ctest --preset test-dev
+  run: ctest --preset ${{ matrix.test-preset }}
 ```
 
-Install Ninja with the runner package manager only when it is not already
-available. Trigger on pushes and pull requests that touch CMake, C++, tests,
-docs, or the workflow.
+Use Ninja on macOS and the Visual Studio 17 2022 generator on Windows. Trigger
+on pushes and pull requests that touch CMake, C++, tests, docs, or the workflow.
 
 - [ ] **Step 2: Write the contributor entry point**
 

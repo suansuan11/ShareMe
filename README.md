@@ -24,8 +24,8 @@ ShareMe 是面向一名主播和一名观众的桌面影片实时共享与语音
 前置条件：
 
 - CMake 3.25 或更高版本；
-- Ninja；
-- 支持 C++20 的编译器（macOS 使用 Apple Clang，Windows 使用
+- Ninja（macOS 和日常命令行构建）；
+- 支持 C++20 的编译器（macOS 使用 Apple Clang，Windows CI 使用
   Visual Studio 2022/MSVC）。
 
 执行完整开发工作流：
@@ -47,6 +47,14 @@ Release 构建：
 ```bash
 cmake --preset release
 cmake --build --preset build-release
+```
+
+Windows Visual Studio 2022 构建：
+
+```powershell
+cmake --preset windows-dev
+cmake --build --preset build-windows-dev
+ctest --preset test-windows-dev
 ```
 
 Qt、FFmpeg 和 libwebrtc 默认关闭。对应技术验证接入后，通过以下选项
