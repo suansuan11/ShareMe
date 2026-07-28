@@ -73,7 +73,8 @@ voice latency, A/V error, host/viewer timeline error, drops, and resource use.
 Run:
 
 ```bash
-rg -n "TBD|TODO|待定" docs
+rg -n "TBD|TODO|待定" docs/architecture.md docs/protocols.md \
+  docs/agent-contracts.md docs/performance-targets.md
 git diff --check
 ```
 
