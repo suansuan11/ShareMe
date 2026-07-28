@@ -71,8 +71,8 @@ SHAREME_ENABLE_WEBRTC
 
 | 范围 | 状态 |
 | --- | --- |
-| macOS ARM64 可移植核心 | 本地已验证；Core CI 待首次运行 |
-| Windows x64 可移植核心 | Core CI 待首次运行 |
+| macOS ARM64 可移植核心 | 本地与 Core CI 已验证 |
+| Windows x64 可移植核心 | Core CI 已验证 |
 | Windows Qt/FFmpeg/libwebrtc | 尚未接入 |
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
