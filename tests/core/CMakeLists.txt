@@ -2,3 +2,8 @@ add_executable(shareme_bounded_queue_test bounded_queue_test.cpp)
 target_link_libraries(shareme_bounded_queue_test PRIVATE ShareMe::Core)
 
 add_test(NAME bounded_queue COMMAND shareme_bounded_queue_test)
+
+add_executable(shareme_sync_controller_test sync_controller_test.cpp)
+target_link_libraries(shareme_sync_controller_test PRIVATE ShareMe::Core)
+
+add_test(NAME sync_controller COMMAND shareme_sync_controller_test)
