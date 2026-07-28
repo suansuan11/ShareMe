@@ -1,0 +1,40 @@
+# Platform and IDE metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.user
+
+# Local worktrees
+.worktrees/
+
+# CMake and native build outputs
+build/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Test and coverage outputs
+Testing/
+coverage/
+*.profraw
+*.profdata
+
+# Runtime artifacts
+*.log
+*.dmp
+*.mp4
+*.mkv
+*.mov
+*.wav
+*.yuv
+*.pcm
+
+# Local secrets and deployment overrides
+.env
+.env.*
+!.env.example
+deploy/coturn/*.conf
+!deploy/coturn/turnserver.conf.example
