@@ -1,4 +1,9 @@
-add_library(shareme_playback STATIC src/media_time.cpp)
+add_library(
+  shareme_playback
+  STATIC
+    src/ffmpeg_media_source.cpp
+    src/media_time.cpp
+)
 add_library(ShareMe::Playback ALIAS shareme_playback)
 
 target_compile_features(shareme_playback PUBLIC cxx_std_20)
