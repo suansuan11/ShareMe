@@ -20,6 +20,25 @@ include(ShareMeWarnings)
 
 add_subdirectory(client/core)
 
+if(SHAREME_ENABLE_QT AND NOT SHAREME_ENABLE_FFMPEG)
+  message(FATAL_ERROR "SHAREME_ENABLE_QT requires SHAREME_ENABLE_FFMPEG")
+endif()
+
+if(SHAREME_ENABLE_FFMPEG)
+  find_package(FFmpeg REQUIRED)
+  add_subdirectory(client/media)
+endif()
+
+if(SHAREME_ENABLE_QT)
+  find_package(
+    Qt6 6.8
+    REQUIRED
+    COMPONENTS Core Gui Qml Quick QuickControls2 Multimedia
+  )
+  qt_standard_project_setup(REQUIRES 6.8)
+  add_subdirectory(client/app)
+endif()
+
 if(SHAREME_BUILD_TESTS)
   include(CTest)
   enable_testing()

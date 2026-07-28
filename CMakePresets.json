@@ -39,6 +39,23 @@
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/windows-dev"
+    },
+    {
+      "name": "media-dev",
+      "displayName": "ShareMe FFmpeg media development",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SHAREME_ENABLE_FFMPEG": "ON"
+      }
+    },
+    {
+      "name": "playback-dev",
+      "displayName": "ShareMe Qt and FFmpeg playback development",
+      "inherits": "media-dev",
+      "cacheVariables": {
+        "SHAREME_ENABLE_QT": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -54,6 +71,14 @@
       "name": "build-windows-dev",
       "configurePreset": "windows-dev",
       "configuration": "Debug"
+    },
+    {
+      "name": "build-media-dev",
+      "configurePreset": "media-dev"
+    },
+    {
+      "name": "build-playback-dev",
+      "configurePreset": "playback-dev"
     }
   ],
   "testPresets": [
@@ -68,6 +93,20 @@
       "name": "test-windows-dev",
       "configurePreset": "windows-dev",
       "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-media-dev",
+      "configurePreset": "media-dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-playback-dev",
+      "configurePreset": "playback-dev",
       "output": {
         "outputOnFailure": true
       }
