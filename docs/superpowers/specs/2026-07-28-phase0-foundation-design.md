@@ -56,7 +56,7 @@ WASAPI, or operating-system headers.
 
 ## Build and Dependency Policy
 
-- CMake 3.24 or newer and C++20 are the portable baseline.
+- CMake 3.25 or newer and C++20 are the portable baseline.
 - Ninja is the default local generator.
 - Project-wide presets are committed in `CMakePresets.json`;
   `CMakeUserPresets.json` is local-only.

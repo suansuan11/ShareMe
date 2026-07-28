@@ -6,7 +6,7 @@
 
 **Architecture:** Keep `client/core` free of Qt, FFmpeg, libwebrtc, GPU, and operating-system dependencies. Express queue overload and playback correction as deterministic C++ contracts with CTest coverage, while platform and media integrations remain opt-in adapters in later plans.
 
-**Tech Stack:** C++20, CMake 3.24+, Ninja, CTest, GitHub Actions, Markdown
+**Tech Stack:** C++20, CMake 3.25+, Ninja, CTest, GitHub Actions, Markdown
 
 ---
 
@@ -103,7 +103,7 @@ git commit -m "docs: establish architecture and protocol contracts"
 Use this root shape:
 
 ```cmake
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 project(ShareMe VERSION 0.1.0 LANGUAGES CXX)
 
 option(SHAREME_BUILD_TESTS "Build ShareMe tests" ON)

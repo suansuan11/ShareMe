@@ -15,6 +15,7 @@ cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
 compile_commands.json
+CMakeUserPresets.json
 
 # Test and coverage outputs
 Testing/
