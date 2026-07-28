@@ -18,7 +18,7 @@
 - Create: `tests/scripts/bootstrap_webrtc_test.py`
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Write failing bootstrap metadata tests**
+- [x] **Step 1: Write failing bootstrap metadata tests**
 
 Create `tests/scripts/bootstrap_webrtc_test.py` with standard-library
 `unittest` cases that:
@@ -57,7 +57,7 @@ class BootstrapWebRtcTest(unittest.TestCase):
 
 Import the planned functions from `scripts/bootstrap_webrtc.py`.
 
-- [ ] **Step 2: Run the tests and observe RED**
+- [x] **Step 2: Run the tests and observe RED**
 
 Run:
 
@@ -67,7 +67,7 @@ python3 -m unittest tests/scripts/bootstrap_webrtc_test.py -v
 
 Expected: import failure because `scripts/bootstrap_webrtc.py` does not exist.
 
-- [ ] **Step 3: Add the lock and minimum bootstrap implementation**
+- [x] **Step 3: Add the lock and minimum bootstrap implementation**
 
 Create `deps/webrtc.lock.json`:
 
@@ -115,7 +115,7 @@ Add only generic accidental in-repository names to `.gitignore`:
 /shareme-webrtc-manifest.json
 ```
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run:
 
@@ -130,7 +130,7 @@ git diff --check
 Expected: all Python tests pass; the plan lists the locked revision, two GN
 targets, and an external root without downloading anything.
 
-- [ ] **Step 5: Commit dependency policy**
+- [x] **Step 5: Commit dependency policy**
 
 ```bash
 git add .gitignore deps/webrtc.lock.json scripts/bootstrap_webrtc.py tests/scripts/bootstrap_webrtc_test.py
