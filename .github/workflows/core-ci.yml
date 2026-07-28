@@ -1,0 +1,63 @@
+name: Core CI
+
+on:
+  push:
+    paths:
+      - ".github/workflows/core-ci.yml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "cmake/**"
+      - "client/core/**"
+      - "tests/**"
+      - "docs/**"
+  pull_request:
+    paths:
+      - ".github/workflows/core-ci.yml"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "cmake/**"
+      - "client/core/**"
+      - "tests/**"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-core:
+    name: Portable core (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-15
+          - windows-2022
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Show tool versions
+        shell: bash
+        run: |
+          cmake --version
+          ninja --version
+
+      - name: Configure
+        run: cmake --preset dev
+
+      - name: Build
+        run: cmake --build --preset build-dev
+
+      - name: Test
+        run: ctest --preset test-dev
