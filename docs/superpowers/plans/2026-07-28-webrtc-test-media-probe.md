@@ -219,7 +219,7 @@ git commit -m "build: add optional libwebrtc discovery"
 - Modify: `client/core/CMakeLists.txt`
 - Modify: `tests/core/CMakeLists.txt`
 
-- [ ] **Step 1: Write failing validation and serialization tests**
+- [x] **Step 1: Write failing validation and serialization tests**
 
 Test:
 
@@ -254,7 +254,7 @@ REQUIRE(json.find("\"audioLevel\":0.25") != std::string::npos);
 Also verify JSON escaping, every status string, odd dimensions, zero duration,
 and that diagnostics longer than 256 bytes are truncated.
 
-- [ ] **Step 2: Run and observe RED**
+- [x] **Step 2: Run and observe RED**
 
 Run:
 
@@ -264,7 +264,7 @@ cmake --build --preset build-dev --target shareme_probe_contract_test
 
 Expected: target/header missing.
 
-- [ ] **Step 3: Implement the portable contract**
+- [x] **Step 3: Implement the portable contract**
 
 Define the enums and structures exactly as the design specifies. Add:
 
@@ -282,7 +282,7 @@ Define the enums and structures exactly as the design specifies. Add:
 Use a local JSON-string escape helper; do not add a JSON dependency. Clamp the
 diagnostic to 256 bytes before serialization.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 Run:
 
