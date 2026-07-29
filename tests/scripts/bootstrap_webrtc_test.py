@@ -14,6 +14,9 @@ EXPECTED_REVISION = "5ad58d70eea10785fab05ba4150e2fe22ecc7f97"
 sys.path.insert(0, str(REPO))
 
 from scripts.bootstrap_webrtc import (
+    _compile_definitions,
+    _materialize_linkable_libraries,
+    _msvc_runtime_library,
     _prepare,
     _validate_build_host,
     create_plan,
@@ -30,8 +33,16 @@ class BootstrapWebRtcTest(unittest.TestCase):
         self.assertEqual(lock["revision"], EXPECTED_REVISION)
         self.assertEqual(
             lock["targets"],
-            ["webrtc", "modules/audio_device:test_audio_device_module"],
+            [
+                "webrtc",
+                "api/video:adapted_video_track_source",
+                "modules/audio_device:test_audio_device_module",
+            ],
         )
+        self.assertIn(
+            "clang_use_unsafe_buffers_plugin=false", lock["gnArgs"]
+        )
+        self.assertIn("use_custom_libcxx=false", lock["gnArgs"])
 
     def test_plan_keeps_checkout_outside_repository(self):
         with self.assertRaisesRegex(ValueError, "outside the repository"):
@@ -42,20 +53,67 @@ class BootstrapWebRtcTest(unittest.TestCase):
             revision=EXPECTED_REVISION,
             system="Darwin",
             architecture="arm64",
-            include_dir="/external/src",
-            libraries=["/external/out/obj/libwebrtc.a"],
-            compile_definitions=["WEBRTC_POSIX", "WEBRTC_MAC"],
-            gn_args=["is_debug=false"],
+            include_dirs=[
+                "/external/src",
+                "/external/src/out/shareme/gen",
+                "/external/src/third_party/abseil-cpp",
+            ],
+            libraries=[
+                "/external/out/obj/libadapted_video_track_source_shareme.a",
+                "/external/out/obj/libtest_audio_device_module_shareme.a",
+                "/external/out/obj/libwebrtc.a",
+            ],
+            compile_definitions=["NDEBUG", "WEBRTC_POSIX", "WEBRTC_MAC"],
+            gn_args=["is_debug=false", "use_custom_libcxx=false"],
+            msvc_runtime_library="",
         )
 
         self.assertEqual(manifest["revision"], EXPECTED_REVISION)
         self.assertEqual(manifest["system"], "Darwin")
         self.assertEqual(manifest["architecture"], "arm64")
-        self.assertEqual(manifest["includeDir"], "/external/src")
-        self.assertTrue(manifest["libraries"])
         self.assertEqual(
-            manifest["compileDefinitions"], ["WEBRTC_POSIX", "WEBRTC_MAC"]
+            manifest["includeDirs"],
+            [
+                "/external/src",
+                "/external/src/out/shareme/gen",
+                "/external/src/third_party/abseil-cpp",
+            ],
         )
+        self.assertEqual(
+            manifest["libraries"],
+            [
+                {
+                    "role": "adaptedVideoTrackSource",
+                    "path": (
+                        "/external/out/obj/"
+                        "libadapted_video_track_source_shareme.a"
+                    ),
+                },
+                {
+                    "role": "testAudioDeviceModule",
+                    "path": (
+                        "/external/out/obj/"
+                        "libtest_audio_device_module_shareme.a"
+                    ),
+                },
+                {
+                    "role": "webrtc",
+                    "path": "/external/out/obj/libwebrtc.a",
+                },
+            ],
+        )
+        self.assertEqual(
+            manifest["compileDefinitions"],
+            ["NDEBUG", "WEBRTC_POSIX", "WEBRTC_MAC"],
+        )
+        self.assertEqual(
+            manifest["gnArgs"], ["is_debug=false", "use_custom_libcxx=false"]
+        )
+        self.assertEqual(manifest["msvcRuntimeLibrary"], "")
+
+    def test_msvc_runtime_library_matches_static_release_webrtc(self):
+        self.assertEqual(_msvc_runtime_library("Windows"), "MultiThreaded")
+        self.assertEqual(_msvc_runtime_library("Darwin"), "")
 
     def test_load_lock_rejects_short_revision(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -154,6 +212,75 @@ class BootstrapWebRtcTest(unittest.TestCase):
         with mock.patch("scripts.bootstrap_webrtc.subprocess.run") as run:
             _validate_build_host("Windows")
         run.assert_not_called()
+
+    def test_release_manifest_disables_debug_only_header_paths(self):
+        self.assertIn("NDEBUG", _compile_definitions("Darwin"))
+        self.assertIn("NDEBUG", _compile_definitions("Windows"))
+
+    def test_materializes_thin_archive_for_system_linkers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source_root = Path(directory) / "src"
+            output_root = source_root / "out" / "shareme"
+            aggregate = output_root / "obj" / "libwebrtc.a"
+            thin_archive = (
+                output_root
+                / "obj"
+                / "modules"
+                / "audio_device"
+                / "libtest_audio_device_module.a"
+            )
+            object_file = (
+                output_root
+                / "obj"
+                / "modules"
+                / "audio_device"
+                / "test_audio_device_module"
+                / "test_audio_device.o"
+            )
+            llvm_ar = (
+                source_root
+                / "third_party"
+                / "llvm-build"
+                / "Release+Asserts"
+                / "bin"
+                / "llvm-ar"
+            )
+            aggregate.parent.mkdir(parents=True)
+            thin_archive.parent.mkdir(parents=True)
+            object_file.parent.mkdir(parents=True)
+            llvm_ar.parent.mkdir(parents=True)
+            aggregate.write_bytes(b"!<arch>\n")
+            thin_archive.write_bytes(b"!<thin>\n")
+            object_file.write_bytes(b"object")
+            llvm_ar.write_bytes(b"tool")
+
+            listing = subprocess.CompletedProcess(
+                ["llvm-ar", "t"],
+                returncode=0,
+                stdout=str(object_file) + "\n",
+            )
+
+            def fake_run(command, *, cwd, env):
+                Path(command[2]).write_bytes(b"!<arch>\nmaterialized")
+
+            with mock.patch(
+                "scripts.bootstrap_webrtc.subprocess.run",
+                return_value=listing,
+            ), mock.patch(
+                "scripts.bootstrap_webrtc._run",
+                side_effect=fake_run,
+            ):
+                libraries = _materialize_linkable_libraries(
+                    [aggregate, thin_archive],
+                    source_root=source_root,
+                    output_root=output_root,
+                    system="Darwin",
+                    environment={},
+                )
+
+            self.assertEqual(libraries[0], aggregate)
+            self.assertNotEqual(libraries[1], thin_archive)
+            self.assertEqual(libraries[1].read_bytes()[:8], b"!<arch>\n")
 
 
 if __name__ == "__main__":

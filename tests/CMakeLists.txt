@@ -7,3 +7,7 @@ endif()
 if(SHAREME_ENABLE_QT)
   add_subdirectory(app)
 endif()
+
+if(SHAREME_ENABLE_WEBRTC)
+  add_subdirectory(rtc)
+endif()

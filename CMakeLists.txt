@@ -16,6 +16,10 @@ option(SHAREME_ENABLE_QT "Enable Qt application targets" OFF)
 option(SHAREME_ENABLE_FFMPEG "Enable FFmpeg media targets" OFF)
 option(SHAREME_ENABLE_WEBRTC "Enable libwebrtc targets" OFF)
 
+if(MSVC AND SHAREME_ENABLE_WEBRTC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
+
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -45,6 +49,7 @@ endif()
 
 if(SHAREME_ENABLE_WEBRTC)
   find_package(WebRTC REQUIRED)
+  add_subdirectory(client/rtc)
 endif()
 
 if(SHAREME_BUILD_TESTS)

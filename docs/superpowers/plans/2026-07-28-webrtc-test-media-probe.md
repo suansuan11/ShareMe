@@ -33,7 +33,11 @@ class BootstrapWebRtcTest(unittest.TestCase):
         )
         self.assertEqual(
             lock["targets"],
-            ["webrtc", "modules/audio_device:test_audio_device_module"],
+            [
+                "webrtc",
+                "api/video:adapted_video_track_source",
+                "modules/audio_device:test_audio_device_module",
+            ],
         )
 
     def test_plan_keeps_checkout_outside_repository(self):
@@ -76,14 +80,17 @@ Create `deps/webrtc.lock.json`:
   "revision": "5ad58d70eea10785fab05ba4150e2fe22ecc7f97",
   "targets": [
     "webrtc",
+    "api/video:adapted_video_track_source",
     "modules/audio_device:test_audio_device_module"
   ],
   "gnArgs": [
+    "clang_use_unsafe_buffers_plugin=false",
     "is_debug=false",
     "is_component_build=false",
     "rtc_build_examples=false",
     "rtc_include_tests=false",
     "rtc_use_h264=false",
+    "use_custom_libcxx=false",
     "use_rtti=true"
   ]
 }
@@ -414,7 +421,7 @@ GoogleSource HTTP 429 during the first full-history sync was recovered by an
 incremental four-job sync. The bootstrap now uses shallow initial fetches and
 bounded final-sync concurrency.
 
-- [ ] **Step 3: Build the two locked GN targets**
+- [x] **Step 3: Build the three locked GN targets**
 
 Use the same platform command with `--build`.
 
@@ -422,12 +429,16 @@ Expected: the aggregate `webrtc` archive, standalone
 `test_audio_device_module` archive, required headers, and manifest exist under
 the external root.
 
-Current result: blocked at `gn gen` because WebRTC's macOS SDK probe requires
-full Xcode and the machine has only Command Line Tools. The bootstrap now fails
-this precondition early with a sanitized diagnostic. No archive or manifest is
-claimed.
+Execution result (2026-07-29): after full Xcode 26.6 became active, the initial
+locked build completed 3,858 Ninja steps in about 5 minutes 41 seconds. Native
+CMake integration then proved that consumers require the system-libc++ ABI,
+the separate `adapted_video_track_source` target, full public include roots,
+a regularized test-audio archive, and the unsafe-buffer plugin disabled for
+the pinned third-party source build. The lock and bootstrap now encode those
+requirements. The final ABI-compatible rebuild completed 3,791 steps in about
+7 minutes 4 seconds; all generated dependency artifacts remain outside Git.
 
-- [ ] **Step 4: Verify CMake accepts only the built manifest**
+- [x] **Step 4: Verify CMake accepts only the built manifest**
 
 Run with the actual external root:
 
@@ -436,9 +447,14 @@ cmake --fresh --preset webrtc-dev \
   -DWEBRTC_ROOT=/Users/dio/Library/Caches/ShareMe/webrtc
 ```
 
-Expected: exact revision, system, architecture, headers, and both archives are
+Expected: exact revision, system, architecture, headers, and all three archives are
 reported as found. Temporarily pointing at a copied manifest with a changed
 revision must fail.
+
+Execution result (2026-07-29): `cmake --fresh --preset webrtc-dev` accepted the
+Darwin arm64 manifest and generated `build/webrtc-dev`. A copied manifest with
+revision `0000000000000000000000000000000000000000` was rejected with
+`manifest revision does not match deps/webrtc.lock.json`.
 
 - [x] **Step 5: Commit only evidence-led bootstrap fixes**
 
@@ -465,7 +481,7 @@ Python bootstrap tests pass 9/9 and portable core tests pass 5/5.
 - Modify: `CMakeLists.txt`
 - Modify: `tests/CMakeLists.txt`
 
-- [ ] **Step 1: Write a failing real-frame test**
+- [x] **Step 1: Write a failing real-frame test**
 
 Under the WebRTC-enabled build, construct a 640×360 source at 30 fps, attach a
 counting sink, start it for 250 ms, stop it, and require:
@@ -482,7 +498,7 @@ REQUIRE(source.pending_frame_count() == 0);
 Also inspect one I420 buffer and require the moving bar regions are not all the
 same luma value.
 
-- [ ] **Step 2: Run and observe RED**
+- [x] **Step 2: Run and observe RED**
 
 ```bash
 cmake --build --preset build-webrtc-dev \
@@ -491,7 +507,10 @@ cmake --build --preset build-webrtc-dev \
 
 Expected: source and target missing.
 
-- [ ] **Step 3: Implement the source and sink**
+Execution result (2026-07-29): the target failed first because
+`counting_video_sink.hpp` did not exist.
+
+- [x] **Step 3: Implement the source and sink**
 
 `TestPatternSource` derives from `webrtc::AdaptedVideoTrackSource`, owns a
 libwebrtc task queue and `RepeatingTaskHandle`, and exposes:
@@ -519,7 +538,7 @@ moving bars, sets monotonic microsecond and 90 kHz RTP timestamps, calls
 atomic counters and latest metadata, and marks timestamp regression as a
 failure.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 cmake --build --preset build-webrtc-dev
@@ -527,6 +546,15 @@ ctest --preset test-webrtc-dev -R test_pattern --output-on-failure
 git add CMakeLists.txt client/rtc tests/CMakeLists.txt tests/rtc
 git commit -m "feat(rtc): generate bounded WebRTC test video"
 ```
+
+Execution result (2026-07-29): the native target links with Xcode's system
+libc++, and `test_pattern_source` passes with real 640×360 I420 frames,
+monotonic microsecond/RTP timestamps, changing luma bars, and zero queued
+frames. The integration review also hardened the dependency ABI contract:
+the manifest now locks the ordered GN arguments, compile definitions, named
+archive roles, and Windows static release runtime (`MultiThreaded`/`MT`).
+Fresh CMake probes rejected manifests with altered GN arguments, platform
+definitions, or library roles before any consumer target was generated.
 
 ### Task 7: Implement Runtime Ownership and In-Process Negotiation
 

@@ -1,5 +1,21 @@
 include(FindPackageHandleStandardArgs)
 
+function(_webrtc_read_json_array output_variable json member)
+  string(JSON _WebRTC_array_count LENGTH "${json}" "${member}")
+  set(_WebRTC_array_values)
+  if(_WebRTC_array_count GREATER 0)
+    math(EXPR _WebRTC_array_last "${_WebRTC_array_count} - 1")
+    foreach(_WebRTC_array_index RANGE 0 ${_WebRTC_array_last})
+      string(
+        JSON _WebRTC_array_value
+        GET "${json}" "${member}" ${_WebRTC_array_index}
+      )
+      list(APPEND _WebRTC_array_values "${_WebRTC_array_value}")
+    endforeach()
+  endif()
+  set("${output_variable}" "${_WebRTC_array_values}" PARENT_SCOPE)
+endfunction()
+
 set(_WebRTC_manifest_valid FALSE)
 set(_WebRTC_failure_reason "")
 
@@ -30,11 +46,78 @@ else()
            GET
            "${_WebRTC_manifest_json}"
            architecture)
-    string(JSON
-           WebRTC_INCLUDE_DIR
-           GET
-           "${_WebRTC_manifest_json}"
-           includeDir)
+    string(
+      JSON WebRTC_MSVC_RUNTIME_LIBRARY
+      GET "${_WebRTC_manifest_json}" msvcRuntimeLibrary
+    )
+    _webrtc_read_json_array(
+      WebRTC_INCLUDE_DIRS "${_WebRTC_manifest_json}" includeDirs
+    )
+    _webrtc_read_json_array(
+      WebRTC_COMPILE_DEFINITIONS
+      "${_WebRTC_manifest_json}"
+      compileDefinitions
+    )
+    _webrtc_read_json_array(
+      _WebRTC_manifest_gn_args "${_WebRTC_manifest_json}" gnArgs
+    )
+    _webrtc_read_json_array(
+      _WebRTC_locked_gn_args "${_WebRTC_lock_json}" gnArgs
+    )
+    if(WebRTC_INCLUDE_DIRS)
+      list(GET WebRTC_INCLUDE_DIRS 0 WebRTC_INCLUDE_DIR)
+    endif()
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+      set(
+        _WebRTC_expected_compile_definitions
+        NDEBUG
+        WEBRTC_WIN
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+      )
+      set(_WebRTC_expected_runtime_library "MultiThreaded")
+      set(
+        _WebRTC_expected_library_names
+        adapted_video_track_source.lib
+        test_audio_device_module.lib
+        webrtc.lib
+      )
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+      set(
+        _WebRTC_expected_compile_definitions
+        NDEBUG
+        WEBRTC_POSIX
+        WEBRTC_MAC
+      )
+      set(_WebRTC_expected_runtime_library "")
+      set(
+        _WebRTC_expected_library_names
+        libadapted_video_track_source_shareme.a
+        libtest_audio_device_module_shareme.a
+        libwebrtc.a
+      )
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      set(
+        _WebRTC_expected_compile_definitions
+        NDEBUG
+        WEBRTC_POSIX
+        WEBRTC_LINUX
+      )
+      set(_WebRTC_expected_runtime_library "")
+      set(
+        _WebRTC_expected_library_names
+        libadapted_video_track_source_shareme.a
+        libtest_audio_device_module_shareme.a
+        libwebrtc.a
+      )
+    endif()
+    set(
+      _WebRTC_expected_library_roles
+      adaptedVideoTrackSource
+      testAudioDeviceModule
+      webrtc
+    )
 
     string(TOLOWER "${WebRTC_MANIFEST_ARCHITECTURE}" _WebRTC_manifest_arch)
     string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _WebRTC_cmake_arch)
@@ -52,12 +135,23 @@ else()
     if(NOT WebRTC_REVISION STREQUAL _WebRTC_locked_revision)
       set(_WebRTC_failure_reason
           "manifest revision does not match deps/webrtc.lock.json")
+    elseif(NOT _WebRTC_manifest_gn_args STREQUAL _WebRTC_locked_gn_args)
+      set(_WebRTC_failure_reason
+          "manifest GN arguments do not match deps/webrtc.lock.json")
     elseif(NOT WebRTC_MANIFEST_SYSTEM STREQUAL CMAKE_SYSTEM_NAME)
       set(_WebRTC_failure_reason
           "manifest system ${WebRTC_MANIFEST_SYSTEM} does not match ${CMAKE_SYSTEM_NAME}")
     elseif(NOT _WebRTC_manifest_arch STREQUAL _WebRTC_cmake_arch)
       set(_WebRTC_failure_reason
           "manifest architecture ${WebRTC_MANIFEST_ARCHITECTURE} does not match ${CMAKE_SYSTEM_PROCESSOR}")
+    elseif(NOT WebRTC_COMPILE_DEFINITIONS STREQUAL
+               _WebRTC_expected_compile_definitions)
+      set(_WebRTC_failure_reason
+          "manifest compile definitions do not match the locked ABI")
+    elseif(NOT WebRTC_MSVC_RUNTIME_LIBRARY STREQUAL
+               _WebRTC_expected_runtime_library)
+      set(_WebRTC_failure_reason
+          "manifest MSVC runtime library does not match the locked ABI")
     elseif(NOT EXISTS "${WebRTC_INCLUDE_DIR}/api/peer_connection_interface.h"
            OR NOT
               EXISTS
@@ -72,18 +166,38 @@ else()
              LENGTH
              "${_WebRTC_manifest_json}"
              libraries)
-      if(_WebRTC_library_count LESS 2)
+      if(NOT _WebRTC_library_count EQUAL 3)
         set(_WebRTC_failure_reason
-            "manifest must contain the WebRTC and test audio device archives")
+            "manifest must contain exactly three locked WebRTC archives")
       else()
         math(EXPR _WebRTC_library_last "${_WebRTC_library_count} - 1")
         foreach(_WebRTC_index RANGE 0 ${_WebRTC_library_last})
-          string(JSON
-                 _WebRTC_library
-                 GET
-                 "${_WebRTC_manifest_json}"
-                 libraries
-                 ${_WebRTC_index})
+          string(
+            JSON _WebRTC_library_role
+            GET "${_WebRTC_manifest_json}" libraries ${_WebRTC_index} role
+          )
+          string(
+            JSON _WebRTC_library
+            GET "${_WebRTC_manifest_json}" libraries ${_WebRTC_index} path
+          )
+          list(
+            GET _WebRTC_expected_library_roles
+            ${_WebRTC_index}
+            _WebRTC_expected_library_role
+          )
+          list(
+            GET _WebRTC_expected_library_names
+            ${_WebRTC_index}
+            _WebRTC_expected_library_name
+          )
+          cmake_path(GET _WebRTC_library FILENAME _WebRTC_library_name)
+          if(NOT _WebRTC_library_role STREQUAL
+                 _WebRTC_expected_library_role
+             OR NOT _WebRTC_library_name STREQUAL
+                    _WebRTC_expected_library_name)
+            set(_WebRTC_failure_reason
+                "manifest WebRTC library roles or order do not match the locked ABI")
+          endif()
           list(APPEND WebRTC_LIBRARIES "${_WebRTC_library}")
           if(NOT EXISTS "${_WebRTC_library}")
             set(_WebRTC_failure_reason
@@ -94,23 +208,6 @@ else()
     endif()
 
     if(NOT _WebRTC_failure_reason)
-      string(JSON
-             _WebRTC_definition_count
-             LENGTH
-             "${_WebRTC_manifest_json}"
-             compileDefinitions)
-      if(_WebRTC_definition_count GREATER 0)
-        math(EXPR _WebRTC_definition_last "${_WebRTC_definition_count} - 1")
-        foreach(_WebRTC_index RANGE 0 ${_WebRTC_definition_last})
-          string(JSON
-                 _WebRTC_definition
-                 GET
-                 "${_WebRTC_manifest_json}"
-                 compileDefinitions
-                 ${_WebRTC_index})
-          list(APPEND WebRTC_COMPILE_DEFINITIONS "${_WebRTC_definition}")
-        endforeach()
-      endif()
       set(_WebRTC_manifest_valid TRUE)
     endif()
   endif()
@@ -121,7 +218,7 @@ find_package_handle_standard_args(
   REQUIRED_VARS
     WEBRTC_ROOT
     _WebRTC_manifest_valid
-    WebRTC_INCLUDE_DIR
+    WebRTC_INCLUDE_DIRS
     WebRTC_LIBRARIES
   REASON_FAILURE_MESSAGE "${_WebRTC_failure_reason}"
 )
@@ -176,9 +273,14 @@ if(WebRTC_FOUND AND NOT TARGET WebRTC::webrtc)
     WebRTC::webrtc
     PROPERTIES
       INTERFACE_COMPILE_DEFINITIONS "${WebRTC_COMPILE_DEFINITIONS}"
-      INTERFACE_INCLUDE_DIRECTORIES "${WebRTC_INCLUDE_DIR}"
+      INTERFACE_INCLUDE_DIRECTORIES "${WebRTC_INCLUDE_DIRS}"
       INTERFACE_LINK_LIBRARIES "${WebRTC_LIBRARIES};${_WebRTC_platform_libraries}"
   )
 endif()
 
-mark_as_advanced(WebRTC_INCLUDE_DIR WebRTC_LIBRARIES WebRTC_REVISION)
+mark_as_advanced(
+  WebRTC_INCLUDE_DIR
+  WebRTC_INCLUDE_DIRS
+  WebRTC_LIBRARIES
+  WebRTC_REVISION
+)

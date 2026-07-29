@@ -19,6 +19,20 @@ REQUIRED_HEADERS = (
     "api/create_modular_peer_connection_factory.h",
     "modules/audio_device/include/test_audio_device.h",
 )
+PUBLIC_INCLUDE_PATHS = (
+    ".",
+    "out/shareme/gen",
+    "third_party/abseil-cpp",
+    "third_party/libyuv/include",
+    "third_party/perfetto/include",
+    "out/shareme/gen/third_party/perfetto/build_config",
+    "out/shareme/gen/third_party/perfetto",
+)
+LIBRARY_ROLES = (
+    "adaptedVideoTrackSource",
+    "testAudioDeviceModule",
+    "webrtc",
+)
 
 
 def load_lock(path: Path) -> Dict[str, Any]:
@@ -96,19 +110,26 @@ def make_manifest(
     revision: str,
     system: str,
     architecture: str,
-    include_dir: str,
+    include_dirs: Sequence[str],
     libraries: Sequence[str],
     compile_definitions: Sequence[str],
     gn_args: Sequence[str],
+    msvc_runtime_library: str,
 ) -> Dict[str, Any]:
+    if len(libraries) != len(LIBRARY_ROLES):
+        raise ValueError("WebRTC manifest requires exactly three library roles")
     return {
         "revision": revision,
         "system": system,
         "architecture": architecture,
-        "includeDir": include_dir,
-        "libraries": list(libraries),
+        "includeDirs": list(include_dirs),
+        "libraries": [
+            {"role": role, "path": path}
+            for role, path in zip(LIBRARY_ROLES, libraries)
+        ],
         "compileDefinitions": list(compile_definitions),
         "gnArgs": list(gn_args),
+        "msvcRuntimeLibrary": msvc_runtime_library,
     }
 
 
@@ -179,31 +200,128 @@ def _prepare(plan: Dict[str, Any]) -> None:
 def _library_paths(output_root: Path, system: str) -> List[Path]:
     if system == "Windows":
         return [
-            output_root / "obj" / "webrtc.lib",
+            output_root / "obj" / "api" / "video" / "adapted_video_track_source.lib",
             output_root
             / "obj"
             / "modules"
             / "audio_device"
             / "test_audio_device_module.lib",
+            output_root / "obj" / "webrtc.lib",
         ]
     return [
-        output_root / "obj" / "libwebrtc.a",
+        output_root / "obj" / "api" / "video" / "libadapted_video_track_source.a",
         output_root
         / "obj"
         / "modules"
         / "audio_device"
         / "libtest_audio_device_module.a",
+        output_root / "obj" / "libwebrtc.a",
     ]
 
 
 def _compile_definitions(system: str) -> List[str]:
     if system == "Windows":
-        return ["WEBRTC_WIN", "NOMINMAX", "WIN32_LEAN_AND_MEAN"]
+        return [
+            "NDEBUG",
+            "WEBRTC_WIN",
+            "NOMINMAX",
+            "WIN32_LEAN_AND_MEAN",
+        ]
     if system == "Darwin":
-        return ["WEBRTC_POSIX", "WEBRTC_MAC"]
+        return ["NDEBUG", "WEBRTC_POSIX", "WEBRTC_MAC"]
     if system == "Linux":
-        return ["WEBRTC_POSIX", "WEBRTC_LINUX"]
+        return ["NDEBUG", "WEBRTC_POSIX", "WEBRTC_LINUX"]
     raise RuntimeError("unsupported WebRTC build platform")
+
+
+def _msvc_runtime_library(system: str) -> str:
+    if system == "Windows":
+        return "MultiThreaded"
+    return ""
+
+
+def _materialize_linkable_libraries(
+    libraries: Sequence[Path],
+    *,
+    source_root: Path,
+    output_root: Path,
+    system: str,
+    environment: Dict[str, str],
+) -> List[Path]:
+    if system == "Windows":
+        return list(libraries)
+
+    llvm_ar = (
+        source_root
+        / "third_party"
+        / "llvm-build"
+        / "Release+Asserts"
+        / "bin"
+        / "llvm-ar"
+    )
+    linkable_libraries = []
+    for archive in libraries:
+        with archive.open("rb") as archive_file:
+            archive_signature = archive_file.read(8)
+        if archive_signature != b"!<thin>\n":
+            linkable_libraries.append(archive)
+            continue
+        if not llvm_ar.is_file():
+            raise RuntimeError("WebRTC LLVM archive tool is unavailable")
+
+        listing = subprocess.run(
+            [str(llvm_ar), "t", str(archive)],
+            cwd=output_root,
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        members = []
+        for entry in listing.stdout.splitlines():
+            member = Path(entry)
+            if not member.is_absolute():
+                output_member = (output_root / member).resolve()
+                archive_member = (archive.parent / member).resolve()
+                member = (
+                    output_member if output_member.is_file() else archive_member
+                )
+            else:
+                member = member.resolve()
+            if not member.is_file() or not _is_relative_to(
+                member, output_root.resolve()
+            ):
+                raise RuntimeError("WebRTC thin archive has an invalid member")
+            members.append(member)
+        if not members:
+            raise RuntimeError("WebRTC thin archive contains no object files")
+
+        linkable_archive = archive.with_name(
+            archive.stem + "_shareme" + archive.suffix
+        )
+        temporary_archive = linkable_archive.with_suffix(
+            linkable_archive.suffix + ".tmp"
+        )
+        temporary_archive.unlink(missing_ok=True)
+        _run(
+            [
+                str(llvm_ar),
+                "rcsD",
+                str(temporary_archive),
+                *[str(member) for member in members],
+            ],
+            cwd=output_root,
+            env=environment,
+        )
+        with temporary_archive.open("rb") as archive_file:
+            if archive_file.read(8) != b"!<arch>\n":
+                raise RuntimeError(
+                    "WebRTC thin archive materialization produced an invalid archive"
+                )
+        temporary_archive.replace(linkable_archive)
+        linkable_libraries.append(linkable_archive)
+
+    return linkable_libraries
 
 
 def _validate_build_host(system: str) -> None:
@@ -262,19 +380,34 @@ def _build(plan: Dict[str, Any]) -> None:
         if not (source_root / header).is_file():
             raise RuntimeError("locked WebRTC checkout is missing a required header")
 
+    include_dirs = [
+        (source_root / relative_path).resolve()
+        for relative_path in PUBLIC_INCLUDE_PATHS
+    ]
+    if any(not path.is_dir() for path in include_dirs):
+        raise RuntimeError("WebRTC build is missing a required public include root")
+
     libraries = _library_paths(output_root, system)
     missing_libraries = [path for path in libraries if not path.is_file()]
     if missing_libraries:
         raise RuntimeError("WebRTC build did not produce all required archives")
+    libraries = _materialize_linkable_libraries(
+        libraries,
+        source_root=source_root,
+        output_root=output_root,
+        system=system,
+        environment=environment,
+    )
 
     manifest = make_manifest(
         revision=plan["revision"],
         system=system,
         architecture=platform.machine(),
-        include_dir=str(source_root),
+        include_dirs=[str(path) for path in include_dirs],
         libraries=[str(path) for path in libraries],
         compile_definitions=_compile_definitions(system),
         gn_args=plan["gnArgs"],
+        msvc_runtime_library=_msvc_runtime_library(system),
     )
     manifest_path = external_root / "shareme-webrtc-manifest.json"
     with tempfile.NamedTemporaryFile(
