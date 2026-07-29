@@ -93,6 +93,23 @@ func (manager *Manager) Disconnect(id string, role Role) ([]Event, error) {
 	return []Event{{Type: "participant-left", RoomID: id, Target: opposite(role)}}, nil
 }
 
+func (manager *Manager) Reconnect(id string, role Role) ([]Event, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	room, ok := manager.rooms[id]
+	if !ok {
+		return nil, ErrRoomNotFound
+	}
+	p := participant(&room, role)
+	if p.GraceUntil.IsZero() || !manager.now().Before(p.GraceUntil) {
+		return nil, ErrRoomNotFound
+	}
+	p.Active = true
+	p.GraceUntil = time.Time{}
+	manager.rooms[id] = room
+	return []Event{{Type: "participant-joined", RoomID: id, Target: opposite(role)}}, nil
+}
+
 func (manager *Manager) Cleanup() []Event {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
