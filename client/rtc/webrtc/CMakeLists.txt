@@ -1,6 +1,7 @@
 add_library(
   shareme_webrtc
   STATIC
+  src/audio_device_factory.cpp
   src/loopback_signaling.cpp
   src/test_pattern_source.cpp
   src/webrtc_runtime.cpp

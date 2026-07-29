@@ -53,3 +53,31 @@ add_test(
   NAME loopback_signaling
   COMMAND shareme_loopback_signaling_test
 )
+
+add_executable(
+  shareme_audio_device_factory_test
+  audio_device_factory_test.cpp
+)
+
+target_compile_features(
+  shareme_audio_device_factory_test
+  PRIVATE
+    cxx_std_20
+)
+target_include_directories(
+  shareme_audio_device_factory_test
+  PRIVATE
+    "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src"
+)
+target_link_libraries(
+  shareme_audio_device_factory_test
+  PRIVATE
+    ShareMe::WebRTC
+)
+
+shareme_set_project_warnings(shareme_audio_device_factory_test)
+
+add_test(
+  NAME audio_device_factory
+  COMMAND shareme_audio_device_factory_test
+)

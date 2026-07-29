@@ -645,7 +645,7 @@ factory, thread, and SSL teardown rather than shutdown initiation.
 - Modify: `client/rtc/webrtc/CMakeLists.txt`
 - Modify: `tests/rtc/CMakeLists.txt`
 
-- [ ] **Step 1: Write a failing synthetic-audio test**
+- [x] **Step 1: Write a failing synthetic-audio test**
 
 Create the synthetic ADM, initialize recording, run for 150 ms through a
 recording `AudioTransport`, and require at least ten 10 ms, 48 kHz mono frames,
@@ -654,7 +654,7 @@ non-zero samples, and no playout output.
 Verify microphone mode reports a typed dependency/permission error rather than
 falling back to synthetic audio when native ADM initialization fails.
 
-- [ ] **Step 2: Run and observe RED**
+- [x] **Step 2: Run and observe RED**
 
 ```bash
 cmake --build --preset build-webrtc-dev \
@@ -663,7 +663,7 @@ cmake --build --preset build-webrtc-dev \
 
 Expected: factory header and target missing.
 
-- [ ] **Step 3: Implement explicit audio modes**
+- [x] **Step 3: Implement explicit audio modes**
 
 For synthetic mode, implement a `ToneCapturer` derived from
 `webrtc::TestAudioDeviceModule::Capturer`. It returns 10 ms frames of a
@@ -690,7 +690,7 @@ microphone `AudioSource`; never apply them to synthetic or future movie audio.
 Return an error if the selected mode cannot initialize. Never silently switch
 modes. Keep remote playout discarded/disabled in the single-machine probe.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 cmake --build --preset build-webrtc-dev
@@ -698,6 +698,72 @@ ctest --preset test-webrtc-dev -R audio_device --output-on-failure
 git add client/rtc/webrtc tests/rtc
 git commit -m "feat(rtc): add explicit probe audio devices"
 ```
+
+Execution result (2026-07-29): the test target was added before production
+code and failed at compile time because `audio_device_factory.hpp` did not
+exist. The completed synthetic factory creates a recording-ready test ADM with
+a continuous 440 Hz, 48 kHz mono tone and a discard renderer. A 150 ms
+recording test receives at least ten correctly shaped 10 ms frames, observes
+non-zero PCM and phase progression between frames. It never initializes or
+starts playout and verifies that no playout callback occurs during recording;
+the ADM renderer and returned policy remain discard-only for later probe use.
+
+Microphone mode uses only the platform-default native ADM recording path and
+returns typed dependency, permission, or initialization failures without
+creating a synthetic fallback. Its injectable native factory verifies the
+permission-denied path without touching a real microphone or prompting for
+permission. A follow-up specification review added separate dependency,
+initialization, and permission regression cases. The revised test-first RED
+failed because the factory lacked a controllable native initializer seam. The
+initializer now reports only success or failure: a generic native setup or
+`InitRecording` failure is classified as `initialization_failed`, while
+`dependency_unavailable` is preserved for missing native dependencies and
+`permission_denied` is accepted only from an explicit permission-aware factory
+result. Every failure case returns a null device in microphone mode, proving
+there is no synthetic fallback. Processing metadata enables AEC, NS, and AGC
+only for microphone sources; synthetic and future movie sources remain
+unprocessed.
+
+The quality-review follow-up replaced the boolean initializer seam with a
+typed result that preserves dependency, explicit permission, and
+initialization failures, then rejects a reported success unless
+`RecordingIsInitialized()` is true. Windows selects
+`kDefaultCommunicationDevice`; other platforms select recording index zero,
+with both policy branches covered by a platform-independent helper test. The
+single `audio_options()` entry point produces engaged
+`webrtc::AudioOptions` values: AEC, AGC, and NS are true only for microphone
+audio and explicitly false for synthetic and movie audio.
+
+The locked libwebrtc ADM API exposes no portable microphone-permission
+preflight or permission-specific error code. Ordinary ADM failures therefore
+remain dependency or initialization errors. An explicit permission preflight
+seam defaults to unknown/no check and allows a platform layer to report a
+known denial before native ADM creation; only that seam or another
+permission-aware injected result may return `permission_denied`.
+
+The synthetic test now uses a condition-variable wait bounded at 150 ms rather
+than a fixed sleep. It checks multiple samples from the first frame against the
+8,000-amplitude 440 Hz sine equation and checks the next frame's first sample
+against global sample 480, proving that phase continues across frame calls.
+
+All three injected seams are exception boundaries. Permission preflight,
+native ADM creation, and native recording initialization each catch standard
+and non-standard exceptions, return `initialization_failed` with fixed
+sanitized diagnostics, and never fall back to synthetic audio. Initializer
+exceptions terminate the already-created ADM before returning. Regression
+tests also reject inconsistent factory results containing neither a device nor
+an error, or both a device and an error, so invalid typed states cannot report
+success. Both typed `failure()` constructors normalize an invalid `none` error
+to `initialization_failed`; this remains true even if a native initializer has
+already made recording ready before returning the invalid failure result.
+
+The focused audio-device test passed, followed by all eight WebRTC tests, all
+five default no-WebRTC tests, and all twelve Python bootstrap tests. New C++
+files were formatted with clang-format, and the callback signatures and
+recording-only lifecycle were reviewed against the current WebRTC headers.
+macOS ARM64 compiled and ran locally; Windows/MSVC overloads and C++20 types
+were reviewed but not executed on this machine. The commit command above was
+reserved for the stage checkpoint after an independent fresh verification.
 
 ### Task 9: Build the End-to-End Probe and CLI
 
