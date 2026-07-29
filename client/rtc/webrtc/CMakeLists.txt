@@ -1,7 +1,9 @@
 add_library(
   shareme_webrtc
   STATIC
+  src/loopback_signaling.cpp
   src/test_pattern_source.cpp
+  src/webrtc_runtime.cpp
 )
 add_library(ShareMe::WebRTC ALIAS shareme_webrtc)
 
@@ -14,6 +16,7 @@ target_include_directories(
 target_link_libraries(
   shareme_webrtc
   PUBLIC
+    ShareMe::Core
     WebRTC::webrtc
 )
 

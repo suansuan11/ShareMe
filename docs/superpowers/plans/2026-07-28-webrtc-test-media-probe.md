@@ -567,7 +567,7 @@ definitions, or library roles before any consumer target was generated.
 - Modify: `client/rtc/webrtc/CMakeLists.txt`
 - Modify: `tests/rtc/CMakeLists.txt`
 
-- [ ] **Step 1: Write failing lifecycle tests**
+- [x] **Step 1: Write failing lifecycle tests**
 
 Use two real PeerConnections without media and require:
 
@@ -578,7 +578,7 @@ Use two real PeerConnections without media and require:
 - `stop()` may be called twice;
 - destruction completes within five seconds and leaves no callbacks.
 
-- [ ] **Step 2: Run and observe RED**
+- [x] **Step 2: Run and observe RED**
 
 ```bash
 cmake --build --preset build-webrtc-dev \
@@ -587,7 +587,7 @@ cmake --build --preset build-webrtc-dev \
 
 Expected: runtime and signaling headers missing.
 
-- [ ] **Step 3: Implement runtime and factory creation**
+- [x] **Step 3: Implement runtime and factory creation**
 
 `WebRtcRuntime` creates and starts socket/network, worker, and signaling
 threads. Build `PeerConnectionFactoryDependencies`, call `EnableMedia`, install
@@ -598,7 +598,7 @@ All creation/destruction runs on the signaling thread. The destructor calls
 idempotent `stop()` and joins threads in signaling, worker, network order after
 factories have been released.
 
-- [ ] **Step 4: Implement encrypted loopback negotiation**
+- [x] **Step 4: Implement encrypted loopback negotiation**
 
 `LoopbackSignaling` owns two observers and two
 `CandidateStager<PendingCandidate, 64>` values. It uses Unified Plan, no ICE
@@ -609,7 +609,7 @@ Post all observer state into the coordinator on the signaling thread. Success
 requires both peers' ICE state to be connected/completed and DTLS transport
 state to be connected. Preserve the first failure diagnostic.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 cmake --build --preset build-webrtc-dev
@@ -617,6 +617,24 @@ ctest --preset test-webrtc-dev -R loopback_signaling --output-on-failure
 git add client/rtc/webrtc tests/rtc
 git commit -m "feat(rtc): negotiate encrypted loopback peers"
 ```
+
+Execution result (2026-07-29): two real Unified Plan PeerConnections negotiate
+an SCTP data channel over host ICE with DTLS encryption. The test forces early
+ICE candidates through the bounded FIFO, rejects a 65th staged candidate with
+a preserved diagnostic, verifies both ICE and DTLS states, calls both stop
+ paths twice, and completes teardown within five seconds. Twenty repeated
+negotiations passed before the full regression run. Cancellation invalidates
+outstanding callbacks before signaling-thread cleanup; regression coverage also
+rejects a second negotiation and verifies that runtime shutdown closes an
+active session before releasing the factory, threads, and SSL state. Shutdown
+hook cancellation waits for in-flight callbacks, including a concurrent
+runtime-stop/session-destruction test, and runtime stop requests from owned
+WebRTC threads are explicitly rejected instead of self-joining. Concurrent
+runtime stop callers wait for the same completed shutdown, while a final
+runtime reference released on an owned thread is transferred to an external
+cleanup thread. Its waitable destruction signal becomes ready only after the
+runtime destructor has finished, so the five-second bound covers complete
+factory, thread, and SSL teardown rather than shutdown initiation.
 
 ### Task 8: Implement Synthetic and Microphone Audio Modes
 
