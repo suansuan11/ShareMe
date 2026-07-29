@@ -1014,3 +1014,10 @@ dependency-free macOS and Windows jobs. This does not verify a Windows
 libwebrtc build. Full local results, manual microphone evidence, dependency
 policy, and unverified areas are recorded in
 `docs/verification/webrtc-test-media-probe.md`.
+
+## Merge record
+
+The completed WebRTC slice was merged to `main` through pull request #1 on
+2026-07-29. The merge commit is `80e7848ec6609f5ee6ed61fcb35773faec9a299c`.
+Core CI for that merged main revision passed on both macOS and Windows default
+jobs. This merge does not change the recorded Windows libwebrtc limitation.

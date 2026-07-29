@@ -3,6 +3,8 @@
 ## Verified revision and environment
 
 - Source revision: `4208b59ecce249a3185bc84d8933ae9edc421f56`
+- Merged main revision: `80e7848ec6609f5ee6ed61fcb35773faec9a299c`
+- Integration: pull request #1, merged on 2026-07-29
 - Date: 2026-07-29
 - Platform: macOS 26.6 (25G72), Apple Silicon ARM64
 - Compiler: AppleClang 21.0.0.21000101
@@ -23,6 +25,7 @@ tracked by this repository.
 | libwebrtc | 9/9 passed |
 | WebRTC bootstrap Python tests | 12/12 passed |
 | GitHub Core CI at `4208b59` | passed on macOS and Windows default builds |
+| GitHub Core CI at merged `main` `80e7848` | passed on macOS and Windows default builds |
 
 The first fresh Qt playback run had one output-free
 `playback_media_smoke` failure. Its fixture and focused test immediately passed,
@@ -99,5 +102,15 @@ known denial maps to `permission-denied`. Receiver speaker playout is disabled.
 - 1080p60 performance, endurance, loss, or network adaptation
 
 The Windows user machine should run the locked WebRTC build and synthetic probe
-after pulling this branch. Until that run, only dependency-free Windows Core CI
-is verified.
+after pulling `main`. Until that run, only dependency-free Windows Core CI is
+verified.
+
+## Next-stage decision
+
+The WebRTC probe is complete enough to begin the minimum-call-system stage:
+room lifecycle, WebSocket signaling, ICE server configuration, and two-client
+negotiation can be developed against the existing probe adapter. Windows
+libwebrtc and process-loopback capture remain parallel acceptance work, not a
+reason to delay platform-neutral room and signaling contracts. A release claim
+for Windows native media remains blocked until that machine runs the locked
+WebRTC build and probe.
