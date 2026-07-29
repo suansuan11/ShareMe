@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO))
 
 from scripts.bootstrap_webrtc import (
     _prepare,
+    _validate_build_host,
     create_plan,
     load_lock,
     main,
@@ -128,6 +129,31 @@ class BootstrapWebRtcTest(unittest.TestCase):
             self.assertIn(
                 ["fetch", "--nohooks", "--no-history", "webrtc"], commands
             )
+            self.assertIn(
+                [
+                    "gclient",
+                    "sync",
+                    "--jobs=4",
+                    "--revision",
+                    "src@" + EXPECTED_REVISION,
+                ],
+                commands,
+            )
+
+    def test_build_host_requires_full_xcode_on_macos(self):
+        unavailable = subprocess.CompletedProcess(
+            ["xcodebuild", "-version"], returncode=1
+        )
+        with mock.patch(
+            "scripts.bootstrap_webrtc.subprocess.run", return_value=unavailable
+        ):
+            with self.assertRaisesRegex(RuntimeError, "full Xcode"):
+                _validate_build_host("Darwin")
+
+    def test_build_host_does_not_probe_xcode_on_windows(self):
+        with mock.patch("scripts.bootstrap_webrtc.subprocess.run") as run:
+            _validate_build_host("Windows")
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

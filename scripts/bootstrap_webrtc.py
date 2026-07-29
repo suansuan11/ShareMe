@@ -164,7 +164,13 @@ def _prepare(plan: Dict[str, Any]) -> None:
         env=environment,
     )
     _run(
-        ["gclient", "sync", "--revision", "src@" + plan["revision"]],
+        [
+            "gclient",
+            "sync",
+            "--jobs=4",
+            "--revision",
+            "src@" + plan["revision"],
+        ],
         cwd=checkout_root,
         env=environment,
     )
@@ -200,6 +206,24 @@ def _compile_definitions(system: str) -> List[str]:
     raise RuntimeError("unsupported WebRTC build platform")
 
 
+def _validate_build_host(system: str) -> None:
+    if system != "Darwin":
+        return
+    try:
+        result = subprocess.run(
+            ["xcodebuild", "-version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        raise RuntimeError(
+            "full Xcode is required to build WebRTC on macOS"
+        ) from error
+    if result.returncode != 0:
+        raise RuntimeError("full Xcode is required to build WebRTC on macOS")
+
+
 def _build(plan: Dict[str, Any]) -> None:
     depot_tools = Path(plan["depotTools"])
     source_root = Path(plan["sourceRoot"])
@@ -218,6 +242,8 @@ def _build(plan: Dict[str, Any]) -> None:
     if head != plan["revision"]:
         raise RuntimeError("WebRTC checkout revision does not match the lock")
 
+    system = platform.system()
+    _validate_build_host(system)
     environment = _tool_environment(depot_tools)
     gn_arguments = " ".join(plan["gnArgs"])
     _run(
@@ -236,7 +262,6 @@ def _build(plan: Dict[str, Any]) -> None:
         if not (source_root / header).is_file():
             raise RuntimeError("locked WebRTC checkout is missing a required header")
 
-    system = platform.system()
     libraries = _library_paths(output_root, system)
     missing_libraries = [path for path in libraries if not path.is_file()]
     if missing_libraries:
