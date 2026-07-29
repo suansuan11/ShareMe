@@ -7,3 +7,18 @@ add_executable(shareme_sync_controller_test sync_controller_test.cpp)
 target_link_libraries(shareme_sync_controller_test PRIVATE ShareMe::Core)
 
 add_test(NAME sync_controller COMMAND shareme_sync_controller_test)
+
+add_executable(shareme_probe_contract_test probe_contract_test.cpp)
+target_link_libraries(shareme_probe_contract_test PRIVATE ShareMe::Core)
+
+add_test(NAME probe_contract COMMAND shareme_probe_contract_test)
+
+add_executable(shareme_candidate_stager_test candidate_stager_test.cpp)
+target_link_libraries(shareme_candidate_stager_test PRIVATE ShareMe::Core)
+
+add_test(NAME candidate_stager COMMAND shareme_candidate_stager_test)
+
+add_executable(shareme_probe_cli_test probe_cli_test.cpp)
+target_link_libraries(shareme_probe_cli_test PRIVATE ShareMe::Core)
+
+add_test(NAME probe_cli COMMAND shareme_probe_cli_test)

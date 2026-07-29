@@ -7,6 +7,9 @@ Thumbs.db
 
 # Local worktrees
 .worktrees/
+/depot_tools/
+/webrtc-checkout/
+/shareme-webrtc-manifest.json
 
 # CMake and native build outputs
 build/

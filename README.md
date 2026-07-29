@@ -6,7 +6,8 @@ ShareMe 是面向一名主播和一名观众的桌面影片实时共享与语音
 
 项目当前处于阶段 0。已经建立可移植 C++ 核心、构建基线、队列约束和
 同步决策测试，并完成 macOS ARM64 上的 FFmpeg 解码、Qt/QML 本地播放
-技术验证；WebRTC 测试流及 Windows 进程音频捕获仍是后续独立技术验证。
+技术验证和 libwebrtc 本机回环音视频探针；Windows 进程音频捕获仍是
+后续独立技术验证。
 
 ## 当前范围
 
@@ -70,6 +71,20 @@ ctest --preset test-playback-dev
 只验证不含 Qt 的 FFmpeg 媒体层时，使用 `media-dev`、
 `build-media-dev` 和 `test-media-dev` 三个预设。
 
+libwebrtc 依赖按 `deps/webrtc.lock.json` 固定，并放在仓库外。依赖准备
+及验证详情见
+[WebRTC 测试媒体探针验证](docs/verification/webrtc-test-media-probe.md)。
+依赖已准备后可运行：
+
+```bash
+cmake --fresh --preset webrtc-dev \
+  -DWEBRTC_ROOT=/path/to/shareme-webrtc
+cmake --build --preset build-webrtc-dev
+ctest --preset test-webrtc-dev
+./build/webrtc-dev/client/tools/webrtc_probe/shareme_webrtc_probe \
+  --audio synthetic --seconds 3
+```
+
 Qt、FFmpeg 和 libwebrtc 默认关闭。对应技术验证通过以下选项显式启用，
 不允许在缺失依赖时悄悄使用替代实现：
 
@@ -89,6 +104,7 @@ SHAREME_ENABLE_WEBRTC
 - [阶段 0 基础实施计划](docs/superpowers/plans/2026-07-28-phase0-foundation.md)
 - [Qt + FFmpeg 播放设计](docs/superpowers/specs/2026-07-28-qt-ffmpeg-playback-design.md)
 - [Qt + FFmpeg 播放验证](docs/verification/qt-ffmpeg-playback.md)
+- [WebRTC 测试媒体探针验证](docs/verification/webrtc-test-media-probe.md)
 
 ## 验证状态
 
@@ -98,7 +114,9 @@ SHAREME_ENABLE_WEBRTC
 | Windows x64 可移植核心 | Core CI 已验证 |
 | macOS ARM64 Qt/FFmpeg 本地播放 | 自动化通过；首屏人工检查通过 |
 | Windows Qt/FFmpeg 播放 | 环境受限，尚未验证 |
-| libwebrtc | 尚未接入 |
+| macOS ARM64 libwebrtc 合成音视频回环 | 自动化与 CLI 实跑通过 |
+| macOS ARM64 libwebrtc 麦克风回环 | 10 秒真实麦克风验收通过 |
+| Windows x64 libwebrtc | 尚未真机构建；默认 Core CI 通过 |
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
 

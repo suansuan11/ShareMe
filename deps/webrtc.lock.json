@@ -1,0 +1,18 @@
+{
+  "revision": "5ad58d70eea10785fab05ba4150e2fe22ecc7f97",
+  "targets": [
+    "webrtc",
+    "api/video:adapted_video_track_source",
+    "modules/audio_device:test_audio_device_module"
+  ],
+  "gnArgs": [
+    "clang_use_unsafe_buffers_plugin=false",
+    "is_debug=false",
+    "is_component_build=false",
+    "rtc_build_examples=false",
+    "rtc_include_tests=false",
+    "rtc_use_h264=false",
+    "use_custom_libcxx=false",
+    "use_rtti=true"
+  ]
+}

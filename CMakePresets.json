@@ -56,6 +56,15 @@
       "cacheVariables": {
         "SHAREME_ENABLE_QT": "ON"
       }
+    },
+    {
+      "name": "webrtc-dev",
+      "displayName": "ShareMe WebRTC probe development",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SHAREME_ENABLE_WEBRTC": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -79,6 +88,10 @@
     {
       "name": "build-playback-dev",
       "configurePreset": "playback-dev"
+    },
+    {
+      "name": "build-webrtc-dev",
+      "configurePreset": "webrtc-dev"
     }
   ],
   "testPresets": [
@@ -107,6 +120,13 @@
     {
       "name": "test-playback-dev",
       "configurePreset": "playback-dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-webrtc-dev",
+      "configurePreset": "webrtc-dev",
       "output": {
         "outputOnFailure": true
       }
