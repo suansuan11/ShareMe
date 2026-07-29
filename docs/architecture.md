@@ -60,6 +60,7 @@ never owns media frames, blocks on media work, or calls libwebrtc directly.
 | `client/core/rtc` | peer-level contracts and capabilities | libwebrtc objects |
 | `client/core/sync` | media timeline and correction policy | rendering API |
 | `client/core/metrics` | typed samples and aggregation | UI widgets |
+| `client/rtc/webrtc` | libwebrtc dependency boundary, probe runtime, tracks, negotiation, and stats | product room policy |
 | `client/media` | demux, decode, encode, subtitle, PCM | room state |
 | `client/capture` | fallback screen and process audio | direct-file playback |
 | `client/platform` | devices, clocks, native handles | product policy |
@@ -108,6 +109,12 @@ Shutdown proceeds in this order:
 
 `stop()` is idempotent. Callbacks use weak ownership or are disconnected before
 their target is destroyed.
+
+The WebRTC adapter releases sinks, tracks, and PeerConnection proxies on the
+signaling thread before stopping its runtime threads. Test and microphone audio
+are explicit modes; remote probe playout is disabled. AEC, AGC, and noise
+suppression are explicitly enabled only for microphone sources and disabled for
+synthetic or future movie audio.
 
 ## Capability and Failure Model
 

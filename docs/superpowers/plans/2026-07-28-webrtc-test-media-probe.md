@@ -129,7 +129,7 @@ Run:
 ```bash
 python3 -m unittest tests/scripts/bootstrap_webrtc_test.py -v
 python3 scripts/bootstrap_webrtc.py \
-  --root /Users/dio/Library/Caches/ShareMe/webrtc \
+  --root /path/to/shareme-webrtc \
   --print-plan
 git diff --check
 ```
@@ -365,7 +365,7 @@ Expected: 4/4 portable tests pass.
 ### Task 5: Bootstrap and Validate the Locked Native Dependency
 
 **Files:**
-- Generated outside Git: `/Users/dio/Library/Caches/ShareMe/webrtc/**`
+- Generated outside Git: `/path/to/shareme-webrtc/**`
 - Modify only if evidence requires a fix:
   `scripts/bootstrap_webrtc.py`, `deps/webrtc.lock.json`,
   `cmake/FindWebRTC.cmake`, `tests/scripts/bootstrap_webrtc_test.py`
@@ -377,9 +377,9 @@ Run:
 ```bash
 xcode-select -p
 xcodebuild -version
-df -h /Users/dio
+df -h /path/to/cache-parent
 python3 scripts/bootstrap_webrtc.py \
-  --root /Users/dio/Library/Caches/ShareMe/webrtc \
+  --root /path/to/shareme-webrtc \
   --print-plan
 ```
 
@@ -400,7 +400,7 @@ macOS:
 
 ```bash
 python3 scripts/bootstrap_webrtc.py \
-  --root /Users/dio/Library/Caches/ShareMe/webrtc \
+  --root /path/to/shareme-webrtc \
   --prepare
 ```
 
@@ -444,7 +444,7 @@ Run with the actual external root:
 
 ```bash
 cmake --fresh --preset webrtc-dev \
-  -DWEBRTC_ROOT=/Users/dio/Library/Caches/ShareMe/webrtc
+  -DWEBRTC_ROOT=/path/to/shareme-webrtc
 ```
 
 Expected: exact revision, system, architecture, headers, and all three archives are
@@ -898,7 +898,7 @@ unverified and are reserved for Task 10.
 - Modify: `docs/agent-contracts.md`
 - Modify: `docs/superpowers/plans/2026-07-28-webrtc-test-media-probe.md`
 
-- [ ] **Step 1: Run all dependency-off regressions**
+- [x] **Step 1: Run all dependency-off regressions**
 
 ```bash
 cmake --fresh --preset dev
@@ -916,11 +916,11 @@ ctest --preset test-playback-dev --output-on-failure
 
 Expected: portable core, FFmpeg, and Qt playback suites remain green.
 
-- [ ] **Step 2: Run WebRTC synthetic verification**
+- [x] **Step 2: Run WebRTC synthetic verification**
 
 ```bash
 cmake --fresh --preset webrtc-dev \
-  -DWEBRTC_ROOT=/Users/dio/Library/Caches/ShareMe/webrtc
+  -DWEBRTC_ROOT=/path/to/shareme-webrtc
 cmake --build --preset build-webrtc-dev
 ctest --preset test-webrtc-dev --output-on-failure
 ./build/webrtc-dev/client/tools/webrtc_probe/shareme_webrtc_probe \
@@ -930,7 +930,7 @@ ctest --preset test-webrtc-dev --output-on-failure
 Record the exact revision, platform, compiler, connection time, frame counters,
 audio RTP counters, RTT, candidate type, total test count, and exit code.
 
-- [ ] **Step 3: Run real microphone acceptance**
+- [x] **Step 3: Run real microphone acceptance**
 
 On each available platform:
 
@@ -943,7 +943,7 @@ Grant microphone permission, speak during the interval, and record audio level
 and RTP evidence. Do not claim microphone verification for a platform that did
 not run.
 
-- [ ] **Step 4: Update contracts and verification status**
+- [x] **Step 4: Update contracts and verification status**
 
 Document:
 
@@ -959,7 +959,7 @@ Document:
 Do not commit generated manifests, WebRTC source, libraries, logs, SDP,
 candidates, addresses, device identifiers, or permission records.
 
-- [ ] **Step 5: Run final scope and secret checks**
+- [x] **Step 5: Run final scope and secret checks**
 
 ```bash
 git diff --check
@@ -973,7 +973,7 @@ rg -n 'candidate:|v=0|ice-ufrag|ice-pwd' \
 Expected: only intended source, tests, scripts, lock metadata, and docs are
 tracked; no dependency output, SDP, ICE secrets, or local paths leak.
 
-- [ ] **Step 6: Commit and push**
+- [x] **Step 6: Commit and push**
 
 ```bash
 git add README.md docs/architecture.md docs/agent-contracts.md \
@@ -983,7 +983,7 @@ git commit -m "docs: record WebRTC media probe verification"
 git push -u origin phase0/webrtc-probe
 ```
 
-- [ ] **Step 7: Read actual GitHub status**
+- [x] **Step 7: Read actual GitHub status**
 
 Read the Core CI conclusion for the pushed head. Report separately:
 
@@ -995,3 +995,22 @@ Read the Core CI conclusion for the pushed head. Report separately:
 Do not call the Phase 0 WebRTC demonstration complete until one real
 libwebrtc-enabled synthetic loopback passes. Do not call Windows or microphone
 verified without the corresponding run.
+
+Execution result (2026-07-29): dependency-free core passed 5/5, FFmpeg media
+passed 9/9, Qt/FFmpeg playback passed 11/11 on the final full rerun, WebRTC
+passed 9/9, and the Python bootstrap suite passed 12/12. One initial
+output-free Qt media-smoke failure passed immediately in isolation and on the
+complete rerun, and is retained in the verification record as a transient
+observation.
+
+Fresh binaries at `4208b59ecce2` passed both probes on macOS ARM64. Synthetic
+mode reported 90 generated and 88 received video frames plus 150/150 audio RTP
+packets. The ten-second microphone run reported 300/299 video frames,
+498/498 audio packets, a non-zero audio level, and disabled receiver playout.
+Both selected host candidates and exited zero.
+
+GitHub Core CI run 30436187060 passed for the pushed Task 9 head on its
+dependency-free macOS and Windows jobs. This does not verify a Windows
+libwebrtc build. Full local results, manual microphone evidence, dependency
+policy, and unverified areas are recorded in
+`docs/verification/webrtc-test-media-probe.md`.

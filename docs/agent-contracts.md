@@ -14,6 +14,7 @@ human or automated contributor working within an assigned module.
 | `client/core/rtc` | transport-facing core contracts |
 | `client/core/sync` | clocks, reports, and correction policy |
 | `client/core/metrics` | metric types and aggregation |
+| `client/rtc/webrtc` | libwebrtc adapter, probe runtime, media tracks, and stats |
 | `client/media/demux`, `decode`, `render`, `subtitle` | file playback pipeline |
 | `client/media/encode` | hardware/software encoder adapters |
 | `client/media/audio` | movie PCM and device-independent audio logic |
@@ -94,3 +95,8 @@ Before integration:
 - the diff contains no unrelated files;
 - performance status distinguishes measured, unmeasured, and environment-bound
   results.
+
+For `client/rtc/webrtc`, the locked checkout, generated manifests, archives,
+SDP, ICE candidates, addresses, device identifiers, and permission records
+remain outside Git. A platform is verified only after a libwebrtc-enabled run
+on that platform; dependency-free CI does not establish Windows WebRTC support.
