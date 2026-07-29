@@ -142,7 +142,11 @@ def _prepare(plan: Dict[str, Any]) -> None:
     environment = _tool_environment(depot_tools)
     if not checkout_root.exists():
         checkout_root.mkdir()
-        _run(["fetch", "--nohooks", "webrtc"], cwd=checkout_root, env=environment)
+        _run(
+            ["fetch", "--nohooks", "--no-history", "webrtc"],
+            cwd=checkout_root,
+            env=environment,
+        )
     elif not (checkout_root / ".gclient").exists():
         raise RuntimeError("existing checkout path is not a gclient workspace")
 

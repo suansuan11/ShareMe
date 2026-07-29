@@ -13,7 +13,13 @@ REPO = Path(__file__).resolve().parents[2]
 EXPECTED_REVISION = "5ad58d70eea10785fab05ba4150e2fe22ecc7f97"
 sys.path.insert(0, str(REPO))
 
-from scripts.bootstrap_webrtc import create_plan, load_lock, main, make_manifest
+from scripts.bootstrap_webrtc import (
+    _prepare,
+    create_plan,
+    load_lock,
+    main,
+    make_manifest,
+)
 
 
 class BootstrapWebRtcTest(unittest.TestCase):
@@ -100,6 +106,28 @@ class BootstrapWebRtcTest(unittest.TestCase):
             self.assertEqual(result, 1)
             self.assertNotIn("/private/dependency/path", error_output.getvalue())
             self.assertIn("preparing failed", error_output.getvalue())
+
+    def test_prepare_uses_shallow_fetch_for_first_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            external_root = Path(directory)
+            depot_tools = external_root / "depot_tools"
+            (depot_tools / ".git").mkdir(parents=True)
+            plan = create_plan(REPO, external_root)
+            commands = []
+
+            def fake_run(command, *, cwd, env):
+                commands.append(list(command))
+                if command[0] == "fetch":
+                    checkout_root = Path(plan["checkoutRoot"])
+                    (checkout_root / ".gclient").touch()
+                    (Path(plan["sourceRoot"]) / ".git").mkdir(parents=True)
+
+            with mock.patch("scripts.bootstrap_webrtc._run", side_effect=fake_run):
+                _prepare(plan)
+
+            self.assertIn(
+                ["fetch", "--nohooks", "--no-history", "webrtc"], commands
+            )
 
 
 if __name__ == "__main__":
