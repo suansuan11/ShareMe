@@ -119,9 +119,11 @@ SHAREME_ENABLE_WEBRTC
 | Windows x64 libwebrtc | 尚未真机构建；默认 Core CI 通过 |
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
+| 本地 Go 信令服务 | 自动化 WebSocket 集成测试验证；原生客户端尚未接入 |
 
-下一功能阶段可进入“最小通话系统”：房间生命周期、WebSocket 信令、
-P2P/TURN 配置以及双端测试视频和语音。Windows 真机 WebRTC 与进程级
+当前已提供本地信令服务，运行与验证方式见
+[信令基础验证](docs/verification/signaling-foundation.md)。下一功能阶段接入
+Qt WebSocket 客户端、双端测试媒体及 TURN。Windows 真机 WebRTC 与进程级
 音频捕获验收继续并行进行；在完成前不得宣称 Windows 原生媒体支持已经验证。
 
 状态必须以最近一次真实构建或测试结果为准。平台、硬件或网络未参与

@@ -34,6 +34,18 @@ The WebSocket endpoint is `/v1/ws`. Authentication uses a short-lived token in
 the connection request. Tokens and full SDP descriptions are never written to
 normal logs.
 
+An unauthenticated connection may send exactly one bootstrap `create-room` or
+`join-room` message. The successful `room-created` or `room-joined` payload
+contains `roomId`, `token`, `tokenExpiresAtMs`, and `iceServers`; participant
+tokens last ten minutes. Reconnects provide `Authorization: Bearer <token>` in
+the WebSocket handshake. A disconnected role has a 30-second reconnect grace
+period; the opposite participant receives `participant-left` and later
+`participant-joined`, while host grace expiry emits `room-closed`.
+
+Application failures use a `type: "error"` envelope whose payload has
+`code`, `message`, `retryable`, and optional `relatedSequence`. SDP and ICE
+payloads remain opaque to the service and are relayed only to the active peer.
+
 ### Room Messages
 
 `create-room`
