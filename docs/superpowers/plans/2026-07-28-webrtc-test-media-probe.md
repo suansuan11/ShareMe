@@ -363,7 +363,7 @@ Expected: 4/4 portable tests pass.
   `scripts/bootstrap_webrtc.py`, `deps/webrtc.lock.json`,
   `cmake/FindWebRTC.cmake`, `tests/scripts/bootstrap_webrtc_test.py`
 
-- [ ] **Step 1: Run platform and storage preflight**
+- [x] **Step 1: Run platform and storage preflight**
 
 Run:
 
@@ -382,7 +382,12 @@ The current machine is known to have storage but only Command Line Tools; if
 and run Steps 2–4 on the Windows development machine instead of weakening the
 check.
 
-- [ ] **Step 2: Prepare the external checkout**
+Execution result (2026-07-29): storage passed, but only Command Line Tools are
+active. Per the user's updated schedule, source preparation continued on macOS
+while the native archive build remains gated on full Xcode or the Windows
+machine.
+
+- [x] **Step 2: Prepare the external checkout**
 
 macOS:
 
@@ -403,6 +408,12 @@ py scripts/bootstrap_webrtc.py `
 Expected: checkout HEAD equals the locked revision and nothing appears in
 `git status`.
 
+Execution result (2026-07-29): the external checkout completed at
+`5ad58d70eea10785fab05ba4150e2fe22ecc7f97`; its Git status is clean. A
+GoogleSource HTTP 429 during the first full-history sync was recovered by an
+incremental four-job sync. The bootstrap now uses shallow initial fetches and
+bounded final-sync concurrency.
+
 - [ ] **Step 3: Build the two locked GN targets**
 
 Use the same platform command with `--build`.
@@ -410,6 +421,11 @@ Use the same platform command with `--build`.
 Expected: the aggregate `webrtc` archive, standalone
 `test_audio_device_module` archive, required headers, and manifest exist under
 the external root.
+
+Current result: blocked at `gn gen` because WebRTC's macOS SDK probe requires
+full Xcode and the machine has only Command Line Tools. The bootstrap now fails
+this precondition early with a sanitized diagnostic. No archive or manifest is
+claimed.
 
 - [ ] **Step 4: Verify CMake accepts only the built manifest**
 
@@ -424,7 +440,7 @@ Expected: exact revision, system, architecture, headers, and both archives are
 reported as found. Temporarily pointing at a copied manifest with a changed
 revision must fail.
 
-- [ ] **Step 5: Commit only evidence-led bootstrap fixes**
+- [x] **Step 5: Commit only evidence-led bootstrap fixes**
 
 If no tracked file changed, do not create an empty commit. Otherwise run the
 Python tests, `git diff --check`, and commit only the bootstrap/discovery fix:
@@ -432,6 +448,9 @@ Python tests, `git diff --check`, and commit only the bootstrap/discovery fix:
 ```bash
 git commit -m "fix(build): validate locked libwebrtc artifacts"
 ```
+
+Execution result: bootstrap fixes were committed as `a222364` and `4035b8e`.
+Python bootstrap tests pass 9/9 and portable core tests pass 5/5.
 
 ### Task 6: Implement Generated Video Source and Counting Sink
 
