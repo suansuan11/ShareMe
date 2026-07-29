@@ -81,3 +81,31 @@ add_test(
   NAME audio_device_factory
   COMMAND shareme_audio_device_factory_test
 )
+
+add_executable(
+  shareme_webrtc_loopback_test
+  webrtc_loopback_test.cpp
+)
+
+target_compile_features(
+  shareme_webrtc_loopback_test
+  PRIVATE
+    cxx_std_20
+)
+target_link_libraries(
+  shareme_webrtc_loopback_test
+  PRIVATE
+    ShareMe::WebRTC
+)
+
+shareme_set_project_warnings(shareme_webrtc_loopback_test)
+
+add_test(
+  NAME webrtc_loopback
+  COMMAND shareme_webrtc_loopback_test
+)
+set_tests_properties(
+  webrtc_loopback
+  PROPERTIES
+    TIMEOUT 15
+)

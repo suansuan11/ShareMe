@@ -2,8 +2,12 @@
 
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
+
+#include "api/peer_connection_interface.h"
+#include "api/scoped_refptr.h"
 
 namespace shareme::rtc {
 
@@ -24,9 +28,26 @@ struct LoopbackNegotiationResult {
   std::string error;
 };
 
+struct LoopbackPeerConnections {
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> left;
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> right;
+};
+
+struct LoopbackMediaHooks {
+  std::function<std::string(
+      webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface>,
+      webrtc::scoped_refptr<webrtc::PeerConnectionInterface>,
+      webrtc::scoped_refptr<webrtc::PeerConnectionInterface>)>
+      configure;
+  std::function<void(LoopbackPeer,
+                     webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>)>
+      remote_track;
+};
+
 class LoopbackSignaling final {
 public:
-  explicit LoopbackSignaling(WebRtcRuntime &runtime);
+  explicit LoopbackSignaling(WebRtcRuntime &runtime,
+                             LoopbackMediaHooks hooks = {});
   ~LoopbackSignaling();
 
   LoopbackSignaling(const LoopbackSignaling &) = delete;
@@ -37,6 +58,8 @@ public:
   [[nodiscard]] bool stage_candidate_for_test(LoopbackPeer destination,
                                               std::string candidate);
   [[nodiscard]] std::string failure() const;
+  [[nodiscard]] LoopbackNegotiationResult status() const;
+  [[nodiscard]] LoopbackPeerConnections connections() const;
 
   void stop() noexcept;
 

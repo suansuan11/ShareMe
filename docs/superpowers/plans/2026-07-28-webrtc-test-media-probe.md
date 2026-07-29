@@ -770,15 +770,19 @@ reserved for the stage checkpoint after an independent fresh verification.
 **Files:**
 - Create: `client/rtc/webrtc/include/shareme/rtc/webrtc_probe.hpp`
 - Create: `client/rtc/webrtc/src/webrtc_probe.cpp`
+- Create: `client/rtc/webrtc/src/microphone_permission.hpp`
+- Create: `client/rtc/webrtc/src/microphone_permission.cpp`
+- Create: `client/rtc/webrtc/src/microphone_permission.mm`
 - Create: `client/tools/CMakeLists.txt`
 - Create: `client/tools/webrtc_probe/CMakeLists.txt`
+- Create: `client/tools/webrtc_probe/Info.plist`
 - Create: `client/tools/webrtc_probe/main.cpp`
 - Create: `tests/rtc/webrtc_loopback_test.cpp`
 - Modify: `CMakeLists.txt`
 - Modify: `client/rtc/webrtc/CMakeLists.txt`
 - Modify: `tests/rtc/CMakeLists.txt`
 
-- [ ] **Step 1: Write the failing real media integration test**
+- [x] **Step 1: Write the failing real media integration test**
 
 Run a default three-second synthetic probe and require:
 
@@ -796,7 +800,7 @@ REQUIRE(result.selected_candidate_type == "host");
 
 Wrap the CTest with a 15-second timeout.
 
-- [ ] **Step 2: Run and observe RED**
+- [x] **Step 2: Run and observe RED**
 
 ```bash
 cmake --build --preset build-webrtc-dev \
@@ -805,7 +809,7 @@ cmake --build --preset build-webrtc-dev \
 
 Expected: public adapter and target missing.
 
-- [ ] **Step 3: Implement the probe coordinator**
+- [x] **Step 3: Implement the probe coordinator**
 
 Expose only:
 
@@ -824,7 +828,7 @@ Map timeout, permission, negotiation, media, and cleanup failures to the
 designed statuses. The first sanitized error wins. Require actual received
 frames and RTP counters; state transitions alone never pass.
 
-- [ ] **Step 4: Implement the thin CLI**
+- [x] **Step 4: Implement the thin CLI**
 
 Support:
 
@@ -841,7 +845,7 @@ Unknown, repeated, or malformed arguments return exit code 2 and a sanitized
 diagnostic. A completed probe prints exactly one JSON object to stdout and
 returns zero only for `passed`.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 cmake --build --preset build-webrtc-dev
@@ -854,6 +858,36 @@ git commit -m "feat(rtc): send WebRTC test video and audio"
 
 Expected: JSON reports passed, at least 30 received frames, positive audio RTP
 counters, connected host candidates, and process completion within 15 seconds.
+
+Execution result (2026-07-29): the public adapter test was written first and
+failed because `shareme/rtc/webrtc_probe.hpp` did not exist. The implemented
+probe creates the selected ADM, adds `movie-video` and `host-voice` tracks to
+the sending peer, attaches a counting sink to the received video track,
+disables receiver audio playout, and requires current ICE/DTLS health plus
+real inbound/outbound RTP stats before reporting success.
+
+The first integrated run exposed a shutdown-order crash. LLDB showed retained
+PeerConnection proxies trying to post their destructors to an already-destroyed
+signaling queue. Ordered shutdown now removes the sink, stops signaling,
+releases every track and PeerConnection proxy on the signaling thread, and
+only then stops the runtime. The regression subsequently completed within the
+15-second CTest bound.
+
+The macOS microphone path reads AVFoundation authorization, requests access
+only for an explicit microphone probe when the state is not determined, and
+maps a known denial before ADM creation. The CLI embeds the required
+`NSMicrophoneUsageDescription`; synthetic probes never request permission.
+Non-Apple builds keep a dependency-free unknown preflight for platform
+acceptance testing.
+
+A verified synthetic CLI run reported `passed` with an 11-12 ms connection,
+90 generated video frames, 88 received video frames, 150 audio packets and
+12,254 audio bytes in each direction, and a selected `host` candidate. Stats
+collection is bounded to one second total and reports `timed_out` rather than
+misclassifying a stats timeout. Runtime ICE/DTLS failure maps to
+`negotiation_failed`; insufficient media evidence maps to `media_failed`.
+macOS ARM64 ran locally. Windows/MSVC and a real microphone run remain
+unverified and are reserved for Task 10.
 
 ### Task 10: Verify, Document, and Publish the WebRTC Slice
 

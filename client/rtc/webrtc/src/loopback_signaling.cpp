@@ -96,7 +96,8 @@ private:
 
 class LoopbackSignaling::Impl final {
 public:
-  explicit Impl(WebRtcRuntime &runtime) : runtime_(runtime) {
+  explicit Impl(WebRtcRuntime &runtime, LoopbackMediaHooks hooks)
+      : runtime_(runtime), hooks_(std::move(hooks)) {
     shutdown_hook_ = runtime_.register_shutdown_hook(
         this, [this] { on_runtime_shutdown(); });
     if (shutdown_hook_ == nullptr) {
@@ -136,7 +137,7 @@ public:
     if (!result_.ok && result_.error.empty()) {
       result_.error = "loopback negotiation timed out";
     }
-    auto result = result_;
+    auto result = current_result_locked();
     lock.unlock();
     if (!result.ok) {
       stop();
@@ -170,6 +171,20 @@ public:
   std::string failure() const {
     std::lock_guard lock(state_mutex_);
     return result_.error;
+  }
+
+  LoopbackNegotiationResult status() const { return snapshot(); }
+
+  LoopbackPeerConnections connections() const {
+    if (!runtime_.threads_running() || runtime_.signaling_thread() == nullptr) {
+      return {};
+    }
+    return runtime_.signaling_thread()->BlockingCall([this] {
+      return LoopbackPeerConnections{
+          .left = left_connection_,
+          .right = right_connection_,
+      };
+    });
   }
 
   void stop() noexcept {
@@ -241,6 +256,13 @@ private:
       }
     }
 
+    void OnTrack(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>
+                     transceiver) override {
+      if (callbacks_active()) {
+        owner_.on_remote_track(peer_, std::move(transceiver));
+      }
+    }
+
   private:
     bool callbacks_active() const {
       return callbacks_active_->load(std::memory_order_acquire);
@@ -300,6 +322,15 @@ private:
       return;
     }
     right_connection_ = std::move(right.value());
+
+    if (hooks_.configure) {
+      auto error =
+          hooks_.configure(factory, left_connection_, right_connection_);
+      if (!error.empty()) {
+        set_failure(std::move(error));
+        return;
+      }
+    }
 
     auto channel =
         left_connection_->CreateDataChannelOrError("shareme-probe", nullptr);
@@ -574,12 +605,20 @@ private:
     }
   }
 
+  void on_remote_track(
+      LoopbackPeer peer,
+      webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
+    if (hooks_.remote_track) {
+      hooks_.remote_track(peer, std::move(transceiver));
+    }
+  }
+
   void update_connected_result() {
     std::lock_guard lock(state_mutex_);
-    if (result_.error.empty() && result_.left_ice_connected &&
-        result_.right_ice_connected && result_.left_dtls_connected &&
-        result_.right_dtls_connected) {
-      result_.ok = true;
+    result_.ok = result_.error.empty() && result_.left_ice_connected &&
+                 result_.right_ice_connected && result_.left_dtls_connected &&
+                 result_.right_dtls_connected;
+    if (result_.ok) {
       state_changed_.notify_all();
     }
   }
@@ -594,10 +633,19 @@ private:
 
   LoopbackNegotiationResult snapshot() const {
     std::lock_guard lock(state_mutex_);
-    return result_;
+    return current_result_locked();
+  }
+
+  LoopbackNegotiationResult current_result_locked() const {
+    auto result = result_;
+    result.ok = result.error.empty() && result.left_ice_connected &&
+                result.right_ice_connected && result.left_dtls_connected &&
+                result.right_dtls_connected;
+    return result;
   }
 
   WebRtcRuntime &runtime_;
+  LoopbackMediaHooks hooks_;
   std::mutex stop_mutex_;
   mutable std::mutex state_mutex_;
   std::condition_variable state_changed_;
@@ -626,8 +674,9 @@ private:
   webrtc::scoped_refptr<webrtc::DataChannelInterface> right_data_channel_;
 };
 
-LoopbackSignaling::LoopbackSignaling(WebRtcRuntime &runtime)
-    : impl_(std::make_unique<Impl>(runtime)) {}
+LoopbackSignaling::LoopbackSignaling(WebRtcRuntime &runtime,
+                                     LoopbackMediaHooks hooks)
+    : impl_(std::make_unique<Impl>(runtime, std::move(hooks))) {}
 
 LoopbackSignaling::~LoopbackSignaling() = default;
 
@@ -642,6 +691,14 @@ bool LoopbackSignaling::stage_candidate_for_test(LoopbackPeer destination,
 }
 
 std::string LoopbackSignaling::failure() const { return impl_->failure(); }
+
+LoopbackNegotiationResult LoopbackSignaling::status() const {
+  return impl_->status();
+}
+
+LoopbackPeerConnections LoopbackSignaling::connections() const {
+  return impl_->connections();
+}
 
 void LoopbackSignaling::stop() noexcept { impl_->stop(); }
 

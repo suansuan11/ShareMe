@@ -50,6 +50,7 @@ endif()
 if(SHAREME_ENABLE_WEBRTC)
   find_package(WebRTC REQUIRED)
   add_subdirectory(client/rtc)
+  add_subdirectory(client/tools)
 endif()
 
 if(SHAREME_BUILD_TESTS)
