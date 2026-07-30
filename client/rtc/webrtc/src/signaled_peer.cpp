@@ -112,8 +112,21 @@ bool valid_remote_description(SignaledRole role, std::string_view type,
   return !sdp.empty() && ((role == SignaledRole::viewer && type == "offer") ||
                           (role == SignaledRole::host && type == "answer"));
 }
-bool signaled_audio_processing_enabled(SignaledAudioMode mode) noexcept {
-  return mode == SignaledAudioMode::microphone;
+SignaledAudioPolicy signaled_audio_policy(SignaledAudioMode mode) noexcept {
+  switch (mode) {
+  case SignaledAudioMode::synthetic:
+    return {};
+  case SignaledAudioMode::microphone:
+    return {.uses_native_microphone = true, .processing_enabled = true};
+  }
+  return {};
+}
+bool valid_signaled_peer_config(const SignaledPeerConfig &config) noexcept {
+  const auto valid_role =
+      config.role == SignaledRole::host || config.role == SignaledRole::viewer;
+  const auto valid_audio = config.audio_mode == SignaledAudioMode::synthetic ||
+                           config.audio_mode == SignaledAudioMode::microphone;
+  return valid_role && valid_audio;
 }
 bool valid_remote_candidate(std::string_view mid, int line,
                             std::string_view candidate) noexcept {
@@ -125,7 +138,16 @@ public:
   Impl(SignaledPeerConfig config, SignaledPeerCallbacks callbacks)
       : config_(config), role_(config.role), callbacks_(std::move(callbacks)) {}
   bool initialize() {
-    const auto mode = config_.audio_mode == SignaledAudioMode::microphone
+    if (!valid_signaled_peer_config(config_)) {
+      if (config_.role != SignaledRole::host &&
+          config_.role != SignaledRole::viewer)
+        fail("invalid-role");
+      else
+        fail("invalid-audio-mode");
+      return false;
+    }
+    const auto policy = signaled_audio_policy(config_.audio_mode);
+    const auto mode = policy.uses_native_microphone
                           ? AudioDeviceMode::microphone
                           : AudioDeviceMode::synthetic;
     auto audio =
@@ -190,6 +212,8 @@ public:
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     std::optional<std::chrono::steady_clock::time_point> media_ready;
     while (std::chrono::steady_clock::now() < deadline) {
+      if (wait_cancelled_.load(std::memory_order_acquire))
+        break;
       {
         std::lock_guard lock(mu_);
         if (!result_.error.empty())
@@ -201,6 +225,13 @@ public:
                              std::chrono::seconds(2))
         break;
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    if (wait_cancelled_.load(std::memory_order_acquire)) {
+      std::lock_guard lock(mu_);
+      result_.video_frames_received = sink_.frame_count();
+      if (result_.error.empty())
+        result_.error = "signaled call cancelled";
+      return result_;
     }
     collect_stats();
     std::lock_guard lock(mu_);
@@ -214,6 +245,9 @@ public:
         result_.error.empty())
       result_.error = "no bidirectional audio RTP";
     return result_;
+  }
+  void cancel_wait() noexcept {
+    wait_cancelled_.store(true, std::memory_order_release);
   }
   void stop() {
     if (stopped_.exchange(true))
@@ -292,7 +326,8 @@ private:
     peer_->SetAudioPlayout(false);
     video_track_ =
         runtime_->factory()->CreateVideoTrack(video_source_, "movie-video");
-    const auto audio_kind = config_.audio_mode == SignaledAudioMode::microphone
+    const auto policy = signaled_audio_policy(config_.audio_mode);
+    const auto audio_kind = policy.processing_enabled
                                 ? AudioSourceKind::microphone
                                 : AudioSourceKind::synthetic;
     audio_source_ =
@@ -454,6 +489,7 @@ private:
   bool remote_set_{};
   std::mutex mu_;
   SignaledPeerResult result_;
+  std::atomic_bool wait_cancelled_{false};
   std::atomic_bool stopped_{false};
   std::shared_ptr<std::atomic_bool> callbacks_active_{
       std::make_shared<std::atomic_bool>(true)};
@@ -485,5 +521,6 @@ bool SignaledPeer::receive_candidate(std::string mid, int line,
 SignaledPeerResult SignaledPeer::wait(std::chrono::milliseconds timeout) {
   return impl_->wait(timeout);
 }
+void SignaledPeer::cancel_wait() noexcept { impl_->cancel_wait(); }
 void SignaledPeer::stop() noexcept { impl_->stop(); }
 } // namespace shareme::rtc

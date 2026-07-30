@@ -14,6 +14,9 @@ initialization. Creation failures are reported as one sanitized category:
 `audio-initialization-failed`. AEC, noise suppression, and automatic gain
 control are enabled only for microphone sources. Remote speaker playout remains
 disabled in this two-process-on-one-Mac probe to avoid acoustic feedback.
+Early signaling, permission, device, or timeout exits cancel and join the stats
+waiter before stopping WebRTC objects, so failure cleanup cannot race stats
+collection.
 
 ## Repeatable commands
 

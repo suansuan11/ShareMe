@@ -33,5 +33,5 @@
 **Files:** modify `README.md`, `docs/architecture.md`; create `docs/verification/signaled-microphone-call.md`.
 
 - [x] Record permission behavior, commands, metrics, exclusions, and exact verified environment.
-- [ ] Run Go race/vet, default CTest, complete call CTest, synthetic smoke, and microphone smoke.
+- [x] Run Go race/vet, default CTest, complete call CTest, synthetic smoke, and microphone smoke.
 - [ ] Commit documentation, push, merge to `main`, repeat merged-main verification, and clean the feature worktree.

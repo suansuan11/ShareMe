@@ -122,7 +122,7 @@ int main(int argc, char **argv) {
             exit_code = 1;
             app.quit();
           },
-          Qt::QueuedConnection);
+          Qt::AutoConnection);
     };
     peer = shareme::rtc::SignaledPeer::create(
         {.role = role, .audio_mode = audio_mode}, std::move(callbacks));
@@ -181,6 +181,10 @@ int main(int argc, char **argv) {
   });
   client.connectTo(QUrl(parser.value(server)));
   static_cast<void>(app.exec());
+  if (peer && waiter.joinable())
+    peer->cancel_wait();
+  if (waiter.joinable())
+    waiter.join();
   if (peer)
     peer->stop();
   return exit_code;

@@ -18,6 +18,11 @@ struct SignaledPeerConfig {
   SignaledAudioMode audio_mode{SignaledAudioMode::synthetic};
 };
 
+struct SignaledAudioPolicy {
+  bool uses_native_microphone{false};
+  bool processing_enabled{false};
+};
+
 struct SignaledPeerResult {
   bool connected{false};
   std::uint64_t video_frames_received{0};
@@ -35,8 +40,10 @@ struct SignaledPeerCallbacks {
   std::function<void(std::string category)> failure;
 };
 
+[[nodiscard]] SignaledAudioPolicy
+signaled_audio_policy(SignaledAudioMode mode) noexcept;
 [[nodiscard]] bool
-signaled_audio_processing_enabled(SignaledAudioMode mode) noexcept;
+valid_signaled_peer_config(const SignaledPeerConfig &config) noexcept;
 
 [[nodiscard]] bool valid_remote_description(SignaledRole role,
                                             std::string_view type,
@@ -58,6 +65,7 @@ public:
   [[nodiscard]] bool receive_candidate(std::string mid, int line,
                                        std::string candidate);
   [[nodiscard]] SignaledPeerResult wait(std::chrono::milliseconds timeout);
+  void cancel_wait() noexcept;
   void stop() noexcept;
 
 private:
