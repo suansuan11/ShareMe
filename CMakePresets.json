@@ -50,6 +50,15 @@
       }
     },
     {
+      "name": "signaling-dev",
+      "displayName": "ShareMe Qt signaling development",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SHAREME_ENABLE_QT": "ON"
+      }
+    },
+    {
       "name": "playback-dev",
       "displayName": "ShareMe Qt and FFmpeg playback development",
       "inherits": "media-dev",
@@ -86,6 +95,10 @@
       "configurePreset": "media-dev"
     },
     {
+      "name": "build-signaling-dev",
+      "configurePreset": "signaling-dev"
+    },
+    {
       "name": "build-playback-dev",
       "configurePreset": "playback-dev"
     },
@@ -116,6 +129,11 @@
       "output": {
         "outputOnFailure": true
       }
+    },
+    {
+      "name": "test-signaling-dev",
+      "configurePreset": "signaling-dev",
+      "output": { "outputOnFailure": true }
     },
     {
       "name": "test-playback-dev",

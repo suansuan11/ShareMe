@@ -22,3 +22,7 @@ add_executable(shareme_probe_cli_test probe_cli_test.cpp)
 target_link_libraries(shareme_probe_cli_test PRIVATE ShareMe::Core)
 
 add_test(NAME probe_cli COMMAND shareme_probe_cli_test)
+
+add_executable(shareme_signaling_session_test signaling_session_test.cpp)
+target_link_libraries(shareme_signaling_session_test PRIVATE ShareMe::Core)
+add_test(NAME signaling_session COMMAND shareme_signaling_session_test)

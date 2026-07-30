@@ -4,7 +4,7 @@ if(TARGET ShareMe::Playback)
   add_subdirectory(media)
 endif()
 
-if(SHAREME_ENABLE_QT)
+if(TARGET shareme_playback_demo)
   add_subdirectory(app)
 endif()
 

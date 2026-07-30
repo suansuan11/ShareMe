@@ -4,6 +4,7 @@ add_library(
   src/probe_cli.cpp
   src/probe_contract.cpp
   src/sync_controller.cpp
+  src/signaling_session.cpp
 )
 add_library(ShareMe::Core ALIAS shareme_core)
 

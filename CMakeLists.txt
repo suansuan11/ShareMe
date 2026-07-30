@@ -28,10 +28,6 @@ include(ShareMeWarnings)
 
 add_subdirectory(client/core)
 
-if(SHAREME_ENABLE_QT AND NOT SHAREME_ENABLE_FFMPEG)
-  message(FATAL_ERROR "SHAREME_ENABLE_QT requires SHAREME_ENABLE_FFMPEG")
-endif()
-
 if(SHAREME_ENABLE_FFMPEG)
   find_package(FFmpeg REQUIRED)
   add_subdirectory(client/media)
@@ -41,10 +37,13 @@ if(SHAREME_ENABLE_QT)
   find_package(
     Qt6 6.8
     REQUIRED
-    COMPONENTS Core Gui Qml Quick QuickControls2 Multimedia
+    COMPONENTS Core Gui Qml Quick QuickControls2 Multimedia WebSockets
   )
   qt_standard_project_setup(REQUIRES 6.8)
-  add_subdirectory(client/app)
+  add_subdirectory(client/signaling)
+  if(SHAREME_ENABLE_FFMPEG)
+    add_subdirectory(client/app)
+  endif()
 endif()
 
 if(SHAREME_ENABLE_WEBRTC)
