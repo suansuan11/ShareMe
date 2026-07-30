@@ -20,6 +20,7 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "audio_device_factory.hpp"
 #include "counting_video_sink.hpp"
+#include "microphone_permission.hpp"
 #include "rtc_base/thread.h"
 #include "shareme/rtc/candidate_stager.hpp"
 #include "test_pattern_source.hpp"
@@ -111,6 +112,9 @@ bool valid_remote_description(SignaledRole role, std::string_view type,
   return !sdp.empty() && ((role == SignaledRole::viewer && type == "offer") ||
                           (role == SignaledRole::host && type == "answer"));
 }
+bool signaled_audio_processing_enabled(SignaledAudioMode mode) noexcept {
+  return mode == SignaledAudioMode::microphone;
+}
 bool valid_remote_candidate(std::string_view mid, int line,
                             std::string_view candidate) noexcept {
   return !mid.empty() && line >= 0 && !candidate.empty();
@@ -118,13 +122,29 @@ bool valid_remote_candidate(std::string_view mid, int line,
 
 class SignaledPeer::Impl final {
 public:
-  Impl(SignaledRole role, SignaledPeerCallbacks callbacks)
-      : role_(role), callbacks_(std::move(callbacks)) {}
+  Impl(SignaledPeerConfig config, SignaledPeerCallbacks callbacks)
+      : config_(config), role_(config.role), callbacks_(std::move(callbacks)) {}
   bool initialize() {
-    auto audio = create_audio_device(webrtc::CreateEnvironment(),
-                                     AudioDeviceMode::synthetic);
+    const auto mode = config_.audio_mode == SignaledAudioMode::microphone
+                          ? AudioDeviceMode::microphone
+                          : AudioDeviceMode::synthetic;
+    auto audio =
+        create_audio_device(webrtc::CreateEnvironment(), mode, {}, {}, [] {
+          return platform_microphone_permission_status();
+        });
     if (!audio.ok()) {
-      fail(audio.message);
+      switch (audio.error) {
+      case AudioDeviceError::permission_denied:
+        fail("permission-denied");
+        break;
+      case AudioDeviceError::dependency_unavailable:
+        fail("dependency-unavailable");
+        break;
+      case AudioDeviceError::initialization_failed:
+      case AudioDeviceError::none:
+        fail("audio-initialization-failed");
+        break;
+      }
       return false;
     }
     runtime_ = WebRtcRuntime::create(audio.device);
@@ -272,8 +292,11 @@ private:
     peer_->SetAudioPlayout(false);
     video_track_ =
         runtime_->factory()->CreateVideoTrack(video_source_, "movie-video");
-    audio_source_ = runtime_->factory()->CreateAudioSource(
-        audio_options(AudioSourceKind::synthetic));
+    const auto audio_kind = config_.audio_mode == SignaledAudioMode::microphone
+                                ? AudioSourceKind::microphone
+                                : AudioSourceKind::synthetic;
+    audio_source_ =
+        runtime_->factory()->CreateAudioSource(audio_options(audio_kind));
     audio_track_ = runtime_->factory()->CreateAudioTrack(
         role_ == SignaledRole::host ? "host-voice" : "viewer-voice",
         audio_source_.get());
@@ -383,6 +406,10 @@ private:
          report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>())
       if (stats->kind == std::optional<std::string>{"audio"})
         result_.audio_packets_received += stats->packets_received.value_or(0);
+    for (const auto *source :
+         report->GetStatsOfType<webrtc::RTCAudioSourceStats>())
+      if (source->audio_level)
+        result_.local_audio_level = *source->audio_level;
     for (const auto *transport :
          report->GetStatsOfType<webrtc::RTCTransportStats>()) {
       if (!transport->selected_candidate_pair_id)
@@ -398,10 +425,18 @@ private:
     }
   }
   void fail(std::string error) {
-    std::lock_guard lock(mu_);
-    if (result_.error.empty())
+    std::string category;
+    {
+      std::lock_guard lock(mu_);
+      if (!result_.error.empty())
+        return;
       result_.error = std::move(error);
+      category = result_.error;
+    }
+    if (callbacks_.failure)
+      callbacks_.failure(std::move(category));
   }
+  SignaledPeerConfig config_;
   SignaledRole role_;
   SignaledPeerCallbacks callbacks_;
   std::shared_ptr<WebRtcRuntime> runtime_;
@@ -425,11 +460,16 @@ private:
 };
 
 std::unique_ptr<SignaledPeer>
-SignaledPeer::create(SignaledRole role, SignaledPeerCallbacks callbacks) {
-  auto impl = std::make_unique<Impl>(role, std::move(callbacks));
+SignaledPeer::create(SignaledPeerConfig config,
+                     SignaledPeerCallbacks callbacks) {
+  auto impl = std::make_unique<Impl>(config, std::move(callbacks));
   if (!impl->initialize())
     return nullptr;
   return std::unique_ptr<SignaledPeer>(new SignaledPeer(std::move(impl)));
+}
+std::unique_ptr<SignaledPeer>
+SignaledPeer::create(SignaledRole role, SignaledPeerCallbacks callbacks) {
+  return create({.role = role}, std::move(callbacks));
 }
 SignaledPeer::SignaledPeer(std::unique_ptr<Impl> impl)
     : impl_(std::move(impl)) {}
