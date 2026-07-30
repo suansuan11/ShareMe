@@ -12,7 +12,8 @@ from pathlib import Path
 
 RESULT = re.compile(
     r"RESULT connected=1 video=(\d+) audio_sent=(\d+) "
-    r"audio_received=(\d+) candidate=([^ ]+) error=$"
+    r"audio_received=(\d+) audio_level=([0-9.eE+-]+) "
+    r"candidate=([^ ]+) error=$"
 )
 
 
@@ -28,11 +29,13 @@ def wait_for_health(url: str) -> None:
     raise RuntimeError("signaling service did not become healthy")
 
 
-def validate(label: str, output: str) -> None:
+def validate(label: str, output: str, audio_mode: str) -> None:
     lines = [line for line in output.splitlines() if line.startswith("RESULT ")]
     match = RESULT.fullmatch(lines[-1]) if lines else None
     if match is None or any(int(value) <= 0 for value in match.groups()[:3]):
         raise RuntimeError(f"{label} did not report received test media")
+    if audio_mode == "microphone" and float(match.group(4)) <= 0.0:
+        raise RuntimeError(f"{label} did not report local microphone activity")
 
 
 def main() -> int:
@@ -40,6 +43,11 @@ def main() -> int:
     parser.add_argument("--probe", type=Path, required=True)
     parser.add_argument("--server-root", type=Path, required=True)
     parser.add_argument("--port", type=int, default=18080)
+    parser.add_argument(
+        "--audio",
+        choices=("synthetic", "microphone"),
+        default="synthetic",
+    )
     args = parser.parse_args()
     address = f"127.0.0.1:{args.port}"
     websocket_url = f"ws://{address}/v1/ws"
@@ -57,7 +65,15 @@ def main() -> int:
     try:
         wait_for_health(f"http://{address}/healthz")
         host = subprocess.Popen(
-            [str(args.probe), "--server", websocket_url, "--role", "host"],
+            [
+                str(args.probe),
+                "--server",
+                websocket_url,
+                "--role",
+                "host",
+                "--audio",
+                args.audio,
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -67,7 +83,17 @@ def main() -> int:
             raise RuntimeError("host did not create a valid room")
         room_id = room_line.split()[1]
         viewer = subprocess.run(
-            [str(args.probe), "--server", websocket_url, "--role", "viewer", "--room", room_id],
+            [
+                str(args.probe),
+                "--server",
+                websocket_url,
+                "--role",
+                "viewer",
+                "--room",
+                room_id,
+                "--audio",
+                args.audio,
+            ],
             capture_output=True,
             text=True,
             timeout=25,
@@ -76,8 +102,8 @@ def main() -> int:
         host_output, host_error = host.communicate(timeout=25)
         if host.returncode != 0:
             raise RuntimeError(f"host failed: {host_error.strip()}")
-        validate("viewer", viewer.stdout)
-        validate("host", host_output)
+        validate("viewer", viewer.stdout, args.audio)
+        validate("host", host_output, args.audio)
         print(room_line)
         print(viewer.stdout.strip())
         print(host_output.strip())
