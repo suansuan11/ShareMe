@@ -23,8 +23,8 @@ Final integration result:
 
 ```text
 ROOM TYMZCI
-RESULT connected=1 video=60 audio_sent=103 audio_received=102 candidate=host error=
-RESULT connected=1 video=61 audio_sent=102 audio_received=102 candidate=host error=
+RESULT connected=1 video=60 audio_sent=103 audio_received=102 audio_level=0.244148 candidate=host error=
+RESULT connected=1 video=61 audio_sent=102 audio_received=102 audio_level=0.244148 candidate=host error=
 ```
 
 The script starts an isolated signaling service on port 18080, keeps the host
@@ -46,5 +46,8 @@ the runtime. `signaled_peer` covers immediate start/stop and exits cleanly.
 - TURN or public-network connectivity
 - two physical computers
 - Windows/MSVC native WebRTC
-- microphone or movie tracks in the signaled call
+- movie tracks in the signaled call
 - hardware encoding, adaptation, reconnect, or endurance
+
+The physical microphone extension is verified separately in
+[Signaled Microphone Call Verification](signaled-microphone-call.md).

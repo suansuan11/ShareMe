@@ -39,18 +39,26 @@ int main(int argc, char **argv) {
   QCommandLineOption server(QStringList{"s", "server"}, "WebSocket URL", "url");
   QCommandLineOption role_option(QStringList{"r", "role"}, "host or viewer",
                                  "role");
+  QCommandLineOption audio_option(
+      QStringList{"audio"}, "synthetic or microphone", "mode", "synthetic");
   QCommandLineOption room_option(QStringList{"room"}, "Room ID for viewer",
                                  "room");
   parser.addOption(server);
   parser.addOption(role_option);
+  parser.addOption(audio_option);
   parser.addOption(room_option);
   parser.process(app);
   const auto role_text = parser.value(role_option);
+  const auto audio_text = parser.value(audio_option);
   if (!parser.isSet(server) || (role_text != "host" && role_text != "viewer") ||
+      (audio_text != "synthetic" && audio_text != "microphone") ||
       (role_text == "viewer" && !parser.isSet(room_option)))
     return 2;
   const auto role = role_text == "host" ? shareme::rtc::SignaledRole::host
                                         : shareme::rtc::SignaledRole::viewer;
+  const auto audio_mode = audio_text == "microphone"
+                              ? shareme::rtc::SignaledAudioMode::microphone
+                              : shareme::rtc::SignaledAudioMode::synthetic;
   QtSignalingClient client;
   std::unique_ptr<shareme::rtc::SignaledPeer> peer;
   std::jthread waiter;
@@ -73,6 +81,8 @@ int main(int argc, char **argv) {
                       << " video=" << result.video_frames_received
                       << " audio_sent=" << result.audio_packets_sent
                       << " audio_received=" << result.audio_packets_received
+                      << " audio_level="
+                      << result.local_audio_level.value_or(0.0)
                       << " candidate=" << result.selected_candidate_type
                       << " error=" << result.error << std::endl;
             exit_code = result.error.empty() ? 0 : 1;
@@ -104,7 +114,18 @@ int main(int argc, char **argv) {
           },
           Qt::QueuedConnection);
     };
-    peer = shareme::rtc::SignaledPeer::create(role, std::move(callbacks));
+    callbacks.failure = [&](std::string category) {
+      QMetaObject::invokeMethod(
+          &app,
+          [&, category = std::move(category)] {
+            std::cerr << "PEER_ERROR " << category << std::endl;
+            exit_code = 1;
+            app.quit();
+          },
+          Qt::AutoConnection);
+    };
+    peer = shareme::rtc::SignaledPeer::create(
+        {.role = role, .audio_mode = audio_mode}, std::move(callbacks));
     return peer != nullptr;
   };
   QObject::connect(&client, &QtSignalingClient::statusChanged, &app,
@@ -160,6 +181,10 @@ int main(int argc, char **argv) {
   });
   client.connectTo(QUrl(parser.value(server)));
   static_cast<void>(app.exec());
+  if (peer && waiter.joinable())
+    peer->cancel_wait();
+  if (waiter.joinable())
+    waiter.join();
   if (peer)
     peer->stop();
   return exit_code;
