@@ -67,6 +67,16 @@
       }
     },
     {
+      "name": "call-dev",
+      "displayName": "ShareMe Qt and WebRTC call development",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SHAREME_ENABLE_QT": "ON",
+        "SHAREME_ENABLE_WEBRTC": "ON"
+      }
+    },
+    {
       "name": "webrtc-dev",
       "displayName": "ShareMe WebRTC probe development",
       "inherits": "base",
@@ -101,6 +111,10 @@
     {
       "name": "build-playback-dev",
       "configurePreset": "playback-dev"
+    },
+    {
+      "name": "build-call-dev",
+      "configurePreset": "call-dev"
     },
     {
       "name": "build-webrtc-dev",
@@ -141,6 +155,11 @@
       "output": {
         "outputOnFailure": true
       }
+    },
+    {
+      "name": "test-call-dev",
+      "configurePreset": "call-dev",
+      "output": { "outputOnFailure": true }
     },
     {
       "name": "test-webrtc-dev",

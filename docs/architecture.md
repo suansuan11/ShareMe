@@ -117,6 +117,12 @@ are explicit modes; remote probe playout is disabled. AEC, AGC, and noise
 suppression are explicitly enabled only for microphone sources and disabled for
 synthetic or future movie audio.
 
+The signaled-call controller owns exactly one PeerConnection per process. Qt
+forwards opaque descriptions and candidates through the Go service; it never
+owns WebRTC objects. Shutdown first disables asynchronous SDP callbacks, then
+releases all proxy tracks and sources on the signaling thread before stopping
+the WebRTC runtime.
+
 ## Capability and Failure Model
 
 Hardware encoders report supported codec, pixel format, resolution, frame rate,
