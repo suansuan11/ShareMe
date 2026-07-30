@@ -34,4 +34,4 @@
 
 - [x] Record permission behavior, commands, metrics, exclusions, and exact verified environment.
 - [x] Run Go race/vet, default CTest, complete call CTest, synthetic smoke, and microphone smoke.
-- [ ] Commit documentation, push, merge to `main`, repeat merged-main verification, and clean the feature worktree.
+- [x] Commit documentation, push, merge to `main`, repeat merged-main verification, and clean the feature worktree.
