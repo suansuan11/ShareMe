@@ -109,3 +109,8 @@ set_tests_properties(
   PROPERTIES
     TIMEOUT 15
 )
+
+add_executable(shareme_signaled_peer_test signaled_peer_test.cpp)
+target_link_libraries(shareme_signaled_peer_test PRIVATE ShareMe::WebRTC)
+shareme_set_project_warnings(shareme_signaled_peer_test)
+add_test(NAME signaled_peer COMMAND shareme_signaled_peer_test)
