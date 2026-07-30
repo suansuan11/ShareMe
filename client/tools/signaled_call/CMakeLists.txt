@@ -1,0 +1,4 @@
+add_executable(shareme_signaled_call_probe main.cpp)
+target_compile_features(shareme_signaled_call_probe PRIVATE cxx_std_20)
+target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::QtSignaling ShareMe::WebRTC)
+shareme_set_project_warnings(shareme_signaled_call_probe)
