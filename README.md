@@ -4,10 +4,10 @@ ShareMe 是面向一名主播和一名观众的桌面影片实时共享与语音
 主播持有本地片源，观众通过 WebRTC 实时观看；影片声音、主播麦克风和
 观众麦克风保持独立。
 
-项目当前处于阶段 0。已经建立可移植 C++ 核心、构建基线、队列约束和
-同步决策测试，并完成 macOS ARM64 上的 FFmpeg 解码、Qt/QML 本地播放
-技术验证和 libwebrtc 本机回环音视频探针；该探针已合并到 `main`。
-Windows 进程音频捕获仍是后续独立技术验证。
+项目已完成可移植 C++ 核心、构建基线、队列约束和同步决策测试，并在
+macOS ARM64 上验证 FFmpeg 解码、Qt/QML 本地播放、libwebrtc 本机回环，
+以及经 Qt/Go 信令建立的双进程测试视频和双向真实麦克风通话。Windows
+进程音频捕获仍是后续独立技术验证。
 
 ## 当前范围
 
@@ -106,6 +106,7 @@ SHAREME_ENABLE_WEBRTC
 - [Qt + FFmpeg 播放验证](docs/verification/qt-ffmpeg-playback.md)
 - [WebRTC 测试媒体探针验证](docs/verification/webrtc-test-media-probe.md)
 - [WebRTC 双进程信令通话验证](docs/verification/webrtc-signaled-call.md)
+- [WebRTC 双进程真实麦克风通话验证](docs/verification/signaled-microphone-call.md)
 
 ## 验证状态
 
@@ -120,13 +121,14 @@ SHAREME_ENABLE_WEBRTC
 | Windows x64 libwebrtc | 尚未真机构建；默认 Core CI 通过 |
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
-| 本地 Go 信令服务 | 自动化 WebSocket 集成测试验证；原生客户端尚未接入 |
+| 本地 Go 信令服务 | 自动化 WebSocket 集成测试及 Qt 原生客户端接入已验证 |
 | macOS ARM64 Qt + WebRTC 双进程测试通话 | 双端视频与合成音频收发自动化通过 |
+| macOS ARM64 Qt + WebRTC 双进程真实麦克风通话 | 双端真实麦克风 RTP 与本地音频电平验收通过 |
 
-当前已提供本地信令服务和双进程 WebRTC 测试媒体通话，运行与验证方式见
+当前已提供本地信令服务和双进程 WebRTC 测试媒体、真实麦克风通话，运行与验证方式见
 [信令基础验证](docs/verification/signaling-foundation.md)与
-[WebRTC 双进程信令通话验证](docs/verification/webrtc-signaled-call.md)。下一功能阶段
-接入真实麦克风/影片轨道与 TURN。Windows 真机 WebRTC 与进程级
+[WebRTC 双进程真实麦克风通话验证](docs/verification/signaled-microphone-call.md)。
+下一功能阶段接入真实影片轨道与 TURN。Windows 真机 WebRTC 与进程级
 音频捕获验收继续并行进行；在完成前不得宣称 Windows 原生媒体支持已经验证。
 
 状态必须以最近一次真实构建或测试结果为准。平台、硬件或网络未参与

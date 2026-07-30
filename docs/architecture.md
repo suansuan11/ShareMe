@@ -121,7 +121,12 @@ The signaled-call controller owns exactly one PeerConnection per process. Qt
 forwards opaque descriptions and candidates through the Go service; it never
 owns WebRTC objects. Shutdown first disables asynchronous SDP callbacks, then
 releases all proxy tracks and sources on the signaling thread before stopping
-the WebRTC runtime.
+the WebRTC runtime. Its audio mode is explicit: deterministic automation uses
+the synthetic device, while microphone acceptance performs platform permission
+preflight, opens the native recording device, enables AEC/NS/AGC, and reports a
+stable failure category instead of silently falling back. Probe speaker playout
+remains disabled to prevent feedback while two local processes share one
+physical microphone.
 
 ## Capability and Failure Model
 
