@@ -105,6 +105,7 @@ SHAREME_ENABLE_WEBRTC
 - [Qt + FFmpeg 播放设计](docs/superpowers/specs/2026-07-28-qt-ffmpeg-playback-design.md)
 - [Qt + FFmpeg 播放验证](docs/verification/qt-ffmpeg-playback.md)
 - [WebRTC 测试媒体探针验证](docs/verification/webrtc-test-media-probe.md)
+- [WebRTC 双进程信令通话验证](docs/verification/webrtc-signaled-call.md)
 
 ## 验证状态
 
@@ -120,11 +121,12 @@ SHAREME_ENABLE_WEBRTC
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
 | 本地 Go 信令服务 | 自动化 WebSocket 集成测试验证；原生客户端尚未接入 |
-| macOS ARM64 Qt 信令客户端 | 两端本地 create/join 探针验证；尚未绑定 PeerConnection |
+| macOS ARM64 Qt + WebRTC 双进程测试通话 | 双端视频与合成音频收发自动化通过 |
 
-当前已提供本地信令服务，运行与验证方式见
-[信令基础验证](docs/verification/signaling-foundation.md)。下一功能阶段接入
-Qt WebSocket 客户端、双端测试媒体及 TURN。Windows 真机 WebRTC 与进程级
+当前已提供本地信令服务和双进程 WebRTC 测试媒体通话，运行与验证方式见
+[信令基础验证](docs/verification/signaling-foundation.md)与
+[WebRTC 双进程信令通话验证](docs/verification/webrtc-signaled-call.md)。下一功能阶段
+接入真实麦克风/影片轨道与 TURN。Windows 真机 WebRTC 与进程级
 音频捕获验收继续并行进行；在完成前不得宣称 Windows 原生媒体支持已经验证。
 
 状态必须以最近一次真实构建或测试结果为准。平台、硬件或网络未参与
