@@ -57,6 +57,7 @@ never owns media frames, blocks on media work, or calls libwebrtc directly.
 | `client/app` | Qt lifecycle, facade, QML presentation | media algorithms |
 | `client/core/room` | role and room state machine | sockets |
 | `client/core/signaling` | signaling commands and events | WebSocket library |
+| `client/signaling` | Qt WebSocket transport adapter and local signaling probe | room policy or media tracks |
 | `client/core/rtc` | peer-level contracts and capabilities | libwebrtc objects |
 | `client/core/sync` | media timeline and correction policy | rendering API |
 | `client/core/metrics` | typed samples and aggregation | UI widgets |

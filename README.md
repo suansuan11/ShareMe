@@ -120,6 +120,7 @@ SHAREME_ENABLE_WEBRTC
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
 | 本地 Go 信令服务 | 自动化 WebSocket 集成测试验证；原生客户端尚未接入 |
+| macOS ARM64 Qt 信令客户端 | 两端本地 create/join 探针验证；尚未绑定 PeerConnection |
 
 当前已提供本地信令服务，运行与验证方式见
 [信令基础验证](docs/verification/signaling-foundation.md)。下一功能阶段接入
