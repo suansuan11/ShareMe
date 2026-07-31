@@ -189,7 +189,7 @@ git commit -m "feat: decode fixed movie audio chunks"
 - Modify: `tests/rtc/movie_video_source_test.cpp`
 - Modify: `tests/rtc/CMakeLists.txt`
 
-- [ ] **Step 1: Write failing shared-timeline and movie-audio tests**
+- [x] **Step 1: Write failing shared-timeline and movie-audio tests**
 
 Generate an A/V fixture with audio starting at 4 seconds and video at 5
 seconds. Create one timeline and both sources:
@@ -211,7 +211,7 @@ Test missing files, a video-only file, prompt stop during a 5-second PTS gap,
 and that the latest audio/video emitted PTS values differ by at most 50 ms once
 both sources have emitted for two seconds.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run:
 
@@ -223,7 +223,7 @@ ctest --preset test-movie-call-dev -R 'movie_audio_source|movie_video_source' --
 Expected: compilation fails because the timeline and movie-audio source do not
 exist.
 
-- [ ] **Step 3: Implement the source contracts and shared clock**
+- [x] **Step 3: Implement the source contracts and shared clock**
 
 `LocalAudioSource` extends `webrtc::AudioSourceInterface` with:
 
@@ -239,7 +239,7 @@ virtual std::string error() const = 0;
 returns it on every call. Add the same optional `last_pts_ms()` metric to
 `LocalVideoSource`.
 
-- [ ] **Step 4: Implement movie-audio pacing and sink fan-out**
+- [x] **Step 4: Implement movie-audio pacing and sink fan-out**
 
 `MovieAudioSource` opens:
 
@@ -263,14 +263,14 @@ Keep sink registration thread-safe, use unprocessed `AudioOptions`, sanitize
 all exceptions, make start/stop idempotent, and interrupt pending waits before
 joining.
 
-- [ ] **Step 5: Move movie video to the same origin**
+- [x] **Step 5: Move movie video to the same origin**
 
 Accept the shared timeline in `MovieVideoSource::create()`. Replace its private
 start epoch and first-video PTS origin with the shared epoch and
 `MediaInfo::start_time_ms`; retain the existing interruptible pacing and
 video-only FFmpeg mode.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run:
 
