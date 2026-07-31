@@ -7,6 +7,7 @@ Thumbs.db
 
 # Local worktrees
 .worktrees/
+__pycache__/
 /depot_tools/
 /webrtc-checkout/
 /shareme-webrtc-manifest.json

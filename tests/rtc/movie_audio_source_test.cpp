@@ -22,6 +22,11 @@
 
 namespace {
 
+struct TimedMediaSample {
+  std::int64_t pts_ms;
+  std::chrono::steady_clock::time_point emitted_at;
+};
+
 void require(bool condition, const char *expression, int line) {
   if (condition)
     return;
@@ -55,8 +60,11 @@ public:
     }
     last_capture_timestamp_ms_ = capture_timestamp_ms;
     if (source_) {
-      if (const auto media_pts_ms = source_->last_pts_ms())
+      if (const auto media_pts_ms = source_->last_pts_ms()) {
         media_pts_ms_.push_back(*media_pts_ms);
+        timed_samples_.push_back(
+            TimedMediaSample{*media_pts_ms, std::chrono::steady_clock::now()});
+      }
     }
 
     if (audio_data != nullptr) {
@@ -99,6 +107,11 @@ public:
     return first_callback_at_;
   }
 
+  [[nodiscard]] std::vector<TimedMediaSample> timed_samples() const {
+    std::lock_guard lock(mutex_);
+    return timed_samples_;
+  }
+
 private:
   const shareme::rtc::MovieAudioSource *source_;
   mutable std::mutex mutex_;
@@ -108,6 +121,7 @@ private:
   bool timestamps_monotonic_{true};
   std::optional<std::int64_t> last_capture_timestamp_ms_;
   std::vector<std::int64_t> media_pts_ms_;
+  std::vector<TimedMediaSample> timed_samples_;
   std::optional<std::chrono::steady_clock::time_point> first_callback_at_;
 };
 
@@ -119,6 +133,9 @@ public:
       std::lock_guard lock(mutex_);
       if (!first_callback_at_)
         first_callback_at_ = std::chrono::steady_clock::now();
+      timed_samples_.push_back(TimedMediaSample{
+          static_cast<std::int64_t>(frame.rtp_timestamp() / 90U),
+          std::chrono::steady_clock::now()});
     }
     sink_.OnFrame(frame);
   }
@@ -133,11 +150,46 @@ public:
     return first_callback_at_;
   }
 
+  [[nodiscard]] std::vector<TimedMediaSample> timed_samples() const {
+    std::lock_guard lock(mutex_);
+    return timed_samples_;
+  }
+
 private:
   shareme::rtc::CountingVideoSink sink_;
   mutable std::mutex mutex_;
   std::optional<std::chrono::steady_clock::time_point> first_callback_at_;
+  std::vector<TimedMediaSample> timed_samples_;
 };
+
+void require_overlapping_tracks_are_synchronized(
+    const std::vector<TimedMediaSample> &audio_samples,
+    const std::vector<TimedMediaSample> &video_samples) {
+  using namespace std::chrono;
+  REQUIRE(!audio_samples.empty());
+  REQUIRE(!video_samples.empty());
+
+  std::size_t matched_video_frames = 0;
+  for (const auto &video : video_samples) {
+    const auto audio = std::lower_bound(
+        audio_samples.begin(), audio_samples.end(), video.pts_ms,
+        [](const TimedMediaSample &sample, std::int64_t pts_ms) {
+          return sample.pts_ms < pts_ms;
+        });
+    if (audio == audio_samples.end())
+      break;
+
+    const auto pts_delta_ms = video.pts_ms - audio->pts_ms;
+    if (std::llabs(pts_delta_ms) > 10)
+      continue;
+    const auto callback_delta_ms =
+        duration_cast<milliseconds>(video.emitted_at - audio->emitted_at)
+            .count();
+    REQUIRE(std::llabs(callback_delta_ms - pts_delta_ms) <= 50);
+    ++matched_video_frames;
+  }
+  REQUIRE(matched_video_frames >= 20);
+}
 
 void shared_epoch_is_stable() {
   auto timeline = std::make_shared<shareme::rtc::MovieTimeline>();
@@ -309,7 +361,8 @@ void shared_timeline_preserves_track_offset(
   REQUIRE(video_sink.frame_count() >= 30);
   REQUIRE(audio->last_pts_ms().has_value());
   REQUIRE(video->last_pts_ms().has_value());
-  REQUIRE(std::llabs(*audio->last_pts_ms() - *video->last_pts_ms()) <= 50);
+  require_overlapping_tracks_are_synchronized(audio_sink.timed_samples(),
+                                              video_sink.timed_samples());
 
   audio->stop();
   video->stop();
