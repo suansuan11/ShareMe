@@ -145,8 +145,11 @@ public:
       if (config_.role != SignaledRole::host &&
           config_.role != SignaledRole::viewer)
         fail("invalid-role");
-      else
+      else if (config_.audio_mode != SignaledAudioMode::synthetic &&
+               config_.audio_mode != SignaledAudioMode::microphone)
         fail("invalid-audio-mode");
+      else
+        fail("invalid-video-mode");
       return false;
     }
     const auto policy = signaled_audio_policy(config_.audio_mode);

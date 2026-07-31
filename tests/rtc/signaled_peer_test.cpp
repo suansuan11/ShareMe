@@ -34,6 +34,18 @@ int main() {
       {.role = SignaledRole::host,
        .audio_mode = SignaledAudioMode::synthetic,
        .video_mode = SignaledVideoMode::injected}));
+  std::string invalid_video_error;
+  shareme::rtc::SignaledPeerCallbacks invalid_video_callbacks;
+  invalid_video_callbacks.failure = [&](std::string category) {
+    invalid_video_error = std::move(category);
+  };
+  auto invalid_video_peer = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::host,
+       .audio_mode = SignaledAudioMode::synthetic,
+       .video_mode = SignaledVideoMode::injected},
+      std::move(invalid_video_callbacks));
+  REQUIRE(invalid_video_peer == nullptr);
+  REQUIRE(invalid_video_error == "invalid-video-mode");
   shareme::rtc::LocalVideoSourceFactory empty_video_factory =
       [](webrtc::TaskQueueFactory &) {
         return webrtc::scoped_refptr<shareme::rtc::LocalVideoSource>{};

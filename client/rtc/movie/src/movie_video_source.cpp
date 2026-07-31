@@ -67,6 +67,7 @@ void MovieVideoSource::stop() noexcept {
   running_.store(false, std::memory_order_release);
   if (worker_.joinable()) {
     worker_.request_stop();
+    pacing_changed_.notify_all();
     worker_.join();
   }
   if (session_)
@@ -99,20 +100,28 @@ bool MovieVideoSource::remote() const { return false; }
 void MovieVideoSource::run(std::stop_token stop_token) {
   using namespace std::chrono_literals;
   const auto started_at = std::chrono::steady_clock::now();
+  std::optional<std::int64_t> first_pts_ms;
 
   try {
     while (!stop_token.stop_requested()) {
       const auto elapsed =
           std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::steady_clock::now() - started_at);
-      session_->set_playhead_ms(elapsed.count());
+      session_->set_playhead_ms(first_pts_ms.value_or(0) + elapsed.count());
 
       bool emitted = false;
       while (auto frame = session_->pop_video()) {
+        if (!first_pts_ms)
+          first_pts_ms = frame->pts_ms;
+        const auto relative_pts_ms =
+            std::max<std::int64_t>(0, frame->pts_ms - *first_pts_ms);
         const auto due_at =
-            started_at + std::chrono::milliseconds(frame->pts_ms);
-        if (std::chrono::steady_clock::now() < due_at)
-          std::this_thread::sleep_until(due_at);
+            started_at + std::chrono::milliseconds(relative_pts_ms);
+        if (std::chrono::steady_clock::now() < due_at) {
+          std::unique_lock lock(pacing_mutex_);
+          pacing_changed_.wait_until(lock, stop_token, due_at,
+                                     [] { return false; });
+        }
         if (stop_token.stop_requested())
           break;
         emitted = emit_frame(*frame) || emitted;

@@ -134,8 +134,10 @@ movie source combines `PlaybackSession` and libwebrtc only when both
 dependencies are enabled: FFmpeg produces bounded RGBA frames, libyuv converts
 them to I420, and a monotonic worker emits them according to media PTS. The host
 alone opens the file; the viewer receives only encoded WebRTC media. Movie
-source shutdown joins its pacing worker and closes the playback session before
-the PeerConnection releases its track.
+timing is normalized against the first decoded PTS, including files whose
+timeline does not start at zero. Source shutdown interrupts any pending PTS
+wait, joins its pacing worker, and closes the playback session before the
+PeerConnection releases its track.
 
 Movie audio is deliberately absent from this video slice. It must use a
 separate unprocessed stereo PCM track and must never enter the native

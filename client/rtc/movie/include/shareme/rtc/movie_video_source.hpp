@@ -3,6 +3,7 @@
 #include "shareme/rtc/local_video_source.hpp"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -57,6 +58,8 @@ private:
   const std::filesystem::path movie_path_;
   std::unique_ptr<media::PlaybackSession> session_;
   std::jthread worker_;
+  std::mutex pacing_mutex_;
+  std::condition_variable_any pacing_changed_;
   std::atomic_bool running_{false};
   std::atomic<std::uint64_t> generated_count_{0};
   std::atomic<std::uint64_t> dropped_count_{0};
