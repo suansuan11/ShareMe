@@ -261,7 +261,7 @@ git commit -m "feat: verify signaled movie video"
 - Create: `docs/verification/signaled-movie-video.md`
 - Modify: `docs/superpowers/plans/2026-07-31-signaled-movie-video.md`
 
-- [ ] **Step 1: Record exact evidence and exclusions**
+- [x] **Step 1: Record exact evidence and exclusions**
 
 Document the build commands, generated fixture, viewer frame count and
 dimensions, microphone packet counters, permission behavior, locked dependency
@@ -269,7 +269,7 @@ path, and exact platform. State explicitly that movie audio, production UI,
 hardware H.264, Windows native media, TURN, and public-network behavior remain
 unverified.
 
-- [ ] **Step 2: Run the complete feature-branch matrix**
+- [x] **Step 2: Run the complete feature-branch matrix**
 
 ```bash
 cd server && go test -count=1 -race ./... && go vet ./...
