@@ -3,12 +3,14 @@
 #include "shareme/media/ffmpeg_media_source.hpp"
 #include "shareme/media/media_frame.hpp"
 #include "shareme/media/playback_session.hpp"
+#include "shareme/rtc/movie_timeline.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <thread>
 #include <utility>
 
@@ -19,15 +21,68 @@
 #include "rtc_base/time_utils.h"
 
 namespace shareme::rtc {
+namespace {
+
+[[nodiscard]] bool add_elapsed(std::int64_t start_time_ms,
+                               std::int64_t elapsed_ms,
+                               std::int64_t &result) noexcept {
+  if (elapsed_ms < 0 ||
+      start_time_ms > std::numeric_limits<std::int64_t>::max() - elapsed_ms) {
+    return false;
+  }
+  result = start_time_ms + elapsed_ms;
+  return true;
+}
+
+[[nodiscard]] bool calculate_due_at(MovieTimeline::TimePoint epoch,
+                                    std::int64_t pts_ms,
+                                    std::int64_t start_time_ms,
+                                    MovieTimeline::TimePoint &due_at) noexcept {
+  if (pts_ms < start_time_ms)
+    return false;
+
+  const auto delta_ms = static_cast<std::uint64_t>(pts_ms) -
+                        static_cast<std::uint64_t>(start_time_ms);
+  const auto since_epoch = epoch.time_since_epoch();
+  const auto available =
+      since_epoch < MovieTimeline::Clock::duration::zero()
+          ? MovieTimeline::Clock::duration::max()
+          : MovieTimeline::Clock::duration::max() - since_epoch;
+  const auto maximum_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(available).count();
+  if (maximum_ms < 0 ||
+      delta_ms > static_cast<std::uint64_t>(maximum_ms)) {
+    return false;
+  }
+
+  due_at =
+      epoch + std::chrono::milliseconds(static_cast<std::int64_t>(delta_ms));
+  return true;
+}
+
+} // namespace
 
 webrtc::scoped_refptr<MovieVideoSource>
 MovieVideoSource::create(std::filesystem::path movie_path) {
+  return create(std::move(movie_path), std::make_shared<MovieTimeline>());
+}
+
+webrtc::scoped_refptr<MovieVideoSource>
+MovieVideoSource::create(std::filesystem::path movie_path,
+                         std::shared_ptr<MovieTimeline> timeline) {
+  if (!timeline)
+    timeline = std::make_shared<MovieTimeline>();
   return webrtc::scoped_refptr<MovieVideoSource>(
-      new MovieVideoSource(std::move(movie_path)));
+      new MovieVideoSource(std::move(movie_path), std::move(timeline)));
 }
 
 MovieVideoSource::MovieVideoSource(std::filesystem::path movie_path)
-    : movie_path_(std::move(movie_path)) {}
+    : MovieVideoSource(std::move(movie_path),
+                       std::make_shared<MovieTimeline>()) {}
+
+MovieVideoSource::MovieVideoSource(std::filesystem::path movie_path,
+                                   std::shared_ptr<MovieTimeline> timeline)
+    : movie_path_(std::move(movie_path)), timeline_(std::move(timeline)) {}
 
 MovieVideoSource::~MovieVideoSource() { stop(); }
 
@@ -40,7 +95,8 @@ bool MovieVideoSource::start() {
   try {
     auto session = std::make_unique<media::PlaybackSession>(
         std::make_unique<media::FfmpegMediaSource>(
-            media::FfmpegMediaSourceOptions{.decode_audio = false}));
+            media::FfmpegMediaSourceOptions{.decode_video = true,
+                                            .decode_audio = false}));
     const auto info = session->open(movie_path_);
     if (!info.has_video) {
       session->close();
@@ -48,6 +104,8 @@ bool MovieVideoSource::start() {
       set_error("movie-video-unavailable");
       return false;
     }
+    media_start_time_ms_ = info.start_time_ms;
+    epoch_ = timeline_->start();
     session->play();
     session_ = std::move(session);
     worker_ =
@@ -83,6 +141,12 @@ std::uint64_t MovieVideoSource::dropped_count() const noexcept {
   return dropped_count_.load(std::memory_order_relaxed);
 }
 
+std::optional<std::int64_t> MovieVideoSource::last_pts_ms() const noexcept {
+  if (!has_last_pts_.load(std::memory_order_acquire))
+    return std::nullopt;
+  return last_pts_ms_.load(std::memory_order_relaxed);
+}
+
 std::string MovieVideoSource::error() const {
   std::lock_guard lock(error_mutex_);
   return error_;
@@ -100,25 +164,30 @@ bool MovieVideoSource::remote() const { return false; }
 
 void MovieVideoSource::run(std::stop_token stop_token) {
   using namespace std::chrono_literals;
-  const auto started_at = std::chrono::steady_clock::now();
-  std::optional<std::int64_t> first_pts_ms;
 
   try {
     while (!stop_token.stop_requested()) {
       const auto elapsed =
           std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::steady_clock::now() - started_at);
-      session_->set_playhead_ms(first_pts_ms.value_or(0) + elapsed.count());
+              MovieTimeline::Clock::now() - epoch_);
+      std::int64_t playhead_ms = 0;
+      if (!add_elapsed(media_start_time_ms_, elapsed.count(), playhead_ms)) {
+        set_error("movie-frame-invalid");
+        break;
+      }
+      session_->set_playhead_ms(playhead_ms);
 
       bool emitted = false;
+      bool invalid_frame = false;
       while (auto frame = session_->pop_video()) {
-        if (!first_pts_ms)
-          first_pts_ms = frame->pts_ms;
-        const auto relative_pts_ms =
-            std::max<std::int64_t>(0, frame->pts_ms - *first_pts_ms);
-        const auto due_at =
-            started_at + std::chrono::milliseconds(relative_pts_ms);
-        if (std::chrono::steady_clock::now() < due_at) {
+        MovieTimeline::TimePoint due_at;
+        if (!calculate_due_at(epoch_, frame->pts_ms, media_start_time_ms_,
+                              due_at)) {
+          set_error("movie-frame-invalid");
+          invalid_frame = true;
+          break;
+        }
+        if (MovieTimeline::Clock::now() < due_at) {
           std::unique_lock lock(pacing_mutex_);
           pacing_changed_.wait_until(lock, stop_token, due_at,
                                      [] { return false; });
@@ -127,6 +196,8 @@ void MovieVideoSource::run(std::stop_token stop_token) {
           break;
         emitted = emit_frame(*frame) || emitted;
       }
+      if (invalid_frame)
+        break;
 
       const auto playback_state = session_->state();
       if (playback_state == media::PlaybackState::failed) {
@@ -135,7 +206,8 @@ void MovieVideoSource::run(std::stop_token stop_token) {
       }
       if (playback_state == media::PlaybackState::ended && !emitted)
         break;
-      std::this_thread::sleep_for(2ms);
+      std::unique_lock lock(pacing_mutex_);
+      pacing_changed_.wait_for(lock, stop_token, 2ms, [] { return false; });
     }
   } catch (const std::exception &) {
     set_error("movie-decode-failed");
@@ -200,6 +272,8 @@ bool MovieVideoSource::emit_frame(const media::VideoFrame &frame) {
                                .build();
   OnFrame(video_frame);
   last_timestamp_us_.store(timestamp_us, std::memory_order_relaxed);
+  last_pts_ms_.store(frame.pts_ms, std::memory_order_relaxed);
+  has_last_pts_.store(true, std::memory_order_release);
   generated_count_.fetch_add(1, std::memory_order_relaxed);
   return true;
 }

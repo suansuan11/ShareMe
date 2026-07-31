@@ -1,6 +1,8 @@
 add_library(
   shareme_movie_rtc
   STATIC
+    src/movie_audio_source.cpp
+    src/movie_timeline.cpp
     src/movie_video_source.cpp
 )
 add_library(ShareMe::MovieRTC ALIAS shareme_movie_rtc)

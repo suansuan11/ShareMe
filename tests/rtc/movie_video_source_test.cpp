@@ -45,6 +45,7 @@ void decodes_and_paces_movie_frames(const std::filesystem::path &movie_path) {
   REQUIRE(sink.timestamps_increase());
   REQUIRE(sink.last_luma_min() < sink.last_luma_max());
   REQUIRE(source->generated_count() >= sink.frame_count());
+  REQUIRE(source->last_pts_ms().has_value());
 }
 
 void missing_movie_is_typed_failure(const std::filesystem::path &directory) {
@@ -83,6 +84,8 @@ void nonzero_pts_is_normalized(const std::filesystem::path &movie_path) {
   REQUIRE(source->error().empty());
   REQUIRE(sink.frame_count() >= 20);
   REQUIRE(sink.timestamps_increase());
+  REQUIRE(source->last_pts_ms().has_value());
+  REQUIRE(*source->last_pts_ms() >= 5'000);
 }
 
 void stop_interrupts_pts_gap(const std::filesystem::path &movie_path) {
