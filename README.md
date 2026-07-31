@@ -6,7 +6,7 @@ ShareMe 是面向一名主播和一名观众的桌面影片实时共享与语音
 
 项目已完成可移植 C++ 核心、构建基线、队列约束和同步决策测试，并在
 macOS ARM64 上验证 FFmpeg 解码、Qt/QML 本地播放、libwebrtc 本机回环，
-以及经 Qt/Go 信令建立的双进程真实影片视频和双向真实麦克风通话。
+以及经 Qt/Go 信令建立的双进程真实影片音视频和双向真实麦克风通话。
 Windows 进程音频捕获仍是后续独立技术验证。
 
 ## 当前范围
@@ -108,6 +108,7 @@ SHAREME_ENABLE_WEBRTC
 - [WebRTC 双进程信令通话验证](docs/verification/webrtc-signaled-call.md)
 - [WebRTC 双进程真实麦克风通话验证](docs/verification/signaled-microphone-call.md)
 - [WebRTC 双进程真实影片视频验证](docs/verification/signaled-movie-video.md)
+- [WebRTC 双进程真实影片音频验证](docs/verification/signaled-movie-audio.md)
 
 ## 验证状态
 
@@ -126,12 +127,14 @@ SHAREME_ENABLE_WEBRTC
 | macOS ARM64 Qt + WebRTC 双进程测试通话 | 双端视频与合成音频收发自动化通过 |
 | macOS ARM64 Qt + WebRTC 双进程真实麦克风通话 | 双端真实麦克风 RTP 与本地音频电平验收通过 |
 | macOS ARM64 FFmpeg + Qt + WebRTC 真实影片视频 | 主播独占片源，观众端收到解码影片帧并通过自动化验收 |
+| macOS ARM64 FFmpeg + Qt + WebRTC 独立影片音频 | 观众端收到 48 kHz 双声道 Opus 解码 PCM，且主播发送端影片音视频 PTS 偏差通过自动化验收 |
 
-当前已提供本地信令服务和双进程 WebRTC 测试媒体、真实麦克风通话，运行与验证方式见
+当前已提供本地信令服务和双进程 WebRTC 测试媒体、真实麦克风通话及
+独立影片音视频轨道，运行与验证方式见
 [信令基础验证](docs/verification/signaling-foundation.md)与
-[WebRTC 双进程真实影片视频验证](docs/verification/signaled-movie-video.md)。
-下一功能阶段接入与麦克风完全隔离的影片 PCM/Opus 音频轨道。TURN、
-Windows 真机 WebRTC 与进程级
+[WebRTC 双进程真实影片音频验证](docs/verification/signaled-movie-audio.md)。
+现有仓库外缓存的 libwebrtc 构建依赖仍用于这些验证并已保留。下一阶段
+进入播放器集成与接收端播放控制；TURN、Windows 真机 WebRTC 与进程级
 音频捕获验收继续并行进行；在完成前不得宣称 Windows 原生媒体支持已经验证。
 
 状态必须以最近一次真实构建或测试结果为准。平台、硬件或网络未参与

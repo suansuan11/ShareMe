@@ -6,7 +6,7 @@ if(TARGET ShareMe::MovieRTC)
   target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::MovieRTC)
   target_compile_definitions(
     shareme_signaled_call_probe
-    PRIVATE SHAREME_HAS_MOVIE_VIDEO=1
+    PRIVATE SHAREME_HAS_MOVIE_RTC=1
   )
 else()
   target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::WebRTC)

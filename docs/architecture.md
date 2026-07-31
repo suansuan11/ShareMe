@@ -134,16 +134,21 @@ movie source combines `PlaybackSession` and libwebrtc only when both
 dependencies are enabled: FFmpeg produces bounded RGBA frames, libyuv converts
 them to I420, and a monotonic worker emits them according to media PTS. The host
 alone opens the file; the viewer receives only encoded WebRTC media. Movie
-timing is normalized against the first decoded PTS, including files whose
-timeline does not start at zero. Source shutdown interrupts any pending PTS
-wait, joins its pacing worker, and closes the playback session before the
-PeerConnection releases its track.
+timing is normalized against the container start PTS, including files whose
+timeline does not start at zero.
 
-Movie audio is deliberately absent from this video slice. It must use a
-separate unprocessed stereo PCM track and must never enter the native
-microphone ADM or voice AEC/NS/AGC path. `MovieVideoSource` therefore opens its
-FFmpeg source with audio decoding disabled, so an earlier audio timeline cannot
-block discovery or pacing of the first video frame.
+Movie video and movie audio open independent video-only and audio-only FFmpeg
+decoders for the same host file. They share one `MovieTimeline` monotonic epoch,
+so original stream offsets are retained without coupling the two decode
+workers. `MovieAudioSource` normalizes decoded samples to 48 kHz stereo S16,
+rechunks them into exact 480-sample-per-channel callbacks, and publishes them
+through a dedicated unprocessed `movie-audio` WebRTC track. Its Opus media
+section explicitly negotiates `stereo=1` and `sprop-stereo=1`; the separate
+voice track continues to use native microphone AEC/NS/AGC. The viewer attaches
+a counting PCM sink to movie audio for automated validation while remote
+speaker playout remains disabled. Source shutdown interrupts pending PTS waits,
+joins both pacing workers, closes playback sessions, detaches sinks, and then
+releases the PeerConnection tracks.
 
 ## Capability and Failure Model
 

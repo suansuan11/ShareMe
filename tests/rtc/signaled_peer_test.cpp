@@ -241,6 +241,18 @@ int main() {
           std::string::npos);
   REQUIRE(movie_offer.find("a=msid:shareme-test movie-audio") !=
           std::string::npos);
+  const auto audio_section = [&](std::size_t track_position) {
+    const auto start = movie_offer.rfind("m=audio", track_position);
+    const auto end = movie_offer.find("\r\nm=", track_position);
+    REQUIRE(start != std::string::npos);
+    return movie_offer.substr(
+        start, end == std::string::npos ? std::string::npos : end - start);
+  };
+  const auto voice_section = audio_section(host_voice_id);
+  const auto movie_section = audio_section(movie_audio_id);
+  REQUIRE(voice_section.find("stereo=1") == std::string::npos);
+  REQUIRE(movie_section.find("stereo=1") != std::string::npos);
+  REQUIRE(movie_section.find("sprop-stereo=1") != std::string::npos);
   movie_peer->cancel_wait();
   const auto movie_result = movie_peer->wait(std::chrono::seconds(1));
   REQUIRE(movie_result.movie_audio_chunks_generated == 123);

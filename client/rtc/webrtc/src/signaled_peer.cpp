@@ -23,6 +23,7 @@
 #include "counting_audio_sink.hpp"
 #include "counting_video_sink.hpp"
 #include "microphone_permission.hpp"
+#include "pc/session_description.h"
 #include "rtc_base/thread.h"
 #include "shareme/rtc/candidate_stager.hpp"
 #include "test_pattern_source.hpp"
@@ -466,6 +467,16 @@ private:
   }
   void on_local_description(
       bool offer, std::unique_ptr<webrtc::SessionDescriptionInterface> desc) {
+    const auto needs_movie_stereo =
+        (offer && movie_audio_source_) ||
+        (!offer && remote_movie_audio_mid_.has_value());
+    const auto target_mid =
+        offer ? std::optional<std::string>{} : remote_movie_audio_mid_;
+    if (needs_movie_stereo &&
+        !enable_movie_audio_stereo(*desc->description(), target_mid)) {
+      fail("movie-audio-source-unavailable");
+      return;
+    }
     std::string sdp;
     if (!desc->ToString(&sdp)) {
       fail("SDP serialization failed");
@@ -483,6 +494,53 @@ private:
         }));
     peer_->SetLocalDescription(observer.get(), desc.release());
   }
+  [[nodiscard]] static bool
+  enable_movie_audio_stereo(webrtc::SessionDescription &description,
+                            const std::optional<std::string> &target_mid) {
+    for (auto &content : description.contents()) {
+      if (target_mid && content.mid() != *target_mid)
+        continue;
+      auto *media = content.media_description();
+      if (!media || media->type() != webrtc::MediaType::AUDIO)
+        continue;
+      if (!target_mid) {
+        bool is_movie_audio = false;
+        for (const auto &stream : media->streams()) {
+          if (stream.id == "movie-audio") {
+            is_movie_audio = true;
+            break;
+          }
+        }
+        if (!is_movie_audio)
+          continue;
+      }
+      auto codecs = media->codecs();
+      bool opus_found = false;
+      for (auto &codec : codecs) {
+        if (codec.name != "opus" && codec.name != "OPUS")
+          continue;
+        codec.params["stereo"] = "1";
+        codec.params["sprop-stereo"] = "1";
+        opus_found = true;
+      }
+      if (opus_found)
+        media->set_codecs(codecs);
+      return opus_found;
+    }
+    return false;
+  }
+  [[nodiscard]] static std::optional<std::string>
+  find_movie_audio_mid(const webrtc::SessionDescription &description) {
+    for (const auto &content : description.contents()) {
+      const auto *media = content.media_description();
+      if (!media || media->type() != webrtc::MediaType::AUDIO)
+        continue;
+      for (const auto &stream : media->streams())
+        if (stream.id == "movie-audio")
+          return content.mid();
+    }
+    return std::nullopt;
+  }
   void apply_remote(std::string type, std::string sdp) {
     const auto sdp_type =
         type == "offer" ? webrtc::SdpType::kOffer : webrtc::SdpType::kAnswer;
@@ -491,6 +549,8 @@ private:
       fail("remote SDP parsing failed");
       return;
     }
+    if (type == "offer")
+      remote_movie_audio_mid_ = find_movie_audio_mid(*desc->description());
     auto observer = webrtc::scoped_refptr<SetObserver>(new SetObserver(
         [this, active = callbacks_active_] {
           if (!active->load(std::memory_order_acquire))
@@ -633,6 +693,7 @@ private:
   std::atomic_bool stopped_{false};
   std::atomic_bool remote_movie_audio_seen_{false};
   std::atomic_bool movie_audio_source_stopped_{false};
+  std::optional<std::string> remote_movie_audio_mid_;
   std::shared_ptr<std::atomic_bool> callbacks_active_{
       std::make_shared<std::atomic_bool>(true)};
 };
