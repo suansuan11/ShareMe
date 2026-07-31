@@ -47,6 +47,7 @@ struct SignaledPeerResult {
   std::uint64_t audio_packets_received{0};
   std::optional<double> local_audio_level;
   std::uint64_t movie_audio_frames_received{0};
+  std::uint64_t movie_audio_invalid_frames_received{0};
   int movie_audio_sample_rate{0};
   int movie_audio_channels{0};
   int movie_audio_peak{0};
@@ -73,6 +74,12 @@ valid_signaled_peer_config(const SignaledPeerConfig &config) noexcept;
                                             std::string_view sdp) noexcept;
 [[nodiscard]] bool valid_remote_candidate(std::string_view mid, int line,
                                           std::string_view candidate) noexcept;
+[[nodiscard]] bool
+is_expected_voice_rtp_track(SignaledRole role, bool outbound,
+                            std::string_view track_identifier) noexcept;
+[[nodiscard]] bool is_expected_inbound_voice_rtp_track(
+    SignaledRole role, std::string_view track_identifier,
+    std::string_view stats_mid, std::string_view expected_voice_mid) noexcept;
 
 class SignaledPeer final {
 public:

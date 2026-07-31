@@ -10,10 +10,24 @@ track, while audio was normalized to 48 kHz stereo S16, rechunked to exact
 track. Host and viewer microphone voice tracks remained separate with native
 AEC, noise suppression, and automatic gain control enabled.
 
-The viewer never received the movie path. It attached a counting sink only to
-the remote `movie-audio` track and verified decoded PCM callbacks without
-enabling speaker playout. The host reported generated chunks and the absolute
-difference between the latest emitted movie-audio and movie-video PTS values.
+The viewer never received the movie path. Structured offer parsing records
+whether a `movie-audio` track is expected and its media-section MID; acceptance
+cannot be bypassed when the offer declares that track but `OnTrack` never
+arrives. The viewer attaches a counting sink only after the negotiated
+connection has had a bounded 100 ms format-stabilization window. Every accepted
+callback must contain non-null 16-bit, 48 kHz, two-channel PCM with exactly 480
+frames. Invalid callbacks are counted separately, do not advance the
+100-callback threshold or peak, and must remain zero in the real smoke.
+Speaker playout remains disabled. The host reported generated chunks and the
+absolute difference between the latest emitted movie-audio and movie-video PTS
+values.
+
+Voice RTP counters are track-specific. Outbound stats follow
+`media_source_id` to `RTCAudioSourceStats.track_identifier`; inbound stats use
+the identifier when it represents the SDP track and otherwise map
+`RTCInboundRtpStreamStats.mid` to the structurally parsed remote voice MID.
+Thus host `host-voice`/viewer `viewer-voice` packets count as voice while
+`movie-audio` packets cannot inflate bidirectional voice acceptance.
 The CLI and smoke output contain only dimensions, numeric counters, candidate
 type, and stable error categories; they exclude paths, SDP, ICE candidates,
 addresses, tokens, and credentials.
@@ -92,6 +106,8 @@ failures use `SMOKE_ERROR smoke-failed`. `KeyboardInterrupt`, `SystemExit`, and
 unexpected programming exceptions are deliberately not swallowed.
 An unavailable optional A/V skew is printed as numeric sentinel `-1`; movie
 audio acceptance rejects that sentinel before applying the 50 ms threshold.
+The stable result line also reports
+`movie_audio_invalid_frames_received`; movie acceptance requires it to be zero.
 
 ## Recorded results
 
@@ -103,24 +119,25 @@ the command package with no tests, and `go vet ./...` exited zero.
 Synthetic two-process regression; viewer result is first:
 
 ```text
-ROOM WVFOLV
-RESULT connected=1 video=60 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
-RESULT connected=1 video=60 width=640 height=360 audio_sent=103 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+ROOM F6SXGI
+RESULT connected=1 video=59 width=640 height=360 audio_sent=103 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 movie_audio_invalid_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+RESULT connected=1 video=59 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 movie_audio_invalid_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
 ```
 
 Movie video, independent movie audio, and bidirectional microphones; viewer
 result is first:
 
 ```text
-ROOM B3AWXG
-RESULT connected=1 video=58 width=320 height=180 audio_sent=149 audio_received=297 audio_level=0.0270699 movie_audio_frames_received=302 sample_rate=48000 channels=2 peak=3380 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
-RESULT connected=1 video=59 width=640 height=360 audio_sent=297 audio_received=101 audio_level=0.0908841 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=200 movie_av_skew_ms=23 candidate=host error=
+ROOM ZEHMDW
+RESULT connected=1 video=58 width=320 height=180 audio_sent=154 audio_received=101 audio_level=0.0220038 movie_audio_frames_received=303 movie_audio_invalid_frames_received=0 sample_rate=48000 channels=2 peak=3347 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+RESULT connected=1 video=60 width=640 height=360 audio_sent=101 audio_received=101 audio_level=0.0241707 movie_audio_frames_received=0 movie_audio_invalid_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=200 movie_av_skew_ms=23 candidate=host error=
 ```
 
 This exceeds the acceptance thresholds of 100 viewer movie-audio callbacks,
-48 kHz stereo with nonzero peak, 100 generated host chunks, at most 50 ms
+with every counted callback exactly 16-bit 48 kHz stereo and 480 frames, zero
+invalid callbacks, a nonzero peak, 100 generated host chunks, at most 50 ms
 sender-side A/V PTS skew, 20 received 320x180 movie frames, and nonzero
-bidirectional voice RTP.
+track-specific bidirectional voice RTP.
 
 ## Environment and review fixes
 

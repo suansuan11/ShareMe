@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 namespace {
 void require(bool condition, const char *expression, int line) {
   if (!condition) {
@@ -102,30 +103,70 @@ int main() {
   REQUIRE(missing_movie_audio_error == "movie-audio-source-unavailable");
 
   shareme::rtc::CountingAudioSink audio_sink;
-  const std::int16_t samples[]{-12, 31'000, -32'768, 2};
-  audio_sink.OnData(samples, 16, 48'000, 2, 2, 1);
-  REQUIRE(audio_sink.callback_count() == 1);
+  std::vector<std::int16_t> samples(480 * 2);
+  samples[0] = -12;
+  samples[1] = 31'000;
+  samples[2] = -32'768;
+  samples[3] = 2;
+  audio_sink.OnData(samples.data(), 16, 48'000, 2, 480, 1);
+  REQUIRE(audio_sink.valid_callback_count() == 1);
+  REQUIRE(audio_sink.invalid_callback_count() == 0);
   REQUIRE(audio_sink.sample_rate() == 48'000);
   REQUIRE(audio_sink.channels() == 2);
   REQUIRE(audio_sink.peak() == 32'768);
   const auto first_audio_snapshot = audio_sink.snapshot();
-  REQUIRE(first_audio_snapshot.callback_count == 1);
+  REQUIRE(first_audio_snapshot.valid_callback_count == 1);
+  REQUIRE(first_audio_snapshot.invalid_callback_count == 0);
   REQUIRE(first_audio_snapshot.sample_rate == 48'000);
   REQUIRE(first_audio_snapshot.channels == 2);
   REQUIRE(first_audio_snapshot.peak == 32'768);
-  auto publish_second_callback = std::async(std::launch::async, [&] {
-    const std::int16_t quiet_samples[]{-1, 2};
-    audio_sink.OnData(quiet_samples, 16, 44'100, 1, 2, 2);
+  audio_sink.OnData(nullptr, 16, 48'000, 2, 480, 2);
+  audio_sink.OnData(samples.data(), 32, 48'000, 2, 480, 3);
+  audio_sink.OnData(samples.data(), 16, 48'000, 2, 479, 4);
+  audio_sink.OnData(samples.data(), 16, 48'000, 1, 480, 5);
+  REQUIRE(audio_sink.valid_callback_count() == 1);
+  REQUIRE(audio_sink.invalid_callback_count() == 4);
+  auto publish_second_callback = std::async(std::launch::async, [&audio_sink] {
+    std::vector<std::int16_t> quiet_samples(480 * 2);
+    quiet_samples[0] = -1;
+    quiet_samples[1] = 2;
+    audio_sink.OnData(quiet_samples.data(), 16, 48'000, 2, 480, 6);
   });
   publish_second_callback.get();
   const auto second_audio_snapshot = audio_sink.snapshot();
-  REQUIRE(second_audio_snapshot.callback_count == 2);
-  REQUIRE(second_audio_snapshot.sample_rate == 44'100);
-  REQUIRE(second_audio_snapshot.channels == 1);
+  REQUIRE(second_audio_snapshot.valid_callback_count == 2);
+  REQUIRE(second_audio_snapshot.invalid_callback_count == 4);
+  REQUIRE(second_audio_snapshot.sample_rate == 48'000);
+  REQUIRE(second_audio_snapshot.channels == 2);
   REQUIRE(second_audio_snapshot.peak == 32'768);
-  REQUIRE(shareme::rtc::has_sufficient_movie_audio_reception(false, 0));
-  REQUIRE(!shareme::rtc::has_sufficient_movie_audio_reception(true, 99));
-  REQUIRE(shareme::rtc::has_sufficient_movie_audio_reception(true, 100));
+  REQUIRE(
+      shareme::rtc::has_sufficient_movie_audio_reception(false, false, 0));
+  REQUIRE(
+      !shareme::rtc::has_sufficient_movie_audio_reception(true, false, 100));
+  REQUIRE(
+      !shareme::rtc::has_sufficient_movie_audio_reception(true, true, 99));
+  REQUIRE(
+      shareme::rtc::has_sufficient_movie_audio_reception(true, true, 100));
+  REQUIRE(shareme::rtc::is_expected_voice_rtp_track(
+      SignaledRole::host, true, "host-voice"));
+  REQUIRE(shareme::rtc::is_expected_voice_rtp_track(
+      SignaledRole::host, false, "viewer-voice"));
+  REQUIRE(shareme::rtc::is_expected_voice_rtp_track(
+      SignaledRole::viewer, true, "viewer-voice"));
+  REQUIRE(shareme::rtc::is_expected_voice_rtp_track(
+      SignaledRole::viewer, false, "host-voice"));
+  REQUIRE(!shareme::rtc::is_expected_voice_rtp_track(
+      SignaledRole::host, true, "movie-audio"));
+  REQUIRE(!shareme::rtc::is_expected_voice_rtp_track(
+      SignaledRole::viewer, false, "movie-audio"));
+  REQUIRE(!shareme::rtc::is_expected_voice_rtp_track(
+      SignaledRole::viewer, true, ""));
+  REQUIRE(shareme::rtc::is_expected_inbound_voice_rtp_track(
+      SignaledRole::viewer, "receiver-uuid", "voice-mid", "voice-mid"));
+  REQUIRE(!shareme::rtc::is_expected_inbound_voice_rtp_track(
+      SignaledRole::viewer, "receiver-uuid", "movie-mid", "voice-mid"));
+  REQUIRE(!shareme::rtc::is_expected_inbound_voice_rtp_track(
+      SignaledRole::viewer, "movie-audio", "movie-mid", "voice-mid"));
   std::string invalid_video_error;
   shareme::rtc::SignaledPeerCallbacks invalid_video_callbacks;
   invalid_video_callbacks.failure = [&](std::string category) {
@@ -253,6 +294,27 @@ int main() {
   REQUIRE(voice_section.find("stereo=1") == std::string::npos);
   REQUIRE(movie_section.find("stereo=1") != std::string::npos);
   REQUIRE(movie_section.find("sprop-stereo=1") != std::string::npos);
+
+  std::promise<std::string> missing_track_answer_promise;
+  auto missing_track_answer_future = missing_track_answer_promise.get_future();
+  shareme::rtc::SignaledPeerCallbacks missing_track_callbacks;
+  missing_track_callbacks.description =
+      [&missing_track_answer_promise](std::string type, std::string) {
+        if (type == "answer")
+          missing_track_answer_promise.set_value(std::move(type));
+      };
+  auto missing_track_peer = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::viewer}, std::move(missing_track_callbacks));
+  REQUIRE(missing_track_peer != nullptr);
+  REQUIRE(missing_track_peer->start());
+  REQUIRE(missing_track_peer->receive_description("offer", movie_offer));
+  REQUIRE(missing_track_answer_future.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+  const auto missing_track_result =
+      missing_track_peer->wait(std::chrono::milliseconds(100));
+  REQUIRE(missing_track_result.error == "movie-audio-unavailable");
+  missing_track_peer->stop();
+
   movie_peer->cancel_wait();
   const auto movie_result = movie_peer->wait(std::chrono::seconds(1));
   REQUIRE(movie_result.movie_audio_chunks_generated == 123);

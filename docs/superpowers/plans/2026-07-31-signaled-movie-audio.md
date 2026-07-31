@@ -337,6 +337,7 @@ using LocalAudioSourceFactory =
 
 struct SignaledPeerResult {
   std::uint64_t movie_audio_frames_received{0};
+  std::uint64_t movie_audio_invalid_frames_received{0};
   int movie_audio_sample_rate{0};
   int movie_audio_channels{0};
   int movie_audio_peak{0};

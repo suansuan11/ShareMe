@@ -121,6 +121,8 @@ int main(int argc, char **argv) {
                       << result.local_audio_level.value_or(0.0)
                       << " movie_audio_frames_received="
                       << result.movie_audio_frames_received
+                      << " movie_audio_invalid_frames_received="
+                      << result.movie_audio_invalid_frames_received
                       << " sample_rate=" << result.movie_audio_sample_rate
                       << " channels=" << result.movie_audio_channels
                       << " peak=" << result.movie_audio_peak

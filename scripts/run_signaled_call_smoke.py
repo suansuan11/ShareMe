@@ -20,8 +20,10 @@ from typing import Optional, TextIO
 RESULT = re.compile(
     r"RESULT connected=1 video=(\d+) width=(\d+) height=(\d+) "
     r"audio_sent=(\d+) audio_received=(\d+) audio_level=([0-9.eE+-]+) "
-    r"movie_audio_frames_received=(\d+) sample_rate=(\d+) channels=(\d+) "
-    r"peak=(\d+) chunks_generated=(\d+) movie_av_skew_ms=(-?\d+) "
+    r"movie_audio_frames_received=(\d+) "
+    r"movie_audio_invalid_frames_received=(\d+) "
+    r"sample_rate=(\d+) channels=(\d+) peak=(\d+) "
+    r"chunks_generated=(\d+) movie_av_skew_ms=(-?\d+) "
     r"candidate=([^ ]+) error=$"
 )
 
@@ -154,12 +156,16 @@ def validate(
                 "viewer did not receive the expected movie video"
             )
     if movie_audio and label == "viewer":
-        movie_frames, sample_rate, channels, peak = (
-            int(value) for value in match.groups()[6:10]
+        movie_frames, invalid_frames, sample_rate, channels, peak = (
+            int(value) for value in match.groups()[6:11]
         )
         if movie_frames < 100:
             raise SmokeRuntimeError(
                 "viewer did not receive enough movie audio"
+            )
+        if invalid_frames != 0:
+            raise SmokeRuntimeError(
+                "viewer received an invalid callback for movie audio"
             )
         if (sample_rate, channels) != (48_000, 2):
             raise SmokeRuntimeError(
@@ -168,8 +174,8 @@ def validate(
         if peak <= 0:
             raise SmokeRuntimeError("viewer movie audio was silent")
     if movie_audio and label == "host":
-        chunks_generated = int(match.group(11))
-        movie_av_skew_ms = int(match.group(12))
+        chunks_generated = int(match.group(12))
+        movie_av_skew_ms = int(match.group(13))
         if chunks_generated < 100:
             raise SmokeRuntimeError(
                 "host did not generate enough movie audio"
