@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <variant>
 
 namespace {
@@ -108,11 +110,139 @@ void seeks_to_requested_region(const std::filesystem::path& movie_path) {
   source.close();
 }
 
+void decodes_audio_without_video(const std::filesystem::path& movie_path) {
+  using shareme::media::AudioFrame;
+  using shareme::media::EndOfStream;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoFrame;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  const auto info = source.open(movie_path);
+
+  REQUIRE_FALSE(info.has_video);
+  REQUIRE(info.has_audio);
+
+  bool saw_audio = false;
+  for (int event_count = 0; event_count < 1'000; ++event_count) {
+    auto event = source.read_next(9);
+    REQUIRE_FALSE(std::holds_alternative<VideoFrame>(event));
+    if (std::holds_alternative<EndOfStream>(event)) {
+      break;
+    }
+    if (const auto* audio = std::get_if<AudioFrame>(&event)) {
+      REQUIRE(info.start_time_ms <= audio->pts_ms);
+      REQUIRE(audio->generation == 9);
+      saw_audio = true;
+      break;
+    }
+  }
+
+  REQUIRE(saw_audio);
+}
+
+void decodes_video_without_audio(const std::filesystem::path& movie_path) {
+  using shareme::media::AudioFrame;
+  using shareme::media::EndOfStream;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoFrame;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = true, .decode_audio = false}};
+  const auto info = source.open(movie_path);
+
+  REQUIRE(info.has_video);
+  REQUIRE_FALSE(info.has_audio);
+
+  bool saw_video = false;
+  for (int event_count = 0; event_count < 1'000; ++event_count) {
+    auto event = source.read_next(10);
+    REQUIRE_FALSE(std::holds_alternative<AudioFrame>(event));
+    if (std::holds_alternative<EndOfStream>(event)) {
+      break;
+    }
+    if (const auto* video = std::get_if<VideoFrame>(&event)) {
+      REQUIRE(video->generation == 10);
+      saw_video = true;
+      break;
+    }
+  }
+
+  REQUIRE(saw_video);
+}
+
+void seeks_audio_without_video(const std::filesystem::path& movie_path) {
+  using shareme::media::AudioFrame;
+  using shareme::media::EndOfStream;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoFrame;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  static_cast<void>(source.open(movie_path));
+  source.seek(600);
+
+  bool saw_audio = false;
+  for (int event_count = 0; event_count < 1'000; ++event_count) {
+    auto event = source.read_next(11);
+    REQUIRE_FALSE(std::holds_alternative<VideoFrame>(event));
+    if (std::holds_alternative<EndOfStream>(event)) {
+      break;
+    }
+    if (const auto* audio = std::get_if<AudioFrame>(&event)) {
+      REQUIRE(audio->pts_ms >= 600);
+      REQUIRE(audio->generation == 11);
+      saw_audio = true;
+      break;
+    }
+  }
+
+  REQUIRE(saw_audio);
+}
+
+void rejects_video_only_media_for_audio_decode(
+    const std::filesystem::path& video_only_path) {
+  using shareme::media::AudioStreamUnavailable;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  try {
+    static_cast<void>(source.open(video_only_path));
+    REQUIRE(false);
+  } catch (const AudioStreamUnavailable& error) {
+    REQUIRE(
+        std::string{error.what()} ==
+        "Media file has no decodable audio stream");
+  }
+}
+
+void rejects_when_all_decoders_are_disabled() {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+
+  try {
+    FfmpegMediaSource source{
+        FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = false}};
+    REQUIRE(false);
+  } catch (const std::invalid_argument&) {
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  REQUIRE(argc == 2);
+  REQUIRE(argc == 3);
   decodes_generated_movie(argv[1]);
   seeks_to_requested_region(argv[1]);
+  decodes_audio_without_video(argv[1]);
+  decodes_video_without_audio(argv[1]);
+  seeks_audio_without_video(argv[1]);
+  rejects_video_only_media_for_audio_decode(argv[2]);
+  rejects_when_all_decoders_are_disabled();
   return EXIT_SUCCESS;
 }

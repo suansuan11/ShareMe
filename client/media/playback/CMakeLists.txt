@@ -3,6 +3,7 @@ add_library(
   STATIC
     src/ffmpeg_media_source.cpp
     src/media_time.cpp
+    src/pcm_chunker.cpp
     src/playback_session.cpp
 )
 add_library(ShareMe::Playback ALIAS shareme_playback)

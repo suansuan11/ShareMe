@@ -7,6 +7,7 @@
 namespace shareme::media {
 
 struct FfmpegMediaSourceOptions {
+  bool decode_video{true};
   bool decode_audio{true};
 };
 

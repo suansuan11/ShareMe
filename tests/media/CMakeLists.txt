@@ -3,8 +3,17 @@ target_link_libraries(shareme_media_time_test PRIVATE ShareMe::Playback)
 
 add_test(NAME media_time COMMAND shareme_media_time_test)
 
+add_executable(shareme_pcm_chunker_test pcm_chunker_test.cpp)
+target_link_libraries(shareme_pcm_chunker_test PRIVATE ShareMe::Playback)
+
+add_test(NAME pcm_chunker COMMAND shareme_pcm_chunker_test)
+
 find_program(SHAREME_FFMPEG_EXECUTABLE ffmpeg REQUIRED)
 set(SHAREME_GENERATED_MEDIA "${CMAKE_CURRENT_BINARY_DIR}/generated-playback.mp4")
+set(
+  SHAREME_GENERATED_VIDEO_ONLY_MEDIA
+  "${CMAKE_CURRENT_BINARY_DIR}/generated-video-only.mp4"
+)
 
 add_test(
   NAME generate_media_fixture
@@ -25,6 +34,26 @@ add_test(
 )
 set_tests_properties(generate_media_fixture PROPERTIES FIXTURES_SETUP media_fixture)
 
+add_test(
+  NAME generate_video_only_media_fixture
+  COMMAND
+    "${SHAREME_FFMPEG_EXECUTABLE}"
+    -hide_banner
+    -loglevel error
+    -y
+    -f lavfi
+    -i "testsrc2=size=160x90:rate=30"
+    -t 1
+    -c:v mpeg4
+    -pix_fmt yuv420p
+    -an
+    "${SHAREME_GENERATED_VIDEO_ONLY_MEDIA}"
+)
+set_tests_properties(
+  generate_video_only_media_fixture
+  PROPERTIES FIXTURES_SETUP video_only_media_fixture
+)
+
 add_executable(
   shareme_ffmpeg_media_source_test
   ffmpeg_media_source_test.cpp
@@ -36,11 +65,15 @@ target_link_libraries(
 
 add_test(
   NAME ffmpeg_media_source
-  COMMAND shareme_ffmpeg_media_source_test "${SHAREME_GENERATED_MEDIA}"
+  COMMAND
+    shareme_ffmpeg_media_source_test
+    "${SHAREME_GENERATED_MEDIA}"
+    "${SHAREME_GENERATED_VIDEO_ONLY_MEDIA}"
 )
 set_tests_properties(
   ffmpeg_media_source
-  PROPERTIES FIXTURES_REQUIRED media_fixture
+  PROPERTIES
+    FIXTURES_REQUIRED "media_fixture;video_only_media_fixture"
 )
 
 add_executable(

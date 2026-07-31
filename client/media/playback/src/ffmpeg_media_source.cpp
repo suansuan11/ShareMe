@@ -71,7 +71,12 @@ namespace {
 
 class FfmpegMediaSource::Impl {
 public:
-  explicit Impl(FfmpegMediaSourceOptions options) : options_(options) {}
+  explicit Impl(FfmpegMediaSourceOptions options) : options_(options) {
+    if (!options_.decode_video && !options_.decode_audio) {
+      throw std::invalid_argument{
+          "At least one FFmpeg decoder must be enabled"};
+    }
+  }
 
   ~Impl() {
     close();
@@ -95,19 +100,21 @@ public:
         throw ffmpeg_error("Could not read media stream information", info_result);
       }
 
-      const AVCodec* video_decoder = nullptr;
-      video_stream_index_ = av_find_best_stream(
-          format_context_,
-          AVMEDIA_TYPE_VIDEO,
-          -1,
-          -1,
-          &video_decoder,
-          0);
-      if (video_stream_index_ < 0 || video_decoder == nullptr) {
-        throw VideoStreamUnavailable{};
+      if (options_.decode_video) {
+        const AVCodec* video_decoder = nullptr;
+        video_stream_index_ = av_find_best_stream(
+            format_context_,
+            AVMEDIA_TYPE_VIDEO,
+            -1,
+            -1,
+            &video_decoder,
+            0);
+        if (video_stream_index_ < 0 || video_decoder == nullptr) {
+          throw VideoStreamUnavailable{};
+        }
+        video_codec_context_ =
+            open_decoder(format_context_, video_stream_index_, video_decoder);
       }
-      video_codec_context_ =
-          open_decoder(format_context_, video_stream_index_, video_decoder);
 
       if (options_.decode_audio) {
         const AVCodec* audio_decoder = nullptr;
@@ -123,6 +130,9 @@ public:
               open_decoder(format_context_, audio_stream_index_, audio_decoder);
         } else {
           audio_stream_index_ = -1;
+          if (!options_.decode_video) {
+            throw AudioStreamUnavailable{};
+          }
         }
       }
 
@@ -133,13 +143,21 @@ public:
       }
 
       MediaInfo info;
-      info.has_video = true;
+      info.has_video = video_codec_context_ != nullptr;
       info.has_audio = audio_codec_context_ != nullptr;
-      info.video_width = video_codec_context_->width;
-      info.video_height = video_codec_context_->height;
+      if (video_codec_context_ != nullptr) {
+        info.video_width = video_codec_context_->width;
+        info.video_height = video_codec_context_->height;
+      }
       if (format_context_->duration != AV_NOPTS_VALUE) {
         info.duration_ms = av_rescale_q(
             format_context_->duration,
+            AV_TIME_BASE_Q,
+            AVRational{1, 1'000});
+      }
+      if (format_context_->start_time != AV_NOPTS_VALUE) {
+        info.start_time_ms = av_rescale_q(
+            format_context_->start_time,
             AV_TIME_BASE_Q,
             AVRational{1, 1'000});
       }
@@ -196,15 +214,18 @@ public:
       target_ms = 0;
     }
 
+    const auto seek_stream_index =
+        video_codec_context_ != nullptr ? video_stream_index_
+                                        : audio_stream_index_;
     const auto stream_time_base =
-        format_context_->streams[video_stream_index_]->time_base;
+        format_context_->streams[seek_stream_index]->time_base;
     const auto target_timestamp = av_rescale_q(
         target_ms,
         AVRational{1, 1'000},
         stream_time_base);
     const auto seek_result = av_seek_frame(
         format_context_,
-        video_stream_index_,
+        seek_stream_index,
         target_timestamp,
         AVSEEK_FLAG_BACKWARD);
     if (seek_result < 0) {
@@ -212,7 +233,9 @@ public:
     }
 
     avformat_flush(format_context_);
-    avcodec_flush_buffers(video_codec_context_);
+    if (video_codec_context_ != nullptr) {
+      avcodec_flush_buffers(video_codec_context_);
+    }
     if (audio_codec_context_ != nullptr) {
       avcodec_flush_buffers(audio_codec_context_);
     }
@@ -266,7 +289,8 @@ public:
 
 private:
   void ensure_open() const {
-    if (format_context_ == nullptr || video_codec_context_ == nullptr) {
+    if (format_context_ == nullptr ||
+        (video_codec_context_ == nullptr && audio_codec_context_ == nullptr)) {
       throw std::logic_error{"Media source is not open"};
     }
   }
