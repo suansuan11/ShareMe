@@ -23,7 +23,7 @@
 - Create: `tests/media/pcm_chunker_test.cpp`
 - Modify: `tests/media/CMakeLists.txt`
 
-- [ ] **Step 1: Write failing FFmpeg stream-selection tests**
+- [x] **Step 1: Write failing FFmpeg stream-selection tests**
 
 Extend the FFmpeg test to open an A/V fixture in audio-only mode and an
 audio-only fixture:
@@ -43,7 +43,7 @@ Add a generated video-only fixture and require
 `AudioStreamUnavailable` in audio-only mode. Retain the existing default and
 video-only cases.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -55,7 +55,7 @@ ctest --preset test-playback-dev -R ffmpeg_media_source --output-on-failure
 Expected: compilation fails because `decode_video`, `start_time_ms`, and
 `AudioStreamUnavailable` do not exist.
 
-- [ ] **Step 3: Implement independent decoder selection and container origin**
+- [x] **Step 3: Implement independent decoder selection and container origin**
 
 Use these public contracts:
 
@@ -87,7 +87,7 @@ decoders, and accept either decoder in `ensure_open()`. Convert
 `format_context_->start_time` from `AV_TIME_BASE_Q` to milliseconds, using zero
 only for `AV_NOPTS_VALUE`.
 
-- [ ] **Step 4: Run FFmpeg and playback regressions**
+- [x] **Step 4: Run FFmpeg and playback regressions**
 
 Run:
 
@@ -98,7 +98,7 @@ ctest --preset test-playback-dev -R 'ffmpeg_media_source|playback_session|playba
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Write failing PCM chunker tests**
+- [x] **Step 5: Write failing PCM chunker tests**
 
 Define the wished-for API in the test:
 
@@ -120,7 +120,7 @@ monotonic 10 ms PTS increments, invalid format rejection, and resetting pending
 samples when the next input PTS differs from the expected position by more than
 10 ms.
 
-- [ ] **Step 6: Run the chunker test and verify RED**
+- [x] **Step 6: Run the chunker test and verify RED**
 
 Run:
 
@@ -131,7 +131,7 @@ ctest --preset test-playback-dev -R pcm_chunker --output-on-failure
 
 Expected: configuration or compilation fails because `PcmChunker` is missing.
 
-- [ ] **Step 7: Implement the bounded 10 ms chunker**
+- [x] **Step 7: Implement the bounded 10 ms chunker**
 
 Use:
 
@@ -155,7 +155,7 @@ samples per channel, emit 480 samples per channel, and compute each chunk PTS
 from the pending first-sample PTS and emitted sample count. On a discontinuity,
 clear pending samples before accepting the new frame.
 
-- [ ] **Step 8: Verify and commit**
+- [x] **Step 8: Verify and commit**
 
 Run:
 
