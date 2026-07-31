@@ -9,13 +9,13 @@
 #include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_factory.h"
 #include "api/units/time_delta.h"
-#include "api/video/adapted_video_track_source.h"
 #include "rtc_base/task_utils/repeating_task.h"
+#include "shareme/rtc/local_video_source.hpp"
 
 namespace shareme::rtc {
 
 class TestPatternSource final : private webrtc::RefCountedBase,
-                                public webrtc::AdaptedVideoTrackSource {
+                                public LocalVideoSource {
 public:
   static webrtc::scoped_refptr<TestPatternSource>
   create(webrtc::TaskQueueFactory &task_queue_factory, int width, int height,
@@ -28,11 +28,12 @@ public:
   TestPatternSource(const TestPatternSource &) = delete;
   TestPatternSource &operator=(const TestPatternSource &) = delete;
 
-  void start();
-  void stop() noexcept;
+  [[nodiscard]] bool start() override;
+  void stop() noexcept override;
 
-  [[nodiscard]] std::uint64_t generated_count() const noexcept;
-  [[nodiscard]] std::uint64_t dropped_count() const noexcept;
+  [[nodiscard]] std::uint64_t generated_count() const noexcept override;
+  [[nodiscard]] std::uint64_t dropped_count() const noexcept override;
+  [[nodiscard]] std::string error() const override { return {}; }
   [[nodiscard]] constexpr std::uint64_t pending_frame_count() const noexcept {
     return 0;
   }

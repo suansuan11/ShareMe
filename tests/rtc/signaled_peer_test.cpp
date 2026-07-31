@@ -1,3 +1,4 @@
+#include "shareme/rtc/local_video_source.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 #include <chrono>
 #include <cstdlib>
@@ -17,6 +18,7 @@ void require(bool condition, const char *expression, int line) {
 int main() {
   using shareme::rtc::SignaledAudioMode;
   using shareme::rtc::SignaledRole;
+  using shareme::rtc::SignaledVideoMode;
   const auto synthetic_policy =
       shareme::rtc::signaled_audio_policy(SignaledAudioMode::synthetic);
   REQUIRE(!synthetic_policy.uses_native_microphone);
@@ -28,6 +30,32 @@ int main() {
   REQUIRE(shareme::rtc::valid_signaled_peer_config(
       {.role = SignaledRole::host,
        .audio_mode = SignaledAudioMode::microphone}));
+  REQUIRE(!shareme::rtc::valid_signaled_peer_config(
+      {.role = SignaledRole::host,
+       .audio_mode = SignaledAudioMode::synthetic,
+       .video_mode = SignaledVideoMode::injected}));
+  shareme::rtc::LocalVideoSourceFactory empty_video_factory =
+      [](webrtc::TaskQueueFactory &) {
+        return webrtc::scoped_refptr<shareme::rtc::LocalVideoSource>{};
+      };
+  REQUIRE(shareme::rtc::valid_signaled_peer_config(
+      {.role = SignaledRole::host,
+       .audio_mode = SignaledAudioMode::synthetic,
+       .video_mode = SignaledVideoMode::injected,
+       .video_source_factory = empty_video_factory}));
+  std::string video_error;
+  shareme::rtc::SignaledPeerCallbacks video_callbacks;
+  video_callbacks.failure = [&](std::string category) {
+    video_error = std::move(category);
+  };
+  auto missing_video_peer = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::host,
+       .audio_mode = SignaledAudioMode::synthetic,
+       .video_mode = SignaledVideoMode::injected,
+       .video_source_factory = std::move(empty_video_factory)},
+      std::move(video_callbacks));
+  REQUIRE(missing_video_peer == nullptr);
+  REQUIRE(video_error == "video-source-unavailable");
   const auto invalid_mode = static_cast<SignaledAudioMode>(99);
   REQUIRE(!shareme::rtc::valid_signaled_peer_config(
       {.role = SignaledRole::host, .audio_mode = invalid_mode}));

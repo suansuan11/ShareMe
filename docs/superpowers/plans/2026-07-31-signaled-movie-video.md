@@ -21,7 +21,7 @@
 - Modify: `tests/rtc/test_pattern_source_test.cpp`
 - Modify: `tests/rtc/signaled_peer_test.cpp`
 
-- [ ] **Step 1: Write failing lifecycle/configuration tests**
+- [x] **Step 1: Write failing lifecycle/configuration tests**
 
 Define the required contract in the tests before production code:
 
@@ -42,7 +42,7 @@ exactly once, stops idempotently, and has no error. Add
 `LocalVideoSourceFactory`, and tests proving injected mode without a factory is
 invalid while a non-null test factory is valid.
 
-- [ ] **Step 2: Run focused tests and confirm RED**
+- [x] **Step 2: Run focused tests and confirm RED**
 
 ```bash
 cmake --build --preset build-call-dev
@@ -51,7 +51,7 @@ cmake --build --preset build-call-dev
 Expected: compilation fails because `LocalVideoSource`,
 `SignaledVideoMode`, and `video_source_factory` do not exist.
 
-- [ ] **Step 3: Implement the minimum source contract and routing**
+- [x] **Step 3: Implement the minimum source contract and routing**
 
 Make `TestPatternSource` implement `LocalVideoSource`. In
 `SignaledPeer::initialize`, use the factory only for injected mode:
@@ -72,7 +72,7 @@ In `start()`, fail with `video_source_->error()` or
 `video-source-start-failed` instead of falling back. During `wait()`, surface
 an asynchronous source error before collecting stats.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 cmake --build --preset build-call-dev
