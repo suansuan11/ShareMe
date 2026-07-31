@@ -10,6 +10,7 @@
 
 #include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_factory.h"
+#include "api/video/video_frame.h"
 #include "shareme/rtc/local_audio_source.hpp"
 #include "shareme/rtc/local_video_source.hpp"
 
@@ -24,6 +25,8 @@ using LocalVideoSourceFactory =
         webrtc::TaskQueueFactory &)>;
 using LocalAudioSourceFactory =
     std::function<webrtc::scoped_refptr<LocalAudioSource>()>;
+using RemoteVideoFrameCallback =
+    std::function<void(const webrtc::VideoFrame &frame)>;
 
 struct SignaledPeerConfig {
   SignaledRole role{SignaledRole::host};
@@ -31,6 +34,7 @@ struct SignaledPeerConfig {
   SignaledVideoMode video_mode{SignaledVideoMode::synthetic};
   LocalVideoSourceFactory video_source_factory;
   LocalAudioSourceFactory movie_audio_source_factory;
+  RemoteVideoFrameCallback remote_video_frame;
 };
 
 struct SignaledAudioPolicy {

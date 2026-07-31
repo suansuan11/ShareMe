@@ -1,5 +1,7 @@
 #include "api/ref_counted_base.h"
+#include "api/video/i420_buffer.h"
 #include "counting_audio_sink.hpp"
+#include "remote_video_sink.hpp"
 #include "shareme/rtc/local_audio_source.hpp"
 #include "shareme/rtc/local_video_source.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -62,6 +64,34 @@ int main() {
   using shareme::rtc::SignaledAudioMode;
   using shareme::rtc::SignaledRole;
   using shareme::rtc::SignaledVideoMode;
+  int remote_callback_count = 0;
+  int remote_width = 0;
+  std::int64_t remote_timestamp_us = 0;
+  shareme::rtc::RemoteVideoSink remote_sink(
+      [&](const webrtc::VideoFrame &frame) {
+        ++remote_callback_count;
+        remote_width = frame.width();
+        remote_timestamp_us = frame.timestamp_us();
+      });
+  auto remote_buffer = webrtc::I420Buffer::Create(4, 2);
+  remote_buffer->InitializeData();
+  auto remote_frame =
+      webrtc::VideoFrame::Builder()
+          .set_video_frame_buffer(remote_buffer)
+          .set_timestamp_us(123'000)
+          .set_rtp_timestamp(456)
+          .build();
+  remote_sink.OnFrame(remote_frame);
+  REQUIRE(remote_sink.frame_count() == 1);
+  REQUIRE(remote_sink.last_width() == 4);
+  REQUIRE(remote_sink.last_height() == 2);
+  REQUIRE(remote_callback_count == 1);
+  REQUIRE(remote_width == 4);
+  REQUIRE(remote_timestamp_us == 123'000);
+  remote_sink.clear_callback();
+  remote_sink.OnFrame(remote_frame);
+  REQUIRE(remote_sink.frame_count() == 2);
+  REQUIRE(remote_callback_count == 1);
   const auto synthetic_policy =
       shareme::rtc::signaled_audio_policy(SignaledAudioMode::synthetic);
   REQUIRE(!synthetic_policy.uses_native_microphone);

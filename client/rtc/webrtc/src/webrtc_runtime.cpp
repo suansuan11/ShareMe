@@ -16,6 +16,9 @@
 #include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/thread.h"
+#if defined(_WIN32)
+#include "rtc_base/win32_socket_init.h"
+#endif
 
 namespace shareme::rtc {
 
@@ -113,7 +116,17 @@ void WebRtcRuntime::unregister_shutdown_hook(
 
 bool WebRtcRuntime::start(
     webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device) {
+#if defined(_WIN32)
+  winsock_initializer_ = std::make_unique<webrtc::WinsockInitializer>();
+  if (winsock_initializer_->error() != 0) {
+    winsock_initializer_.reset();
+    return false;
+  }
+#endif
   if (!webrtc::InitializeSSL()) {
+#if defined(_WIN32)
+    winsock_initializer_.reset();
+#endif
     return false;
   }
   ssl_initialized_ = true;
@@ -226,6 +239,10 @@ bool WebRtcRuntime::stop() noexcept {
   signaling_thread_.reset();
   worker_thread_.reset();
   network_thread_.reset();
+
+#if defined(_WIN32)
+  winsock_initializer_.reset();
+#endif
 
   if (ssl_initialized_) {
     webrtc::CleanupSSL();

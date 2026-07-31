@@ -10,6 +10,7 @@ QtSignalingClient::QtSignalingClient(QObject* parent) : QObject(parent) {
   connect(&socket_, &QWebSocket::errorOccurred, this, [this](QAbstractSocket::SocketError) { emit failed(QStringLiteral("transport-error")); });
 }
 void QtSignalingClient::connectTo(const QUrl& url) { url_ = url; QNetworkRequest request{url}; if (!session_.token().empty()) request.setRawHeader("Authorization", QByteArray("Bearer ") + QByteArray::fromStdString(session_.token())); socket_.open(request); }
+void QtSignalingClient::disconnectFromServer() { socket_.abort(); }
 void QtSignalingClient::createRoom() { send(session_.create_room()); }
 void QtSignalingClient::joinRoom(const QString& roomId) { send(session_.join_room(roomId.toStdString())); }
 void QtSignalingClient::relay(const QString& type, const QByteArray& payload) { if (const auto message = session_.relay(type.toStdString(), payload.toStdString())) send(*message); else emit failed(QStringLiteral("relay-rejected")); }

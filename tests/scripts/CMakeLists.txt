@@ -14,7 +14,13 @@ add_test(
   NAME signaled_call_cli_contract
   COMMAND ${shareme_signaled_call_cli_test_command}
 )
-set_tests_properties(signaled_call_cli_contract PROPERTIES TIMEOUT 10)
+set_tests_properties(
+  signaled_call_cli_contract
+  PROPERTIES
+    TIMEOUT 10
+    ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+)
 
 add_test(
   NAME signaled_call_smoke_contract
@@ -25,3 +31,21 @@ add_test(
     "${PROJECT_SOURCE_DIR}/scripts/run_signaled_call_smoke.py"
 )
 set_tests_properties(signaled_call_smoke_contract PROPERTIES TIMEOUT 10)
+
+if(TARGET shareme_rtc_demo)
+  add_test(
+    NAME rtc_demo_cli_contract
+    COMMAND
+      "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/rtc_demo_cli_test.py"
+      --demo
+      "$<TARGET_FILE:shareme_rtc_demo>"
+  )
+  set_tests_properties(
+    rtc_demo_cli_contract
+    PROPERTIES
+      TIMEOUT 10
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;QT_QPA_PLATFORM=set:offscreen"
+  )
+endif()

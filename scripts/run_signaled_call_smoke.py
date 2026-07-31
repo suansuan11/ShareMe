@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import ctypes
 import errno
 import os
 import queue
@@ -38,6 +39,12 @@ class SignalingStartupError(SmokeRuntimeError):
         self.diagnostic = diagnostic
 
 
+def popen_group_options() -> dict[str, object]:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def read_log_tail(log: TextIO, limit: int = 4096) -> str:
     log.flush()
     log.seek(0, os.SEEK_END)
@@ -63,27 +70,58 @@ def start_signaling_server(
     host: str,
     port: int,
     process_factory=subprocess.Popen,
-) -> tuple[subprocess.Popen[str], TextIO]:
+) -> tuple[
+    subprocess.Popen[str], TextIO, tempfile.TemporaryDirectory[str]
+]:
     ensure_address_available(host, port)
     environment = os.environ.copy()
     environment["SHAREME_SIGNALING_ADDR"] = f"{host}:{port}"
     log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+    binary_directory = tempfile.TemporaryDirectory(
+        prefix="shareme-signaling-"
+    )
+    executable = Path(binary_directory.name) / (
+        "signaling.exe" if os.name == "nt" else "signaling"
+    )
     try:
-        process = process_factory(
-            ["go", "run", "./cmd/signaling"],
+        build = subprocess.run(
+            [
+                "go",
+                "build",
+                "-o",
+                str(executable),
+                "./cmd/signaling",
+            ],
+            cwd=server_root,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+        if build.returncode != 0:
+            diagnostic = read_log_tail(log)
+            log.close()
+            binary_directory.cleanup()
+            raise SignalingStartupError(
+                "signaling service could not build", diagnostic
+            )
+        process = start_managed_process(
+            [str(executable)],
+            process_factory=process_factory,
             cwd=server_root,
             env=environment,
             stdout=log,
             stderr=subprocess.STDOUT,
             text=True,
-            start_new_session=True,
+            **popen_group_options(),
         )
     except OSError as error:
         log.close()
+        binary_directory.cleanup()
         raise SignalingStartupError(
             "signaling service could not start"
         ) from error
-    return process, log
+    return process, log, binary_directory
 
 
 def wait_for_health(
@@ -195,24 +233,49 @@ def wait_for_room(
 ) -> str:
     if host.stdout is None:
         raise SmokeRuntimeError("host room output unavailable")
-    result: queue.Queue[str] = queue.Queue(maxsize=1)
+    deadline = time.monotonic() + timeout_seconds
+    observed_lines: list[str] = []
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise SmokeRuntimeError("host room timeout")
+        result: queue.Queue[str] = queue.Queue(maxsize=1)
+        reader_errors: list[str] = []
 
-    def read_line() -> None:
+        def read_line() -> None:
+            try:
+                result.put(host.stdout.readline())
+            except (OSError, UnicodeError, ValueError) as error:
+                reader_errors.append(f"{type(error).__name__}: {error}")
+                result.put("")
+
+        reader = threading.Thread(target=read_line, daemon=True)
+        reader.start()
         try:
-            line = host.stdout.readline()
-        except (OSError, ValueError):
-            line = ""
-        result.put(line)
-
-    reader = threading.Thread(target=read_line, daemon=True)
-    reader.start()
-    try:
-        room_line = result.get(timeout=timeout_seconds).strip()
-    except queue.Empty as error:
-        raise SmokeRuntimeError("host room timeout") from error
-    if not re.fullmatch(r"ROOM [A-Z2-7]{6}", room_line):
-        raise SmokeRuntimeError("host did not create a valid room")
-    return room_line
+            line = result.get(timeout=remaining)
+        except queue.Empty as error:
+            raise SmokeRuntimeError("host room timeout") from error
+        room_line = line.strip()
+        if re.fullmatch(r"ROOM [A-Z2-7]{6}", room_line):
+            return room_line
+        if line == "":
+            try:
+                host.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                pass
+            output = " | ".join(observed_lines[-5:])
+            reader_error = " | ".join(reader_errors)
+            context = (
+                output
+                or reader_error
+                or f"exit={host.poll()}"
+            )
+            detail = f": {context}" if context else ""
+            raise SmokeRuntimeError(
+                f"host did not create a valid room{detail}"
+            )
+        if room_line:
+            observed_lines.append(room_line)
 
 
 def process_group_exists(group_id: int) -> bool:
@@ -223,9 +286,150 @@ def process_group_exists(group_id: int) -> bool:
         return False
 
 
+def attach_windows_kill_job(process: subprocess.Popen[str]) -> None:
+    if os.name != "nt":
+        return
+
+    class BasicLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", ctypes.c_ulong),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_ulong),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_ulong),
+            ("SchedulingClass", ctypes.c_ulong),
+        ]
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class ExtendedLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimitInformation),
+            ("IoInfo", IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.SetInformationJobObject.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+    ]
+    kernel32.SetInformationJobObject.restype = ctypes.c_int
+    kernel32.AssignProcessToJobObject.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    information = ExtendedLimitInformation()
+    information.BasicLimitInformation.LimitFlags = 0x00002000
+    configured = kernel32.SetInformationJobObject(
+        job, 9, ctypes.byref(information), ctypes.sizeof(information)
+    )
+    assigned = configured and kernel32.AssignProcessToJobObject(
+        job, int(process._handle)
+    )
+    if not assigned:
+        error = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        raise ctypes.WinError(error)
+    setattr(process, "_shareme_job_handle", job)
+
+
+def close_windows_kill_job(process: subprocess.Popen[str]) -> None:
+    job = getattr(process, "_shareme_job_handle", None)
+    if not job:
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    kernel32.CloseHandle(job)
+    setattr(process, "_shareme_job_handle", None)
+
+
+def start_managed_process(
+    command: list[str],
+    process_factory=subprocess.Popen,
+    **options,
+) -> subprocess.Popen[str]:
+    if os.name != "nt":
+        return process_factory(command, **options)
+    if "stdin" in options:
+        raise ValueError("managed process stdin is reserved")
+    wrapper = (
+        "import subprocess,sys;"
+        "sys.stdin.buffer.read(1);"
+        "child=subprocess.Popen(sys.argv[1:]);"
+        "raise SystemExit(child.wait())"
+    )
+    process = process_factory(
+        [sys.executable, "-c", wrapper, *command],
+        stdin=subprocess.PIPE,
+        **options,
+    )
+    try:
+        attach_windows_kill_job(process)
+        if process.stdin is None:
+            raise OSError("managed process gate unavailable")
+        gate = "1" if options.get("text") or options.get("encoding") else b"1"
+        process.stdin.write(gate)
+        process.stdin.close()
+        process.stdin = None
+    except BaseException:
+        terminate_process_group(process, grace_seconds=0.1)
+        raise
+    return process
+
+
 def terminate_process_group(
     process: subprocess.Popen[str], grace_seconds: float = 5
 ) -> None:
+    if os.name == "nt":
+        if process.poll() is None:
+            try:
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+                process.wait(timeout=grace_seconds)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        close_windows_kill_job(process)
+        if process.poll() is None:
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=grace_seconds)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+        return
+
     group_id = process.pid
     if group_id <= 0 or group_id == os.getpgrp():
         raise SmokeRuntimeError("unsafe process group cleanup refused")
@@ -280,7 +484,7 @@ def main() -> int:
         parser.error("--movie-audio requires --video movie and --movie")
     address = f"127.0.0.1:{args.port}"
     websocket_url = f"ws://{address}/v1/ws"
-    server, server_log = start_signaling_server(
+    server, server_log, server_binary_directory = start_signaling_server(
         args.server_root, "127.0.0.1", args.port
     )
     host = None
@@ -305,19 +509,21 @@ def main() -> int:
         if args.movie_audio:
             host_command.append("--movie-audio")
         try:
-            host = subprocess.Popen(
+            host = start_managed_process(
                 host_command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                start_new_session=True,
+                encoding="utf-8",
+                errors="replace",
+                **popen_group_options(),
             )
         except OSError as error:
             raise SmokeRuntimeError("host process could not start") from error
         room_line = wait_for_room(host)
         room_id = room_line.split()[1]
         try:
-            viewer = subprocess.Popen(
+            viewer = start_managed_process(
                 [
                     str(args.probe),
                     "--server",
@@ -334,7 +540,9 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                start_new_session=True,
+                encoding="utf-8",
+                errors="replace",
+                **popen_group_options(),
             )
         except OSError as error:
             raise SmokeRuntimeError(
@@ -361,6 +569,7 @@ def main() -> int:
             terminate_process_group(host)
         terminate_process_group(server)
         server_log.close()
+        server_binary_directory.cleanup()
 
 
 def cli_main() -> int:
