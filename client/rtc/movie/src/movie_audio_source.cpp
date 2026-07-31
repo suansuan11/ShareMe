@@ -228,6 +228,8 @@ bool MovieAudioSource::emit_chunk(const media::PcmChunk &chunk,
     return false;
   }
 
+  last_pts_ms_.store(chunk.pts_ms, std::memory_order_relaxed);
+  has_last_pts_.store(true, std::memory_order_release);
   const auto capture_timestamp_ms = webrtc::TimeMillis();
   {
     std::lock_guard lock(sink_mutex_);
@@ -237,8 +239,6 @@ bool MovieAudioSource::emit_chunk(const media::PcmChunk &chunk,
     }
   }
 
-  last_pts_ms_.store(chunk.pts_ms, std::memory_order_relaxed);
-  has_last_pts_.store(true, std::memory_order_release);
   generated_count_.fetch_add(1, std::memory_order_relaxed);
   return true;
 }

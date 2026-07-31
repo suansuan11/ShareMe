@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <vector>
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
@@ -33,10 +34,16 @@ void require(bool condition, const char *expression, int line) {
 
 class CountingPcmSink final : public webrtc::AudioTrackSinkInterface {
 public:
+  explicit CountingPcmSink(
+      const shareme::rtc::MovieAudioSource *source = nullptr)
+      : source_(source) {}
+
   void OnData(const void *audio_data, int bits_per_sample, int sample_rate,
               std::size_t number_of_channels, std::size_t number_of_frames,
               std::optional<std::int64_t> capture_timestamp_ms) override {
     std::lock_guard lock(mutex_);
+    if (callback_count_ == 0)
+      first_callback_at_ = std::chrono::steady_clock::now();
     ++callback_count_;
     exact_format_ =
         exact_format_ && audio_data != nullptr && bits_per_sample == 16 &&
@@ -47,6 +54,10 @@ public:
       timestamps_monotonic_ = false;
     }
     last_capture_timestamp_ms_ = capture_timestamp_ms;
+    if (source_) {
+      if (const auto media_pts_ms = source_->last_pts_ms())
+        media_pts_ms_.push_back(*media_pts_ms);
+    }
 
     if (audio_data != nullptr) {
       const auto *samples = static_cast<const std::int16_t *>(audio_data);
@@ -77,13 +88,55 @@ public:
     return timestamps_monotonic_;
   }
 
+  [[nodiscard]] std::vector<std::int64_t> media_pts_ms() const {
+    std::lock_guard lock(mutex_);
+    return media_pts_ms_;
+  }
+
+  [[nodiscard]] std::optional<std::chrono::steady_clock::time_point>
+  first_callback_at() const {
+    std::lock_guard lock(mutex_);
+    return first_callback_at_;
+  }
+
 private:
+  const shareme::rtc::MovieAudioSource *source_;
   mutable std::mutex mutex_;
   std::uint64_t callback_count_{0};
   bool exact_format_{true};
   bool non_silent_{false};
   bool timestamps_monotonic_{true};
   std::optional<std::int64_t> last_capture_timestamp_ms_;
+  std::vector<std::int64_t> media_pts_ms_;
+  std::optional<std::chrono::steady_clock::time_point> first_callback_at_;
+};
+
+class TimedVideoSink final
+    : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
+public:
+  void OnFrame(const webrtc::VideoFrame &frame) override {
+    {
+      std::lock_guard lock(mutex_);
+      if (!first_callback_at_)
+        first_callback_at_ = std::chrono::steady_clock::now();
+    }
+    sink_.OnFrame(frame);
+  }
+
+  [[nodiscard]] std::uint64_t frame_count() const noexcept {
+    return sink_.frame_count();
+  }
+
+  [[nodiscard]] std::optional<std::chrono::steady_clock::time_point>
+  first_callback_at() const {
+    std::lock_guard lock(mutex_);
+    return first_callback_at_;
+  }
+
+private:
+  shareme::rtc::CountingVideoSink sink_;
+  mutable std::mutex mutex_;
+  std::optional<std::chrono::steady_clock::time_point> first_callback_at_;
 };
 
 void shared_epoch_is_stable() {
@@ -113,7 +166,7 @@ void emits_exact_pcm_chunks(const std::filesystem::path &movie_path) {
   using namespace std::chrono_literals;
   auto source = shareme::rtc::MovieAudioSource::create(
       movie_path, std::make_shared<shareme::rtc::MovieTimeline>());
-  CountingPcmSink primary_sink;
+  CountingPcmSink primary_sink{source.get()};
   CountingPcmSink removable_sink;
   source->AddSink(&primary_sink);
   source->AddSink(&removable_sink);
@@ -146,6 +199,13 @@ void emits_exact_pcm_chunks(const std::filesystem::path &movie_path) {
   REQUIRE(primary_sink.timestamps_monotonic());
   REQUIRE(source->generated_count() >= primary_sink.callback_count());
   REQUIRE(source->last_pts_ms().has_value());
+  const auto media_pts_ms = primary_sink.media_pts_ms();
+  REQUIRE(media_pts_ms.size() == primary_sink.callback_count());
+  REQUIRE(std::adjacent_find(
+              media_pts_ms.begin(), media_pts_ms.end(),
+              [](std::int64_t previous, std::int64_t current) {
+                return current <= previous || current - previous != 10;
+              }) == media_pts_ms.end());
 }
 
 void audio_only_movie_is_supported(
@@ -216,8 +276,8 @@ void shared_timeline_preserves_track_offset(
       shareme::rtc::MovieAudioSource::create(staggered_path, timeline);
   auto video =
       shareme::rtc::MovieVideoSource::create(staggered_path, timeline);
-  CountingPcmSink audio_sink;
-  shareme::rtc::CountingVideoSink video_sink;
+  CountingPcmSink audio_sink{audio.get()};
+  TimedVideoSink video_sink;
   audio->AddSink(&audio_sink);
   webrtc::VideoSourceInterface<webrtc::VideoFrame> *video_interface =
       video.get();
@@ -233,6 +293,12 @@ void shared_timeline_preserves_track_offset(
   }
   REQUIRE(video_sink.frame_count() > 0);
   REQUIRE(audio->generated_count() >= 95);
+  REQUIRE(audio_sink.first_callback_at().has_value());
+  REQUIRE(video_sink.first_callback_at().has_value());
+  const auto first_track_offset =
+      *video_sink.first_callback_at() - *audio_sink.first_callback_at();
+  REQUIRE(first_track_offset >= 850ms);
+  REQUIRE(first_track_offset <= 1'250ms);
 
   const auto skew_deadline = std::chrono::steady_clock::now() + 2s;
   while (video_sink.frame_count() < 30 && audio->error().empty() &&
