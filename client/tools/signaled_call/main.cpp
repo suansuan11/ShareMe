@@ -1,7 +1,9 @@
 #include "qt_signaling_client.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
-#ifdef SHAREME_HAS_MOVIE_VIDEO
+#ifdef SHAREME_HAS_MOVIE_RTC
+#include "shareme/rtc/movie_audio_source.hpp"
+#include "shareme/rtc/movie_timeline.hpp"
 #include "shareme/rtc/movie_video_source.hpp"
 #endif
 
@@ -50,6 +52,8 @@ int main(int argc, char **argv) {
                                   "mode", "synthetic");
   QCommandLineOption movie_option(QStringList{"movie"}, "Host movie path",
                                   "path");
+  QCommandLineOption movie_audio_option(QStringList{"movie-audio"},
+                                        "Send the host movie audio track");
   QCommandLineOption room_option(QStringList{"room"}, "Room ID for viewer",
                                  "room");
   parser.addOption(server);
@@ -57,20 +61,28 @@ int main(int argc, char **argv) {
   parser.addOption(audio_option);
   parser.addOption(video_option);
   parser.addOption(movie_option);
+  parser.addOption(movie_audio_option);
   parser.addOption(room_option);
   parser.process(app);
   const auto role_text = parser.value(role_option);
   const auto audio_text = parser.value(audio_option);
   const auto video_text = parser.value(video_option);
   const auto movie_is_set = parser.isSet(movie_option);
+  const auto movie_audio_is_set = parser.isSet(movie_audio_option);
   if (!parser.isSet(server) || (role_text != "host" && role_text != "viewer") ||
       (audio_text != "synthetic" && audio_text != "microphone") ||
       (video_text != "synthetic" && video_text != "movie") ||
       (video_text == "movie" && (role_text != "host" || !movie_is_set)) ||
       (video_text != "movie" && movie_is_set) ||
+      (movie_audio_is_set &&
+       (role_text != "host" || video_text != "movie" || !movie_is_set)) ||
       (role_text == "viewer" && !parser.isSet(room_option)))
     return 2;
-#ifndef SHAREME_HAS_MOVIE_VIDEO
+#ifndef SHAREME_HAS_MOVIE_RTC
+  if (movie_audio_is_set) {
+    std::cerr << "PEER_ERROR movie-audio-dependency-unavailable" << std::endl;
+    return 1;
+  }
   if (video_text == "movie") {
     std::cerr << "PEER_ERROR movie-video-dependency-unavailable" << std::endl;
     return 1;
@@ -107,6 +119,17 @@ int main(int argc, char **argv) {
                       << " audio_received=" << result.audio_packets_received
                       << " audio_level="
                       << result.local_audio_level.value_or(0.0)
+                      << " movie_audio_frames_received="
+                      << result.movie_audio_frames_received
+                      << " movie_audio_invalid_frames_received="
+                      << result.movie_audio_invalid_frames_received
+                      << " sample_rate=" << result.movie_audio_sample_rate
+                      << " channels=" << result.movie_audio_channels
+                      << " peak=" << result.movie_audio_peak
+                      << " chunks_generated="
+                      << result.movie_audio_chunks_generated
+                      << " movie_av_skew_ms="
+                      << result.movie_av_skew_ms.value_or(-1)
                       << " candidate=" << result.selected_candidate_type
                       << " error=" << result.error << std::endl;
             exit_code = result.error.empty() ? 0 : 1;
@@ -150,14 +173,25 @@ int main(int argc, char **argv) {
     };
     shareme::rtc::SignaledPeerConfig config{.role = role,
                                             .audio_mode = audio_mode};
-#ifdef SHAREME_HAS_MOVIE_VIDEO
+#ifdef SHAREME_HAS_MOVIE_RTC
     if (video_text == "movie") {
       const std::filesystem::path movie_path{
           parser.value(movie_option).toStdString()};
       config.video_mode = shareme::rtc::SignaledVideoMode::injected;
-      config.video_source_factory = [movie_path](webrtc::TaskQueueFactory &) {
-        return shareme::rtc::MovieVideoSource::create(movie_path);
-      };
+      if (movie_audio_is_set) {
+        auto timeline = std::make_shared<shareme::rtc::MovieTimeline>();
+        config.video_source_factory = [movie_path,
+                                       timeline](webrtc::TaskQueueFactory &) {
+          return shareme::rtc::MovieVideoSource::create(movie_path, timeline);
+        };
+        config.movie_audio_source_factory = [movie_path, timeline] {
+          return shareme::rtc::MovieAudioSource::create(movie_path, timeline);
+        };
+      } else {
+        config.video_source_factory = [movie_path](webrtc::TaskQueueFactory &) {
+          return shareme::rtc::MovieVideoSource::create(movie_path);
+        };
+      }
     }
 #endif
     peer = shareme::rtc::SignaledPeer::create(std::move(config),

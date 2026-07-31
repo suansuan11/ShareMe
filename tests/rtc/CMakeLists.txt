@@ -137,6 +137,14 @@ if(TARGET ShareMe::Playback)
     SHAREME_STAGGERED_AV_FIXTURE
     "${CMAKE_CURRENT_BINARY_DIR}/generated-staggered-av.mp4"
   )
+  set(
+    SHAREME_VIDEO_ONLY_FIXTURE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated-video-only.mp4"
+  )
+  set(
+    SHAREME_AUDIO_GAP_FIXTURE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated-audio-gap.m4a"
+  )
   add_test(
     NAME generate_movie_call_fixture
     COMMAND
@@ -239,6 +247,42 @@ if(TARGET ShareMe::Playback)
     generate_staggered_av_fixture
     PROPERTIES FIXTURES_SETUP staggered_av_fixture
   )
+  add_test(
+    NAME generate_video_only_fixture
+    COMMAND
+      "${SHAREME_MOVIE_CALL_FFMPEG_EXECUTABLE}"
+      -hide_banner
+      -loglevel error
+      -y
+      -f lavfi
+      -i "testsrc2=size=320x180:rate=30"
+      -t 1
+      -c:v mpeg4
+      -pix_fmt yuv420p
+      "${SHAREME_VIDEO_ONLY_FIXTURE}"
+  )
+  set_tests_properties(
+    generate_video_only_fixture
+    PROPERTIES FIXTURES_SETUP video_only_fixture
+  )
+  add_test(
+    NAME generate_audio_gap_fixture
+    COMMAND
+      "${SHAREME_MOVIE_CALL_FFMPEG_EXECUTABLE}"
+      -hide_banner
+      -loglevel error
+      -y
+      -f lavfi
+      -i "sine=frequency=440:sample_rate=48000:duration=6"
+      -af "aselect=lt(t\\,0.05)+gte(t\\,5)"
+      -c:a aac
+      -copyts
+      "${SHAREME_AUDIO_GAP_FIXTURE}"
+  )
+  set_tests_properties(
+    generate_audio_gap_fixture
+    PROPERTIES FIXTURES_SETUP audio_gap_fixture
+  )
 
   add_executable(shareme_movie_video_source_test movie_video_source_test.cpp)
   target_include_directories(
@@ -265,6 +309,35 @@ if(TARGET ShareMe::Playback)
     PROPERTIES
       FIXTURES_REQUIRED
         "movie_call_fixture;audio_only_fixture;nonzero_pts_fixture;pts_gap_fixture;staggered_av_fixture"
+      TIMEOUT 15
+  )
+
+  add_executable(shareme_movie_audio_source_test movie_audio_source_test.cpp)
+  target_include_directories(
+    shareme_movie_audio_source_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src"
+  )
+  target_link_libraries(
+    shareme_movie_audio_source_test
+    PRIVATE ShareMe::MovieRTC
+  )
+  shareme_set_project_warnings(shareme_movie_audio_source_test)
+  add_test(
+    NAME movie_audio_source
+    COMMAND
+      shareme_movie_audio_source_test
+      "${SHAREME_MOVIE_CALL_FIXTURE}"
+      "${SHAREME_AUDIO_ONLY_FIXTURE}"
+      "${SHAREME_VIDEO_ONLY_FIXTURE}"
+      "${SHAREME_AUDIO_GAP_FIXTURE}"
+      "${SHAREME_STAGGERED_AV_FIXTURE}"
+      "${SHAREME_GENERATED_NEGATIVE_AV_MEDIA}"
+  )
+  set_tests_properties(
+    movie_audio_source
+    PROPERTIES
+      FIXTURES_REQUIRED
+        "movie_call_fixture;audio_only_fixture;video_only_fixture;audio_gap_fixture;staggered_av_fixture;negative_av_media_fixture"
       TIMEOUT 15
   )
 endif()

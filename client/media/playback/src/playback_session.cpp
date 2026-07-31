@@ -39,8 +39,8 @@ public:
         std::scoped_lock state_lock{state_mutex_};
         source_is_open_ = true;
         generation_ = 0;
-        playhead_ms_ = 0;
-        furthest_decoded_pts_ms_ = 0;
+        playhead_ms_ = info.start_time_ms;
+        furthest_decoded_pts_ms_ = info.start_time_ms;
         state_ = PlaybackState::paused;
       }
       return info;

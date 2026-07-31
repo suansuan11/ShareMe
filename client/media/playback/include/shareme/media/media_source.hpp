@@ -11,6 +11,7 @@ namespace shareme::media {
 
 struct MediaInfo {
   std::int64_t duration_ms{0};
+  std::int64_t start_time_ms{0};
   bool has_video{false};
   bool has_audio{false};
   int video_width{0};
@@ -23,6 +24,12 @@ class VideoStreamUnavailable final : public std::runtime_error {
 public:
   VideoStreamUnavailable()
       : std::runtime_error{"Media file has no decodable video stream"} {}
+};
+
+class AudioStreamUnavailable final : public std::runtime_error {
+public:
+  AudioStreamUnavailable()
+      : std::runtime_error{"Media file has no decodable audio stream"} {}
 };
 
 using MediaEvent = std::variant<VideoFrame, AudioFrame, EndOfStream>;
