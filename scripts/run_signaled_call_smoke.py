@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 
 import argparse
+import errno
 import os
 import queue
 import re
 import signal
+import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
 from pathlib import Path
+from typing import Optional, TextIO
 
 
 RESULT = re.compile(
@@ -22,16 +26,97 @@ RESULT = re.compile(
 )
 
 
-def wait_for_health(url: str) -> None:
-    deadline = time.monotonic() + 10
+class SignalingStartupError(RuntimeError):
+    def __init__(self, message: str, diagnostic: str = ""):
+        super().__init__(message)
+        self.diagnostic = diagnostic
+
+
+def read_log_tail(log: TextIO, limit: int = 4096) -> str:
+    log.flush()
+    log.seek(0, os.SEEK_END)
+    end = log.tell()
+    log.seek(max(0, end - limit))
+    return log.read()
+
+
+def ensure_address_available(host: str, port: int) -> None:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((host, port))
+    except OSError as error:
+        if error.errno == errno.EADDRINUSE:
+            raise SignalingStartupError(
+                "signaling address already in use"
+            ) from error
+        raise SignalingStartupError("signaling address unavailable") from error
+
+
+def start_signaling_server(
+    server_root: Path,
+    host: str,
+    port: int,
+    process_factory=subprocess.Popen,
+) -> tuple[subprocess.Popen[str], TextIO]:
+    ensure_address_available(host, port)
+    environment = os.environ.copy()
+    environment["SHAREME_SIGNALING_ADDR"] = f"{host}:{port}"
+    log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+    try:
+        process = process_factory(
+            ["go", "run", "./cmd/signaling"],
+            cwd=server_root,
+            env=environment,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError as error:
+        log.close()
+        raise SignalingStartupError(
+            "signaling service could not start"
+        ) from error
+    return process, log
+
+
+def wait_for_health(
+    url: str,
+    server: subprocess.Popen[str],
+    timeout_seconds: float = 10,
+    server_log: Optional[TextIO] = None,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        if server.poll() is not None:
+            diagnostic = read_log_tail(server_log) if server_log else ""
+            raise SignalingStartupError(
+                "signaling service exited before healthy", diagnostic
+            )
         try:
             with urllib.request.urlopen(url, timeout=1) as response:
                 if response.status == 200:
+                    time.sleep(0.05)
+                    if server.poll() is not None:
+                        diagnostic = (
+                            read_log_tail(server_log) if server_log else ""
+                        )
+                        raise SignalingStartupError(
+                            "signaling service exited before healthy",
+                            diagnostic,
+                        )
                     return
         except OSError:
+            if server.poll() is not None:
+                diagnostic = read_log_tail(server_log) if server_log else ""
+                raise SignalingStartupError(
+                    "signaling service exited before healthy", diagnostic
+                )
             time.sleep(0.1)
-    raise RuntimeError("signaling service did not become healthy")
+    diagnostic = read_log_tail(server_log) if server_log else ""
+    raise SignalingStartupError(
+        "signaling service did not become healthy", diagnostic
+    )
 
 
 def validate(
@@ -169,21 +254,15 @@ def main() -> int:
         parser.error("--movie-audio requires --video movie and --movie")
     address = f"127.0.0.1:{args.port}"
     websocket_url = f"ws://{address}/v1/ws"
-    environment = os.environ.copy()
-    environment["SHAREME_SIGNALING_ADDR"] = address
-    server = subprocess.Popen(
-        ["go", "run", "./cmd/signaling"],
-        cwd=args.server_root,
-        env=environment,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        start_new_session=True,
+    server, server_log = start_signaling_server(
+        args.server_root, "127.0.0.1", args.port
     )
     host = None
     viewer = None
     try:
-        wait_for_health(f"http://{address}/healthz")
+        wait_for_health(
+            f"http://{address}/healthz", server, server_log=server_log
+        )
         host_command = [
             str(args.probe),
             "--server",
@@ -245,6 +324,7 @@ def main() -> int:
         if host is not None:
             terminate_process_group(host)
         terminate_process_group(server)
+        server_log.close()
 
 
 if __name__ == "__main__":

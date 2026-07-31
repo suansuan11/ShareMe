@@ -3,11 +3,14 @@
 import argparse
 import importlib.util
 import os
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+import urllib.request
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -24,6 +27,78 @@ def load_smoke_script(path: Path):
 
 class SignaledCallSmokeTest(unittest.TestCase):
     smoke = None
+
+    def test_occupied_health_port_is_rejected_before_server_start(self):
+        occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        occupied.bind(("127.0.0.1", 0))
+        occupied.listen()
+        occupied.settimeout(0.1)
+        port = occupied.getsockname()[1]
+        stop = threading.Event()
+
+        def serve_health() -> None:
+            while not stop.is_set():
+                try:
+                    connection, _ = occupied.accept()
+                except (OSError, socket.timeout):
+                    continue
+                with connection:
+                    connection.recv(4096)
+                    connection.sendall(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+                    )
+
+        thread = threading.Thread(target=serve_health, daemon=True)
+        thread.start()
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/healthz",
+                timeout=1,
+            ) as response:
+                self.assertEqual(response.status, 200)
+            process_started = False
+
+            def unexpected_process_start(*_, **__):
+                nonlocal process_started
+                process_started = True
+                raise AssertionError("occupied port started a server")
+
+            started = time.monotonic()
+            with self.assertRaisesRegex(
+                RuntimeError, "signaling address already in use"
+            ):
+                self.smoke.start_signaling_server(
+                    Path("."),
+                    "127.0.0.1",
+                    port,
+                    process_factory=unexpected_process_start,
+                )
+            self.assertLess(time.monotonic() - started, 1)
+            self.assertFalse(process_started)
+        finally:
+            stop.set()
+            occupied.close()
+            thread.join(timeout=2)
+
+    def test_server_exit_before_health_is_reported(self):
+        process = subprocess.Popen(
+            [sys.executable, "-c", "raise SystemExit(7)"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            with self.assertRaisesRegex(
+                RuntimeError, "signaling service exited before healthy"
+            ):
+                self.smoke.wait_for_health(
+                    "http://127.0.0.1:9/healthz",
+                    process,
+                    timeout_seconds=1,
+                )
+        finally:
+            self.smoke.terminate_process_group(process, grace_seconds=0.1)
 
     def test_missing_room_line_times_out_and_process_group_is_removed(self):
         with tempfile.TemporaryDirectory() as directory:

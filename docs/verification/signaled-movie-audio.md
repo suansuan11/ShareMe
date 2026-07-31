@@ -51,14 +51,14 @@ ctest --preset test-movie-call-dev --output-on-failure
 python3 scripts/run_signaled_call_smoke.py \
   --probe build/movie-call-dev/client/tools/signaled_call/shareme_signaled_call_probe \
   --server-root server \
-  --port 18130 \
+  --port 18132 \
   --audio synthetic \
   --video synthetic
 
 python3 scripts/run_signaled_call_smoke.py \
   --probe build/movie-call-dev/client/tools/signaled_call/shareme_signaled_call_probe \
   --server-root server \
-  --port 18131 \
+  --port 18133 \
   --audio microphone \
   --video movie \
   --movie-audio \
@@ -78,6 +78,13 @@ process session. Every exit path terminates the complete process group, waits a
 bounded grace period, and escalates to `SIGKILL`. The
 `signaled_call_smoke_contract` test uses a fake host with no room output and an
 uncooperative descendant to verify both the deadline and descendant cleanup.
+Before starting Go, the script bind-probes the requested loopback port and
+rejects an occupied address instead of accepting an unrelated existing health
+endpoint. During health polling it also checks that the server process started
+by this run is still alive. Server output goes to a non-blocking temporary file;
+a bounded tail is retained only on the local startup exception object while
+the displayed error category stays concise. Contract tests cover an occupied
+fake health endpoint and a server that exits before becoming healthy.
 An unavailable optional A/V skew is printed as numeric sentinel `-1`; movie
 audio acceptance rejects that sentinel before applying the 50 ms threshold.
 
@@ -91,17 +98,17 @@ the command package with no tests, and `go vet ./...` exited zero.
 Synthetic two-process regression; viewer result is first:
 
 ```text
-ROOM NO3BXA
-RESULT connected=1 video=61 width=640 height=360 audio_sent=104 audio_received=104 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
-RESULT connected=1 video=60 width=640 height=360 audio_sent=104 audio_received=104 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+ROOM 2BO6N4
+RESULT connected=1 video=60 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+RESULT connected=1 video=60 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
 ```
 
 Movie video, independent movie audio, and bidirectional microphones; viewer
 result is first:
 
 ```text
-ROOM 7YNJAT
-RESULT connected=1 video=57 width=320 height=180 audio_sent=149 audio_received=297 audio_level=0.0185858 movie_audio_frames_received=303 sample_rate=48000 channels=2 peak=3328 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+ROOM U3MYRF
+RESULT connected=1 video=58 width=320 height=180 audio_sent=149 audio_received=297 audio_level=0.0202338 movie_audio_frames_received=302 sample_rate=48000 channels=2 peak=3412 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
 RESULT connected=1 video=60 width=640 height=360 audio_sent=297 audio_received=101 audio_level=0.0908841 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=200 movie_av_skew_ms=23 candidate=host error=
 ```
 
