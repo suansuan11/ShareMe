@@ -290,7 +290,7 @@ git diff --check
 Expected: every command exits zero and both smoke runs print only sanitized
 results.
 
-- [ ] **Step 3: Commit, review, merge, and reverify main**
+- [x] **Step 3: Commit, review, merge, and reverify main**
 
 ```bash
 git add README.md docs

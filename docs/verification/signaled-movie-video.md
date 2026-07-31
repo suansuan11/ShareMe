@@ -57,20 +57,21 @@ errors; it excludes paths, tokens, SDP, candidates, addresses, and credentials.
 Synthetic regression:
 
 ```text
-ROOM OCBK4B
+ROOM JM25KT
 RESULT connected=1 video=59 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 candidate=host error=
-RESULT connected=1 video=59 width=640 height=360 audio_sent=104 audio_received=102 audio_level=0.244148 candidate=host error=
+RESULT connected=1 video=59 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 candidate=host error=
 ```
 
 Host movie plus bidirectional microphones; the viewer result is printed first:
 
 ```text
-ROOM XFBQ5D
-RESULT connected=1 video=57 width=320 height=180 audio_sent=102 audio_received=102 audio_level=0.0201117 candidate=host error=
-RESULT connected=1 video=60 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.0201117 candidate=host error=
+ROOM 2GVQO7
+RESULT connected=1 video=56 width=320 height=180 audio_sent=102 audio_received=101 audio_level=0.0161443 candidate=host error=
+RESULT connected=1 video=59 width=640 height=360 audio_sent=101 audio_received=101 audio_level=0.0161443 candidate=host error=
 ```
 
-Combined CTest passed 23/23. The separate call-only build passed 11/11 and
+These are the post-merge `main` results. Combined CTest passed 23/23. The
+separate call-only build passed 11/11 and
 therefore still builds without FFmpeg. Invalid host/viewer/movie option
 combinations return exit code 2. A call-only binary asked for movie mode returns
 `movie-video-dependency-unavailable` and does not silently substitute synthetic
