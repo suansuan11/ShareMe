@@ -94,12 +94,15 @@ Set the Qt runtime path in terminals 2 and 3:
 $env:PATH = "H:\QT6.11\6.11.1\msvc2022_64\bin;$env:PATH"
 ```
 
-Start the sender in terminal 2. It prints `ROOM ABCDEF` after creating a room:
+Start the sender in terminal 2. It prints `ROOM ABCDEF` after creating a room.
+Use `--source desktop` for the Windows Desktop Duplication source, or omit it
+to retain the portable synthetic test pattern:
 
 ```powershell
 build/call-dev/shareme_rtc_demo.exe `
   --server ws://127.0.0.1:18080/v1/ws `
-  --role host
+  --role host `
+  --source desktop
 ```
 
 Use that room in terminal 3:
@@ -111,6 +114,6 @@ build/call-dev/shareme_rtc_demo.exe `
   --room ABCDEF
 ```
 
-The current first-stage sender transmits the WebRTC synthetic test pattern;
-the viewer renders remote I420 frames through `QVideoSink`. Desktop Duplication
-capture replaces that source in the next stage.
+The viewer renders remote I420 frames through `QVideoSink`. Desktop capture
+implementation and Windows acceptance evidence are recorded in
+[Windows Desktop Duplication Verification](windows-desktop-duplication.md).
