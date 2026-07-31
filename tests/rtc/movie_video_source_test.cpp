@@ -110,12 +110,13 @@ void stop_interrupts_pts_gap(const std::filesystem::path &movie_path) {
 } // namespace
 
 int main(int argc, char **argv) {
-  REQUIRE(argc == 5);
+  REQUIRE(argc == 6);
   const std::filesystem::path movie_path{argv[1]};
   decodes_and_paces_movie_frames(movie_path);
   missing_movie_is_typed_failure(movie_path.parent_path());
   video_less_movie_is_typed_failure(std::filesystem::path{argv[2]});
   nonzero_pts_is_normalized(std::filesystem::path{argv[3]});
   stop_interrupts_pts_gap(std::filesystem::path{argv[4]});
+  nonzero_pts_is_normalized(std::filesystem::path{argv[5]});
   return EXIT_SUCCESS;
 }

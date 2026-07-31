@@ -41,8 +41,10 @@ python3 scripts/run_signaled_call_smoke.py \
 CTest creates untracked fixtures with the installed FFmpeg executable: the main
 320x180, 30 fps, two-second MPEG-4/AAC movie, an audio-only file, a movie
 starting at PTS 5 seconds, and a movie with a 5-second internal PTS gap. The
-current slice intentionally ignores movie audio. The timing fixtures verify
-first-PTS normalization and prompt, interruptible shutdown.
+suite also creates a staggered A/V movie whose audio begins before its nonzero
+video timeline. The current slice disables movie audio decoding. The timing
+fixtures verify first-video-PTS normalization, independence from earlier audio,
+and prompt, interruptible shutdown.
 
 The smoke script gives the path only to the host. It requires the viewer to
 report at least 20 received movie frames at exactly 320x180, plus nonzero
@@ -55,20 +57,20 @@ errors; it excludes paths, tokens, SDP, candidates, addresses, and credentials.
 Synthetic regression:
 
 ```text
-ROOM PO7B3K
-RESULT connected=1 video=59 width=640 height=360 audio_sent=103 audio_received=103 audio_level=0.244148 candidate=host error=
-RESULT connected=1 video=59 width=640 height=360 audio_sent=103 audio_received=103 audio_level=0.244148 candidate=host error=
+ROOM OCBK4B
+RESULT connected=1 video=59 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 candidate=host error=
+RESULT connected=1 video=59 width=640 height=360 audio_sent=104 audio_received=102 audio_level=0.244148 candidate=host error=
 ```
 
 Host movie plus bidirectional microphones; the viewer result is printed first:
 
 ```text
-ROOM UT3LNN
-RESULT connected=1 video=56 width=320 height=180 audio_sent=103 audio_received=101 audio_level=0.0168462 candidate=host error=
-RESULT connected=1 video=61 width=640 height=360 audio_sent=101 audio_received=101 audio_level=0.0168462 candidate=host error=
+ROOM XFBQ5D
+RESULT connected=1 video=57 width=320 height=180 audio_sent=102 audio_received=102 audio_level=0.0201117 candidate=host error=
+RESULT connected=1 video=60 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.0201117 candidate=host error=
 ```
 
-Combined CTest passed 22/22. The separate call-only build passed 11/11 and
+Combined CTest passed 23/23. The separate call-only build passed 11/11 and
 therefore still builds without FFmpeg. Invalid host/viewer/movie option
 combinations return exit code 2. A call-only binary asked for movie mode returns
 `movie-video-dependency-unavailable` and does not silently substitute synthetic

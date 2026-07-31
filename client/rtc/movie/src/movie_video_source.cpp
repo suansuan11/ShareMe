@@ -39,7 +39,8 @@ bool MovieVideoSource::start() {
 
   try {
     auto session = std::make_unique<media::PlaybackSession>(
-        std::make_unique<media::FfmpegMediaSource>());
+        std::make_unique<media::FfmpegMediaSource>(
+            media::FfmpegMediaSourceOptions{.decode_audio = false}));
     const auto info = session->open(movie_path_);
     if (!info.has_video) {
       session->close();

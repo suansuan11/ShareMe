@@ -133,6 +133,10 @@ if(TARGET ShareMe::Playback)
     SHAREME_PTS_GAP_FIXTURE
     "${CMAKE_CURRENT_BINARY_DIR}/generated-pts-gap.mp4"
   )
+  set(
+    SHAREME_STAGGERED_AV_FIXTURE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated-staggered-av.mp4"
+  )
   add_test(
     NAME generate_movie_call_fixture
     COMMAND
@@ -211,6 +215,30 @@ if(TARGET ShareMe::Playback)
     generate_pts_gap_fixture
     PROPERTIES FIXTURES_SETUP pts_gap_fixture
   )
+  add_test(
+    NAME generate_staggered_av_fixture
+    COMMAND
+      "${SHAREME_MOVIE_CALL_FFMPEG_EXECUTABLE}"
+      -hide_banner
+      -loglevel error
+      -y
+      -f lavfi
+      -i "testsrc2=size=320x180:rate=30:duration=2"
+      -f lavfi
+      -i "sine=frequency=660:sample_rate=48000:duration=2"
+      -filter_complex
+      "[0:v]setpts=PTS+5/TB[v];[1:a]asetpts=PTS+4/TB[a]"
+      -map "[v]"
+      -map "[a]"
+      -c:v mpeg4
+      -pix_fmt yuv420p
+      -c:a aac
+      "${SHAREME_STAGGERED_AV_FIXTURE}"
+  )
+  set_tests_properties(
+    generate_staggered_av_fixture
+    PROPERTIES FIXTURES_SETUP staggered_av_fixture
+  )
 
   add_executable(shareme_movie_video_source_test movie_video_source_test.cpp)
   target_include_directories(
@@ -230,12 +258,13 @@ if(TARGET ShareMe::Playback)
       "${SHAREME_AUDIO_ONLY_FIXTURE}"
       "${SHAREME_NONZERO_PTS_FIXTURE}"
       "${SHAREME_PTS_GAP_FIXTURE}"
+      "${SHAREME_STAGGERED_AV_FIXTURE}"
   )
   set_tests_properties(
     movie_video_source
     PROPERTIES
       FIXTURES_REQUIRED
-        "movie_call_fixture;audio_only_fixture;nonzero_pts_fixture;pts_gap_fixture"
+        "movie_call_fixture;audio_only_fixture;nonzero_pts_fixture;pts_gap_fixture;staggered_av_fixture"
       TIMEOUT 15
   )
 endif()

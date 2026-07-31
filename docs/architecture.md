@@ -141,7 +141,9 @@ PeerConnection releases its track.
 
 Movie audio is deliberately absent from this video slice. It must use a
 separate unprocessed stereo PCM track and must never enter the native
-microphone ADM or voice AEC/NS/AGC path.
+microphone ADM or voice AEC/NS/AGC path. `MovieVideoSource` therefore opens its
+FFmpeg source with audio decoding disabled, so an earlier audio timeline cannot
+block discovery or pacing of the first video frame.
 
 ## Capability and Failure Model
 

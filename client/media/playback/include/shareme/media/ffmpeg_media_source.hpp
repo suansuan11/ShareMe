@@ -6,9 +6,13 @@
 
 namespace shareme::media {
 
+struct FfmpegMediaSourceOptions {
+  bool decode_audio{true};
+};
+
 class FfmpegMediaSource final : public IMediaSource {
 public:
-  FfmpegMediaSource();
+  explicit FfmpegMediaSource(FfmpegMediaSourceOptions options = {});
   ~FfmpegMediaSource() override;
 
   FfmpegMediaSource(const FfmpegMediaSource&) = delete;
