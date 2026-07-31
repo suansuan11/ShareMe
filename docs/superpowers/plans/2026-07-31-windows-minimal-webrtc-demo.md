@@ -122,7 +122,7 @@ live process, and close captured streams.
 
 - [ ] **Step 2: Run the contract test and verify red**
 
-Run: `python tests/scripts/signaled_call_smoke_test.py scripts/run_signaled_call_smoke.py`
+Run: `python tests/scripts/signaled_call_smoke_test.py --script scripts/run_signaled_call_smoke.py`
 
 Expected: failure because the Windows launch/cleanup helpers do not exist.
 
@@ -135,7 +135,7 @@ process-group safety checks.
 
 - [ ] **Step 4: Verify green**
 
-Run: `python tests/scripts/signaled_call_smoke_test.py scripts/run_signaled_call_smoke.py`
+Run: `python tests/scripts/signaled_call_smoke_test.py --script scripts/run_signaled_call_smoke.py`
 
 Expected: all smoke-runner contract tests pass.
 

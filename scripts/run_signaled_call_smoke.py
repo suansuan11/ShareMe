@@ -38,6 +38,12 @@ class SignalingStartupError(SmokeRuntimeError):
         self.diagnostic = diagnostic
 
 
+def popen_group_options() -> dict[str, object]:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 def read_log_tail(log: TextIO, limit: int = 4096) -> str:
     log.flush()
     log.seek(0, os.SEEK_END)
@@ -76,7 +82,7 @@ def start_signaling_server(
             stdout=log,
             stderr=subprocess.STDOUT,
             text=True,
-            start_new_session=True,
+            **popen_group_options(),
         )
     except OSError as error:
         log.close()
@@ -226,6 +232,21 @@ def process_group_exists(group_id: int) -> bool:
 def terminate_process_group(
     process: subprocess.Popen[str], grace_seconds: float = 5
 ) -> None:
+    if os.name == "nt":
+        if process.poll() is None:
+            try:
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+                process.wait(timeout=grace_seconds)
+            except (OSError, subprocess.TimeoutExpired):
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=grace_seconds)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+        return
+
     group_id = process.pid
     if group_id <= 0 or group_id == os.getpgrp():
         raise SmokeRuntimeError("unsafe process group cleanup refused")
@@ -310,7 +331,7 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                start_new_session=True,
+                **popen_group_options(),
             )
         except OSError as error:
             raise SmokeRuntimeError("host process could not start") from error
@@ -334,7 +355,7 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                start_new_session=True,
+                **popen_group_options(),
             )
         except OSError as error:
             raise SmokeRuntimeError(

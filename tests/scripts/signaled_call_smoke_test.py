@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import ctypes
 import importlib.util
 import os
 import socket
@@ -14,6 +15,30 @@ import urllib.request
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+
+
+def process_exists(process_id: int) -> bool:
+    if os.name != "nt":
+        try:
+            os.kill(process_id, 0)
+            return True
+        except ProcessLookupError:
+            return False
+    process_query_limited_information = 0x1000
+    still_active = 259
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(
+        process_query_limited_information, False, process_id
+    )
+    if not handle:
+        return False
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def load_smoke_script(path: Path):
@@ -71,6 +96,16 @@ class SignaledCallSmokeTest(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertNotIn("/private/secret", result.stderr)
         self.assertNotIn(str(Path.cwd()), result.stderr)
+
+    def test_process_group_options_match_platform(self):
+        options = self.smoke.popen_group_options()
+        if os.name == "nt":
+            self.assertEqual(
+                options,
+                {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP},
+            )
+        else:
+            self.assertEqual(options, {"start_new_session": True})
 
     def test_occupied_health_port_is_rejected_before_server_start(self):
         occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -133,7 +168,7 @@ class SignaledCallSmokeTest(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            start_new_session=True,
+            **self.smoke.popen_group_options(),
         )
         try:
             with self.assertRaisesRegex(
@@ -192,7 +227,7 @@ class SignaledCallSmokeTest(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                start_new_session=True,
+                **self.smoke.popen_group_options(),
             )
             deadline = time.monotonic() + 2
             while not child_pid_path.exists() and time.monotonic() < deadline:
@@ -209,9 +244,7 @@ class SignaledCallSmokeTest(unittest.TestCase):
             self.assertIsNotNone(host.poll())
             group_deadline = time.monotonic() + 2
             while time.monotonic() < group_deadline:
-                try:
-                    os.kill(child_pid, 0)
-                except ProcessLookupError:
+                if not process_exists(child_pid):
                     break
                 time.sleep(0.01)
             else:
@@ -247,7 +280,7 @@ class SignaledCallSmokeTest(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            start_new_session=True,
+            **self.smoke.popen_group_options(),
         )
         process.wait(timeout=2)
         self.smoke.terminate_process_group(process, grace_seconds=0.1)
