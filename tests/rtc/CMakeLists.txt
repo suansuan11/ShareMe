@@ -331,12 +331,13 @@ if(TARGET ShareMe::Playback)
       "${SHAREME_VIDEO_ONLY_FIXTURE}"
       "${SHAREME_AUDIO_GAP_FIXTURE}"
       "${SHAREME_STAGGERED_AV_FIXTURE}"
+      "${SHAREME_GENERATED_NEGATIVE_AV_MEDIA}"
   )
   set_tests_properties(
     movie_audio_source
     PROPERTIES
       FIXTURES_REQUIRED
-        "movie_call_fixture;audio_only_fixture;video_only_fixture;audio_gap_fixture;staggered_av_fixture"
+        "movie_call_fixture;audio_only_fixture;video_only_fixture;audio_gap_fixture;staggered_av_fixture;negative_av_media_fixture"
       TIMEOUT 15
   )
 endif()

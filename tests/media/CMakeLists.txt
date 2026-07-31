@@ -30,6 +30,15 @@ set(
   SHAREME_GENERATED_44100_AUDIO_MEDIA
   "${CMAKE_CURRENT_BINARY_DIR}/generated-44100-audio.flac"
 )
+set(
+  SHAREME_GENERATED_NEGATIVE_AV_MEDIA
+  "${CMAKE_CURRENT_BINARY_DIR}/generated-negative-start-av.mkv"
+)
+set(
+  SHAREME_GENERATED_NEGATIVE_AV_MEDIA
+  "${SHAREME_GENERATED_NEGATIVE_AV_MEDIA}"
+  PARENT_SCOPE
+)
 
 add_test(
   NAME generate_media_fixture
@@ -143,6 +152,32 @@ set_tests_properties(
   PROPERTIES FIXTURES_SETUP audio_44100_media_fixture
 )
 
+add_test(
+  NAME generate_negative_av_media_fixture
+  COMMAND
+    "${SHAREME_FFMPEG_EXECUTABLE}"
+    -hide_banner
+    -loglevel error
+    -y
+    -f lavfi
+    -i "testsrc2=size=160x90:rate=30:duration=3"
+    -f lavfi
+    -i "sine=frequency=660:sample_rate=48000:duration=3"
+    -filter_complex
+    "[0:v]setpts=PTS[v];[1:a]asetpts=PTS-1/TB[a]"
+    -map "[v]"
+    -map "[a]"
+    -c:v ffv1
+    -c:a aac
+    -copyts
+    -avoid_negative_ts disabled
+    "${SHAREME_GENERATED_NEGATIVE_AV_MEDIA}"
+)
+set_tests_properties(
+  generate_negative_av_media_fixture
+  PROPERTIES FIXTURES_SETUP negative_av_media_fixture
+)
+
 add_executable(
   shareme_ffmpeg_media_source_test
   ffmpeg_media_source_test.cpp
@@ -181,5 +216,11 @@ target_link_libraries(
 
 add_test(
   NAME playback_session
-  COMMAND shareme_playback_session_test
+  COMMAND
+    shareme_playback_session_test
+    "${SHAREME_GENERATED_NEGATIVE_AV_MEDIA}"
+)
+set_tests_properties(
+  playback_session
+  PROPERTIES FIXTURES_REQUIRED negative_av_media_fixture TIMEOUT 10
 )

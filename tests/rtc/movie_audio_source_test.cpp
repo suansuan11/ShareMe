@@ -322,7 +322,7 @@ void shared_timeline_preserves_track_offset(
 } // namespace
 
 int main(int argc, char **argv) {
-  REQUIRE(argc == 6);
+  REQUIRE(argc == 7);
   const std::filesystem::path movie_path{argv[1]};
   shared_epoch_is_stable();
   source_is_live_and_disables_voice_processing(movie_path);
@@ -332,5 +332,6 @@ int main(int argc, char **argv) {
                          std::filesystem::path{argv[3]});
   stop_interrupts_future_audio(std::filesystem::path{argv[4]});
   shared_timeline_preserves_track_offset(std::filesystem::path{argv[5]});
+  shared_timeline_preserves_track_offset(std::filesystem::path{argv[6]});
   return EXIT_SUCCESS;
 }

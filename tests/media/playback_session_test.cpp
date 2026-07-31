@@ -1,5 +1,9 @@
 #include "shareme/media/playback_session.hpp"
 
+#include "shareme/media/ffmpeg_media_source.hpp"
+#include "shareme/media/pcm_chunker.hpp"
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -11,6 +15,7 @@
 #include <mutex>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -204,12 +209,76 @@ void limits_decode_ahead_of_playhead() {
       [&session] { return session.state() == PlaybackState::ended; }));
 }
 
+void negative_start_throttles_without_dropping_audio(
+    const std::filesystem::path& negative_start_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::PcmChunker;
+  using shareme::media::PlaybackSession;
+  using shareme::media::PlaybackState;
+
+  PlaybackSession session{
+      std::make_unique<FfmpegMediaSource>(
+          FfmpegMediaSourceOptions{
+              .decode_video = false,
+              .decode_audio = true,
+          })};
+  const auto info = session.open(negative_start_path);
+  REQUIRE(info.start_time_ms >= -1'100);
+  REQUIRE(info.start_time_ms <= -900);
+  REQUIRE(info.has_audio);
+
+  PcmChunker chunker;
+  std::vector<std::int64_t> chunk_pts_ms;
+  const auto started_at = std::chrono::steady_clock::now();
+  session.play();
+  std::this_thread::sleep_for(50ms);
+
+  const auto deadline = started_at + 5s;
+  while (std::chrono::steady_clock::now() < deadline) {
+    const auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started_at);
+    session.set_playhead_ms(info.start_time_ms + elapsed.count());
+
+    while (auto audio = session.pop_audio()) {
+      REQUIRE(chunker.push(std::move(*audio)));
+      while (auto chunk = chunker.pop())
+        chunk_pts_ms.push_back(chunk->pts_ms);
+    }
+
+    if (session.state() == PlaybackState::ended)
+      break;
+    std::this_thread::sleep_for(1ms);
+  }
+
+  while (auto audio = session.pop_audio()) {
+    REQUIRE(chunker.push(std::move(*audio)));
+    while (auto chunk = chunker.pop())
+      chunk_pts_ms.push_back(chunk->pts_ms);
+  }
+
+  REQUIRE(session.state() == PlaybackState::ended);
+  REQUIRE(session.audio_dropped_count() == 0);
+  REQUIRE(chunk_pts_ms.size() >= 290);
+  for (std::size_t index = 1; index < chunk_pts_ms.size(); ++index) {
+    const auto step_ms = chunk_pts_ms[index] - chunk_pts_ms[index - 1U];
+    REQUIRE(step_ms >= 9);
+    REQUIRE(step_ms <= 11);
+    const auto ideal_pts_ms =
+        chunk_pts_ms.front() + static_cast<std::int64_t>(index * 10U);
+    REQUIRE(std::llabs(chunk_pts_ms[index] - ideal_pts_ms) <= 1);
+  }
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  REQUIRE(argc == 2);
   opens_paused_and_controls_idempotently();
   seek_increments_generation_and_discards_stale_frames();
   drops_oldest_video_when_queue_is_full();
   limits_decode_ahead_of_playhead();
+  negative_start_throttles_without_dropping_audio(argv[1]);
   return EXIT_SUCCESS;
 }
