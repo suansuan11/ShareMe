@@ -249,6 +249,8 @@ public:
     if (wait_cancelled_.load(std::memory_order_acquire)) {
       std::lock_guard lock(mu_);
       result_.video_frames_received = sink_.frame_count();
+      result_.video_width = sink_.last_width();
+      result_.video_height = sink_.last_height();
       if (result_.error.empty())
         result_.error = "signaled call cancelled";
       return result_;
@@ -256,6 +258,8 @@ public:
     collect_stats();
     std::lock_guard lock(mu_);
     result_.video_frames_received = sink_.frame_count();
+    result_.video_width = sink_.last_width();
+    result_.video_height = sink_.last_height();
     if (!result_.connected && result_.error.empty())
       result_.error = "signaled call timed out";
     if (result_.video_frames_received == 0 && result_.error.empty())

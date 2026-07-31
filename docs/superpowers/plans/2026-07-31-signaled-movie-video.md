@@ -187,7 +187,7 @@ git commit -m "feat: decode movies into WebRTC video frames"
 - Modify: `client/tools/signaled_call/main.cpp`
 - Modify: `scripts/run_signaled_call_smoke.py`
 
-- [ ] **Step 1: Add failing CLI/script acceptance**
+- [x] **Step 1: Add failing CLI/script acceptance**
 
 Extend the probe contract with `--video synthetic|movie` and `--movie path`.
 Reject movie mode for a viewer, a missing `--movie`, or `--movie` without movie
@@ -202,7 +202,7 @@ movie arguments. In movie mode require the viewer result to contain at least 20
 frames at 320x180 while retaining nonzero voice RTP requirements for both
 peers.
 
-- [ ] **Step 2: Confirm the new smoke command fails before wiring**
+- [x] **Step 2: Confirm the new smoke command fails before wiring**
 
 ```bash
 python3 scripts/run_signaled_call_smoke.py \
@@ -213,7 +213,7 @@ python3 scripts/run_signaled_call_smoke.py \
 
 Expected: argument or result validation failure.
 
-- [ ] **Step 3: Wire the host movie factory**
+- [x] **Step 3: Wire the host movie factory**
 
 When both `ShareMe::Playback` and the movie source target exist, link the
 signaled call probe to it and define `SHAREME_HAS_MOVIE_VIDEO=1`. In movie mode
@@ -231,7 +231,7 @@ Populate result width/height from `CountingVideoSink`. Keep the existing
 synthetic default and return a typed dependency error if a movie-enabled CLI is
 not built.
 
-- [ ] **Step 4: Run synthetic and real movie calls**
+- [x] **Step 4: Run synthetic and real movie calls**
 
 ```bash
 python3 scripts/run_signaled_call_smoke.py \
@@ -246,7 +246,7 @@ python3 scripts/run_signaled_call_smoke.py \
 Expected: both calls exit zero; the movie viewer reports at least 20 frames at
 320x180 and both microphone directions have positive packet counts and levels.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add client/tools/signaled_call scripts/run_signaled_call_smoke.py

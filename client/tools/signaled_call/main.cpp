@@ -1,6 +1,10 @@
 #include "qt_signaling_client.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
+#ifdef SHAREME_HAS_MOVIE_VIDEO
+#include "shareme/rtc/movie_video_source.hpp"
+#endif
+
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -10,6 +14,7 @@
 #include <QTimer>
 
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -41,19 +46,36 @@ int main(int argc, char **argv) {
                                  "role");
   QCommandLineOption audio_option(
       QStringList{"audio"}, "synthetic or microphone", "mode", "synthetic");
+  QCommandLineOption video_option(QStringList{"video"}, "synthetic or movie",
+                                  "mode", "synthetic");
+  QCommandLineOption movie_option(QStringList{"movie"}, "Host movie path",
+                                  "path");
   QCommandLineOption room_option(QStringList{"room"}, "Room ID for viewer",
                                  "room");
   parser.addOption(server);
   parser.addOption(role_option);
   parser.addOption(audio_option);
+  parser.addOption(video_option);
+  parser.addOption(movie_option);
   parser.addOption(room_option);
   parser.process(app);
   const auto role_text = parser.value(role_option);
   const auto audio_text = parser.value(audio_option);
+  const auto video_text = parser.value(video_option);
+  const auto movie_is_set = parser.isSet(movie_option);
   if (!parser.isSet(server) || (role_text != "host" && role_text != "viewer") ||
       (audio_text != "synthetic" && audio_text != "microphone") ||
+      (video_text != "synthetic" && video_text != "movie") ||
+      (video_text == "movie" && (role_text != "host" || !movie_is_set)) ||
+      (video_text != "movie" && movie_is_set) ||
       (role_text == "viewer" && !parser.isSet(room_option)))
     return 2;
+#ifndef SHAREME_HAS_MOVIE_VIDEO
+  if (video_text == "movie") {
+    std::cerr << "PEER_ERROR movie-video-dependency-unavailable" << std::endl;
+    return 1;
+  }
+#endif
   const auto role = role_text == "host" ? shareme::rtc::SignaledRole::host
                                         : shareme::rtc::SignaledRole::viewer;
   const auto audio_mode = audio_text == "microphone"
@@ -79,6 +101,8 @@ int main(int argc, char **argv) {
           [&, result] {
             std::cout << "RESULT connected=" << (result.connected ? 1 : 0)
                       << " video=" << result.video_frames_received
+                      << " width=" << result.video_width
+                      << " height=" << result.video_height
                       << " audio_sent=" << result.audio_packets_sent
                       << " audio_received=" << result.audio_packets_received
                       << " audio_level="
@@ -124,8 +148,20 @@ int main(int argc, char **argv) {
           },
           Qt::AutoConnection);
     };
-    peer = shareme::rtc::SignaledPeer::create(
-        {.role = role, .audio_mode = audio_mode}, std::move(callbacks));
+    shareme::rtc::SignaledPeerConfig config{.role = role,
+                                            .audio_mode = audio_mode};
+#ifdef SHAREME_HAS_MOVIE_VIDEO
+    if (video_text == "movie") {
+      const std::filesystem::path movie_path{
+          parser.value(movie_option).toStdString()};
+      config.video_mode = shareme::rtc::SignaledVideoMode::injected;
+      config.video_source_factory = [movie_path](webrtc::TaskQueueFactory &) {
+        return shareme::rtc::MovieVideoSource::create(movie_path);
+      };
+    }
+#endif
+    peer = shareme::rtc::SignaledPeer::create(std::move(config),
+                                              std::move(callbacks));
     return peer != nullptr;
   };
   QObject::connect(&client, &QtSignalingClient::statusChanged, &app,

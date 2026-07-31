@@ -37,6 +37,8 @@ struct SignaledAudioPolicy {
 struct SignaledPeerResult {
   bool connected{false};
   std::uint64_t video_frames_received{0};
+  int video_width{0};
+  int video_height{0};
   std::uint64_t audio_packets_sent{0};
   std::uint64_t audio_packets_received{0};
   std::optional<double> local_audio_level;
