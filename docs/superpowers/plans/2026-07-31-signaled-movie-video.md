@@ -94,7 +94,7 @@ Expected: both focused tests pass.
 - Create: `tests/rtc/movie_video_source_test.cpp`
 - Modify: `CMakePresets.json`
 
-- [ ] **Step 1: Add a combined preset and failing movie-source test**
+- [x] **Step 1: Add a combined preset and failing movie-source test**
 
 Add `movie-call-dev`, `build-movie-call-dev`, and `test-movie-call-dev`. The
 configure preset inherits `base` and enables all three optional dependencies:
@@ -128,7 +128,7 @@ REQUIRE(source->error().empty());
 Also test that a nonexistent path produces `movie-open-failed` without any
 generated frames.
 
-- [ ] **Step 2: Configure/build and confirm RED**
+- [x] **Step 2: Configure/build and confirm RED**
 
 ```bash
 cmake --fresh --preset movie-call-dev \
@@ -140,7 +140,7 @@ cmake --build --preset build-movie-call-dev
 Expected: compilation/configuration fails because the movie adapter target and
 class are not implemented.
 
-- [ ] **Step 3: Implement decoding, conversion, pacing, and shutdown**
+- [x] **Step 3: Implement decoding, conversion, pacing, and shutdown**
 
 `MovieVideoSource::start()` opens `FfmpegMediaSource` through
 `PlaybackSession`, verifies `has_video`, starts playback, and starts one
@@ -161,7 +161,7 @@ OnFrame(frame);
 Guard error text and counters with atomics/mutexes. `stop()` requests/join the
 worker before `PlaybackSession::close()` and is idempotent.
 
-- [ ] **Step 4: Verify source behavior and optional boundaries**
+- [x] **Step 4: Verify source behavior and optional boundaries**
 
 ```bash
 cmake --build --preset build-movie-call-dev
@@ -173,7 +173,7 @@ ctest --preset test-call-dev -R 'test_pattern_source|signaled_peer' --output-on-
 Expected: movie tests pass in the combined build and call-only tests still pass
 without FFmpeg.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add CMakePresets.json client/rtc/CMakeLists.txt client/rtc/movie tests/rtc

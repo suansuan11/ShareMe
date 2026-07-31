@@ -102,7 +102,7 @@ public:
           &video_decoder,
           0);
       if (video_stream_index_ < 0 || video_decoder == nullptr) {
-        throw std::runtime_error{"Media file has no decodable video stream"};
+        throw VideoStreamUnavailable{};
       }
       video_codec_context_ =
           open_decoder(format_context_, video_stream_index_, video_decoder);
