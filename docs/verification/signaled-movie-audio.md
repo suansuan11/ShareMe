@@ -51,14 +51,14 @@ ctest --preset test-movie-call-dev --output-on-failure
 python3 scripts/run_signaled_call_smoke.py \
   --probe build/movie-call-dev/client/tools/signaled_call/shareme_signaled_call_probe \
   --server-root server \
-  --port 18132 \
+  --port 18134 \
   --audio synthetic \
   --video synthetic
 
 python3 scripts/run_signaled_call_smoke.py \
   --probe build/movie-call-dev/client/tools/signaled_call/shareme_signaled_call_probe \
   --server-root server \
-  --port 18133 \
+  --port 18135 \
   --audio microphone \
   --video movie \
   --movie-audio \
@@ -84,7 +84,12 @@ endpoint. During health polling it also checks that the server process started
 by this run is still alive. Server output goes to a non-blocking temporary file;
 a bounded tail is retained only on the local startup exception object while
 the displayed error category stays concise. Contract tests cover an occupied
-fake health endpoint and a server that exits before becoming healthy.
+fake health endpoint and a server that exits before becoming healthy. At the
+subprocess boundary both cases exit 1 with the exact single stderr line
+`SMOKE_ERROR signaling-startup-failed`; no traceback, address, workspace path,
+movie path, or captured server log is printed. Other expected orchestration
+failures use `SMOKE_ERROR smoke-failed`. `KeyboardInterrupt`, `SystemExit`, and
+unexpected programming exceptions are deliberately not swallowed.
 An unavailable optional A/V skew is printed as numeric sentinel `-1`; movie
 audio acceptance rejects that sentinel before applying the 50 ms threshold.
 
@@ -98,18 +103,18 @@ the command package with no tests, and `go vet ./...` exited zero.
 Synthetic two-process regression; viewer result is first:
 
 ```text
-ROOM 2BO6N4
+ROOM WVFOLV
 RESULT connected=1 video=60 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
-RESULT connected=1 video=60 width=640 height=360 audio_sent=102 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+RESULT connected=1 video=60 width=640 height=360 audio_sent=103 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
 ```
 
 Movie video, independent movie audio, and bidirectional microphones; viewer
 result is first:
 
 ```text
-ROOM U3MYRF
-RESULT connected=1 video=58 width=320 height=180 audio_sent=149 audio_received=297 audio_level=0.0202338 movie_audio_frames_received=302 sample_rate=48000 channels=2 peak=3412 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
-RESULT connected=1 video=60 width=640 height=360 audio_sent=297 audio_received=101 audio_level=0.0908841 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=200 movie_av_skew_ms=23 candidate=host error=
+ROOM B3AWXG
+RESULT connected=1 video=58 width=320 height=180 audio_sent=149 audio_received=297 audio_level=0.0270699 movie_audio_frames_received=302 sample_rate=48000 channels=2 peak=3380 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+RESULT connected=1 video=59 width=640 height=360 audio_sent=297 audio_received=101 audio_level=0.0908841 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=200 movie_av_skew_ms=23 candidate=host error=
 ```
 
 This exceeds the acceptance thresholds of 100 viewer movie-audio callbacks,

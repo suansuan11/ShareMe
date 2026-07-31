@@ -26,7 +26,11 @@ RESULT = re.compile(
 )
 
 
-class SignalingStartupError(RuntimeError):
+class SmokeRuntimeError(RuntimeError):
+    pass
+
+
+class SignalingStartupError(SmokeRuntimeError):
     def __init__(self, message: str, diagnostic: str = ""):
         super().__init__(message)
         self.diagnostic = diagnostic
@@ -129,7 +133,7 @@ def validate(
     lines = [line for line in output.splitlines() if line.startswith("RESULT ")]
     match = RESULT.fullmatch(lines[-1]) if lines else None
     if match is None:
-        raise RuntimeError(f"{label} did not report a valid result")
+        raise SmokeRuntimeError(f"{label} did not report a valid result")
     video_frames, width, height, audio_sent, audio_received = (
         int(value) for value in match.groups()[:5]
     )
@@ -137,38 +141,54 @@ def validate(
         value <= 0
         for value in (video_frames, width, height, audio_sent, audio_received)
     ):
-        raise RuntimeError(f"{label} did not report received test media")
+        raise SmokeRuntimeError(
+            f"{label} did not report received test media"
+        )
     if audio_mode == "microphone" and float(match.group(6)) <= 0.0:
-        raise RuntimeError(f"{label} did not report local microphone activity")
+        raise SmokeRuntimeError(
+            f"{label} did not report local microphone activity"
+        )
     if video_mode == "movie" and label == "viewer":
         if video_frames < 20 or (width, height) != (320, 180):
-            raise RuntimeError("viewer did not receive the expected movie video")
+            raise SmokeRuntimeError(
+                "viewer did not receive the expected movie video"
+            )
     if movie_audio and label == "viewer":
         movie_frames, sample_rate, channels, peak = (
             int(value) for value in match.groups()[6:10]
         )
         if movie_frames < 100:
-            raise RuntimeError("viewer did not receive enough movie audio")
+            raise SmokeRuntimeError(
+                "viewer did not receive enough movie audio"
+            )
         if (sample_rate, channels) != (48_000, 2):
-            raise RuntimeError("viewer movie audio format was not 48 kHz stereo")
+            raise SmokeRuntimeError(
+                "viewer movie audio format was not 48 kHz stereo"
+            )
         if peak <= 0:
-            raise RuntimeError("viewer movie audio was silent")
+            raise SmokeRuntimeError("viewer movie audio was silent")
     if movie_audio and label == "host":
         chunks_generated = int(match.group(11))
         movie_av_skew_ms = int(match.group(12))
         if chunks_generated < 100:
-            raise RuntimeError("host did not generate enough movie audio")
+            raise SmokeRuntimeError(
+                "host did not generate enough movie audio"
+            )
         if movie_av_skew_ms < 0:
-            raise RuntimeError("host movie audio/video skew was unavailable")
+            raise SmokeRuntimeError(
+                "host movie audio/video skew was unavailable"
+            )
         if abs(movie_av_skew_ms) > 50:
-            raise RuntimeError("host movie audio/video skew exceeded 50 ms")
+            raise SmokeRuntimeError(
+                "host movie audio/video skew exceeded 50 ms"
+            )
 
 
 def wait_for_room(
     host: subprocess.Popen[str], timeout_seconds: float = 10
 ) -> str:
     if host.stdout is None:
-        raise RuntimeError("host room output unavailable")
+        raise SmokeRuntimeError("host room output unavailable")
     result: queue.Queue[str] = queue.Queue(maxsize=1)
 
     def read_line() -> None:
@@ -183,9 +203,9 @@ def wait_for_room(
     try:
         room_line = result.get(timeout=timeout_seconds).strip()
     except queue.Empty as error:
-        raise RuntimeError("host room timeout") from error
+        raise SmokeRuntimeError("host room timeout") from error
     if not re.fullmatch(r"ROOM [A-Z2-7]{6}", room_line):
-        raise RuntimeError("host did not create a valid room")
+        raise SmokeRuntimeError("host did not create a valid room")
     return room_line
 
 
@@ -202,7 +222,7 @@ def terminate_process_group(
 ) -> None:
     group_id = process.pid
     if group_id <= 0 or group_id == os.getpgrp():
-        raise RuntimeError("unsafe process group cleanup refused")
+        raise SmokeRuntimeError("unsafe process group cleanup refused")
     try:
         os.killpg(group_id, signal.SIGTERM)
     except ProcessLookupError:
@@ -278,40 +298,50 @@ def main() -> int:
             host_command.extend(("--movie", str(args.movie)))
         if args.movie_audio:
             host_command.append("--movie-audio")
-        host = subprocess.Popen(
-            host_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
+        try:
+            host = subprocess.Popen(
+                host_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+        except OSError as error:
+            raise SmokeRuntimeError("host process could not start") from error
         room_line = wait_for_room(host)
         room_id = room_line.split()[1]
-        viewer = subprocess.Popen(
-            [
-                str(args.probe),
-                "--server",
-                websocket_url,
-                "--role",
-                "viewer",
-                "--room",
-                room_id,
-                "--audio",
-                args.audio,
-                "--video",
-                "synthetic",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
+        try:
+            viewer = subprocess.Popen(
+                [
+                    str(args.probe),
+                    "--server",
+                    websocket_url,
+                    "--role",
+                    "viewer",
+                    "--room",
+                    room_id,
+                    "--audio",
+                    args.audio,
+                    "--video",
+                    "synthetic",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+        except OSError as error:
+            raise SmokeRuntimeError(
+                "viewer process could not start"
+            ) from error
         viewer_output, viewer_error = viewer.communicate(timeout=25)
         if viewer.returncode != 0:
-            raise RuntimeError(f"viewer failed: {viewer_error.strip()}")
+            raise SmokeRuntimeError(
+                f"viewer failed: {viewer_error.strip()}"
+            )
         host_output, host_error = host.communicate(timeout=25)
         if host.returncode != 0:
-            raise RuntimeError(f"host failed: {host_error.strip()}")
+            raise SmokeRuntimeError(f"host failed: {host_error.strip()}")
         validate("viewer", viewer_output, args.audio, args.video, args.movie_audio)
         validate("host", host_output, args.audio, args.video, args.movie_audio)
         print(room_line)
@@ -327,5 +357,16 @@ def main() -> int:
         server_log.close()
 
 
+def cli_main() -> int:
+    try:
+        return main()
+    except SignalingStartupError:
+        print("SMOKE_ERROR signaling-startup-failed", file=sys.stderr)
+        return 1
+    except (SmokeRuntimeError, subprocess.TimeoutExpired, TimeoutError):
+        print("SMOKE_ERROR smoke-failed", file=sys.stderr)
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli_main())

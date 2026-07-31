@@ -27,6 +27,50 @@ def load_smoke_script(path: Path):
 
 class SignaledCallSmokeTest(unittest.TestCase):
     smoke = None
+    script_path = None
+
+    def run_entry(
+        self,
+        port: int,
+        server_root: Path,
+        environment=None,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.script_path),
+                "--probe",
+                "/private/secret-probe",
+                "--server-root",
+                str(server_root),
+                "--port",
+                str(port),
+                "--audio",
+                "synthetic",
+                "--video",
+                "movie",
+                "--movie",
+                "/private/secret-movie.mp4",
+                "--movie-audio",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env=environment,
+        )
+
+    def assert_sanitized_startup_failure(
+        self, result: subprocess.CompletedProcess[str]
+    ) -> None:
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(
+            result.stderr, "SMOKE_ERROR signaling-startup-failed\n"
+        )
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("/private/secret", result.stderr)
+        self.assertNotIn(str(Path.cwd()), result.stderr)
 
     def test_occupied_health_port_is_rejected_before_server_start(self):
         occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -75,6 +119,9 @@ class SignaledCallSmokeTest(unittest.TestCase):
                 )
             self.assertLess(time.monotonic() - started, 1)
             self.assertFalse(process_started)
+            self.assert_sanitized_startup_failure(
+                self.run_entry(port, Path("/private/secret-server"))
+            )
         finally:
             stop.set()
             occupied.close()
@@ -99,6 +146,25 @@ class SignaledCallSmokeTest(unittest.TestCase):
                 )
         finally:
             self.smoke.terminate_process_group(process, grace_seconds=0.1)
+
+    def test_server_exit_entry_error_is_sanitized(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_directory = root / "bin"
+            binary_directory.mkdir()
+            fake_go = binary_directory / "go"
+            fake_go.write_text("#!/bin/sh\nexit 7\n")
+            fake_go.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = (
+                f"{binary_directory}{os.pathsep}{environment['PATH']}"
+            )
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.bind(("127.0.0.1", 0))
+                port = probe.getsockname()[1]
+            self.assert_sanitized_startup_failure(
+                self.run_entry(port, root, environment)
+            )
 
     def test_missing_room_line_times_out_and_process_group_is_removed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -179,6 +245,7 @@ def main() -> int:
     parser.add_argument("--script", type=Path, required=True)
     args, unittest_args = parser.parse_known_args()
     SignaledCallSmokeTest.smoke = load_smoke_script(args.script)
+    SignaledCallSmokeTest.script_path = args.script
     unittest.main(argv=[sys.argv[0], *unittest_args])
     return 0
 
