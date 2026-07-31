@@ -23,7 +23,7 @@ void require(bool condition, const char *expression, int line) {
 
 struct FakeAudioState {
   std::atomic_bool started{false};
-  std::atomic_bool stopped{false};
+  std::atomic<int> stop_count{0};
   bool start_succeeds{true};
   std::string error;
 };
@@ -38,7 +38,7 @@ public:
     state_->started.store(true);
     return state_->start_succeeds;
   }
-  void stop() noexcept override { state_->stopped.store(true); }
+  void stop() noexcept override { state_->stop_count.fetch_add(1); }
   std::uint64_t generated_count() const noexcept override { return 123; }
   std::optional<std::int64_t> last_pts_ms() const noexcept override {
     return 1'000;
@@ -108,6 +108,24 @@ int main() {
   REQUIRE(audio_sink.sample_rate() == 48'000);
   REQUIRE(audio_sink.channels() == 2);
   REQUIRE(audio_sink.peak() == 32'768);
+  const auto first_audio_snapshot = audio_sink.snapshot();
+  REQUIRE(first_audio_snapshot.callback_count == 1);
+  REQUIRE(first_audio_snapshot.sample_rate == 48'000);
+  REQUIRE(first_audio_snapshot.channels == 2);
+  REQUIRE(first_audio_snapshot.peak == 32'768);
+  auto publish_second_callback = std::async(std::launch::async, [&] {
+    const std::int16_t quiet_samples[]{-1, 2};
+    audio_sink.OnData(quiet_samples, 16, 44'100, 1, 2, 2);
+  });
+  publish_second_callback.get();
+  const auto second_audio_snapshot = audio_sink.snapshot();
+  REQUIRE(second_audio_snapshot.callback_count == 2);
+  REQUIRE(second_audio_snapshot.sample_rate == 44'100);
+  REQUIRE(second_audio_snapshot.channels == 1);
+  REQUIRE(second_audio_snapshot.peak == 32'768);
+  REQUIRE(shareme::rtc::has_sufficient_movie_audio_reception(false, 0));
+  REQUIRE(!shareme::rtc::has_sufficient_movie_audio_reception(true, 99));
+  REQUIRE(shareme::rtc::has_sufficient_movie_audio_reception(true, 100));
   std::string invalid_video_error;
   shareme::rtc::SignaledPeerCallbacks invalid_video_callbacks;
   invalid_video_callbacks.failure = [&](std::string category) {
@@ -227,7 +245,7 @@ int main() {
   const auto movie_result = movie_peer->wait(std::chrono::seconds(1));
   REQUIRE(movie_result.movie_audio_chunks_generated == 123);
   movie_peer->stop();
-  REQUIRE(fake_state->stopped.load());
+  REQUIRE(fake_state->stop_count.load() == 1);
   movie_peer.reset();
 
   auto failing_state = std::make_shared<FakeAudioState>();
@@ -248,7 +266,9 @@ int main() {
       std::move(failing_callbacks));
   REQUIRE(failing_movie_peer != nullptr);
   REQUIRE(!failing_movie_peer->start());
+  REQUIRE(failing_state->stop_count.load() == 1);
   REQUIRE(sanitized_start_error == "movie-audio-source-unavailable");
   REQUIRE(sanitized_start_error.find("movie.mov") == std::string::npos);
   failing_movie_peer->stop();
+  REQUIRE(failing_state->stop_count.load() == 1);
 }

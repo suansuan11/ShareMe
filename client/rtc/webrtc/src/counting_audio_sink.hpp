@@ -10,8 +10,21 @@
 
 namespace shareme::rtc {
 
+[[nodiscard]] inline bool
+has_sufficient_movie_audio_reception(bool remote_track_seen,
+                                     std::uint64_t callback_count) noexcept {
+  return !remote_track_seen || callback_count >= 100;
+}
+
 class CountingAudioSink final : public webrtc::AudioTrackSinkInterface {
 public:
+  struct Snapshot {
+    std::uint64_t callback_count{0};
+    int sample_rate{0};
+    int channels{0};
+    int peak{0};
+  };
+
   void OnData(const void *audio_data, int bits_per_sample, int sample_rate,
               std::size_t number_of_channels, std::size_t number_of_frames,
               std::optional<std::int64_t>) override {
@@ -35,11 +48,11 @@ public:
            !peak_.compare_exchange_weak(current_peak, observed_peak,
                                         std::memory_order_relaxed)) {
     }
-    callback_count_.fetch_add(1, std::memory_order_relaxed);
+    callback_count_.fetch_add(1, std::memory_order_release);
   }
 
   [[nodiscard]] std::uint64_t callback_count() const noexcept {
-    return callback_count_.load(std::memory_order_relaxed);
+    return callback_count_.load(std::memory_order_acquire);
   }
   [[nodiscard]] int sample_rate() const noexcept {
     return sample_rate_.load(std::memory_order_relaxed);
@@ -49,6 +62,14 @@ public:
   }
   [[nodiscard]] int peak() const noexcept {
     return peak_.load(std::memory_order_relaxed);
+  }
+  [[nodiscard]] Snapshot snapshot() const noexcept {
+    Snapshot result;
+    result.callback_count = callback_count_.load(std::memory_order_acquire);
+    result.sample_rate = sample_rate_.load(std::memory_order_relaxed);
+    result.channels = channels_.load(std::memory_order_relaxed);
+    result.peak = peak_.load(std::memory_order_relaxed);
+    return result;
   }
 
 private:

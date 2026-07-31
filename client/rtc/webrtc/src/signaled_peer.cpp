@@ -239,8 +239,11 @@ public:
       return false;
     }
     if (movie_audio_source_ && !movie_audio_source_->start()) {
+      const auto source_error =
+          sanitized_movie_audio_error(movie_audio_source_->error());
+      stop_movie_audio_source();
       video_source_->stop();
-      fail(sanitized_movie_audio_error(movie_audio_source_->error()));
+      fail(source_error);
       return false;
     }
     if (role_ == SignaledRole::host)
@@ -292,9 +295,9 @@ public:
         if (!result_.error.empty())
           break;
         if (result_.connected && sink_.frame_count() > 0) {
-          const auto movie_audio_ready =
-              !remote_movie_audio_seen_.load(std::memory_order_acquire) ||
-              movie_audio_sink_.callback_count() >= 100;
+          const auto movie_audio_ready = has_sufficient_movie_audio_reception(
+              remote_movie_audio_seen_.load(std::memory_order_acquire),
+              movie_audio_sink_.callback_count());
           if (movie_audio_ready && !media_ready)
             media_ready = std::chrono::steady_clock::now();
           else if (!movie_audio_ready)
@@ -320,6 +323,12 @@ public:
       result_.error = "signaled call timed out";
     if (result_.video_frames_received == 0 && result_.error.empty())
       result_.error = "no remote video received";
+    if (!has_sufficient_movie_audio_reception(
+            remote_movie_audio_seen_.load(std::memory_order_acquire),
+            result_.movie_audio_frames_received) &&
+        result_.error.empty()) {
+      result_.error = "movie-audio-unavailable";
+    }
     if ((result_.audio_packets_sent == 0 ||
          result_.audio_packets_received == 0) &&
         result_.error.empty())
@@ -333,8 +342,7 @@ public:
     if (stopped_.exchange(true))
       return;
     callbacks_active_->store(false, std::memory_order_release);
-    if (movie_audio_source_)
-      movie_audio_source_->stop();
+    stop_movie_audio_source();
     if (video_source_)
       video_source_->stop();
     if (runtime_ && runtime_->signaling_thread() &&
@@ -532,10 +540,11 @@ private:
     result_.video_frames_received = sink_.frame_count();
     result_.video_width = sink_.last_width();
     result_.video_height = sink_.last_height();
-    result_.movie_audio_frames_received = movie_audio_sink_.callback_count();
-    result_.movie_audio_sample_rate = movie_audio_sink_.sample_rate();
-    result_.movie_audio_channels = movie_audio_sink_.channels();
-    result_.movie_audio_peak = movie_audio_sink_.peak();
+    const auto movie_audio = movie_audio_sink_.snapshot();
+    result_.movie_audio_frames_received = movie_audio.callback_count;
+    result_.movie_audio_sample_rate = movie_audio.sample_rate;
+    result_.movie_audio_channels = movie_audio.channels;
+    result_.movie_audio_peak = movie_audio.peak;
     if (!movie_audio_source_)
       return;
     result_.movie_audio_chunks_generated =
@@ -545,6 +554,12 @@ private:
     if (audio_pts && video_pts)
       result_.movie_av_skew_ms =
           checked_absolute_difference(*audio_pts, *video_pts);
+  }
+  void stop_movie_audio_source() noexcept {
+    if (movie_audio_source_ && !movie_audio_source_stopped_.exchange(
+                                   true, std::memory_order_acq_rel)) {
+      movie_audio_source_->stop();
+    }
   }
   void collect_stats() {
     if (!runtime_ || !peer_)
@@ -617,6 +632,7 @@ private:
   std::atomic_bool wait_cancelled_{false};
   std::atomic_bool stopped_{false};
   std::atomic_bool remote_movie_audio_seen_{false};
+  std::atomic_bool movie_audio_source_stopped_{false};
   std::shared_ptr<std::atomic_bool> callbacks_active_{
       std::make_shared<std::atomic_bool>(true)};
 };
