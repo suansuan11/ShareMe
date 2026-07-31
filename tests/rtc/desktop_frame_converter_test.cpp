@@ -73,10 +73,48 @@ void rejects_invalid_mapped_views() {
           nullptr);
 }
 
+void converts_hdr_float_rows_directly_to_i420() {
+  constexpr int width = 2;
+  constexpr int height = 2;
+  constexpr std::size_t row_pitch = 20;
+  constexpr std::uint16_t zero = 0x0000;
+  constexpr std::uint16_t one = 0x3c00;
+  std::array<std::uint16_t, row_pitch * height / sizeof(std::uint16_t)>
+      pixels{};
+  for (int y = 0; y < height; ++y) {
+    auto *row = pixels.data() +
+                static_cast<std::size_t>(y) * row_pitch / sizeof(std::uint16_t);
+    row[0] = zero;
+    row[1] = zero;
+    row[2] = zero;
+    row[3] = one;
+    row[4] = one;
+    row[5] = one;
+    row[6] = one;
+    row[7] = one;
+  }
+
+  const auto converted =
+      shareme::rtc::detail::convert_mapped_rgba16_float_to_i420(
+          {.data = reinterpret_cast<const std::uint8_t *>(pixels.data()),
+           .width = width,
+           .height = height,
+           .row_pitch = row_pitch});
+
+  REQUIRE(converted != nullptr);
+  REQUIRE(converted->DataY()[0] < 32);
+  REQUIRE(converted->DataY()[1] > 220);
+  REQUIRE(converted->DataY()[converted->StrideY()] < 32);
+  REQUIRE(converted->DataY()[converted->StrideY() + 1] > 220);
+  REQUIRE(converted->DataU()[0] > 120 && converted->DataU()[0] < 136);
+  REQUIRE(converted->DataV()[0] > 120 && converted->DataV()[0] < 136);
+}
+
 } // namespace
 
 int main() {
   converts_padded_bgra_rows_without_reading_padding();
+  converts_hdr_float_rows_directly_to_i420();
   rejects_invalid_mapped_views();
   return EXIT_SUCCESS;
 }

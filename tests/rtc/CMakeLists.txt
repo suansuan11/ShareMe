@@ -119,7 +119,6 @@ if(WIN32)
   add_executable(
     shareme_desktop_frame_converter_test
     desktop_frame_converter_test.cpp
-    "${PROJECT_SOURCE_DIR}/client/rtc/desktop/src/desktop_frame_converter.cpp"
   )
   target_include_directories(
     shareme_desktop_frame_converter_test
@@ -127,12 +126,34 @@ if(WIN32)
   )
   target_link_libraries(
     shareme_desktop_frame_converter_test
-    PRIVATE ShareMe::WebRTC
+    PRIVATE ShareMe::DesktopRTC
   )
   shareme_set_project_warnings(shareme_desktop_frame_converter_test)
   add_test(
     NAME desktop_frame_converter
     COMMAND shareme_desktop_frame_converter_test
+  )
+
+  add_executable(
+    shareme_desktop_capture_source_test
+    desktop_capture_source_test.cpp
+  )
+  target_include_directories(
+    shareme_desktop_capture_source_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src"
+  )
+  target_link_libraries(
+    shareme_desktop_capture_source_test
+    PRIVATE ShareMe::DesktopRTC
+  )
+  shareme_set_project_warnings(shareme_desktop_capture_source_test)
+  add_test(
+    NAME desktop_capture_source
+    COMMAND shareme_desktop_capture_source_test
+  )
+  set_tests_properties(
+    desktop_capture_source
+    PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 10
   )
 endif()
 
