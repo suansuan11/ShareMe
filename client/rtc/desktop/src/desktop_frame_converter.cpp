@@ -78,8 +78,10 @@ valid_frame(const MappedRgba16FloatFrame &frame) noexcept {
 }
 
 [[nodiscard]] float srgb(float linear) noexcept {
-  if (!std::isfinite(linear))
+  if (std::isnan(linear) || linear <= 0.0F)
     return 0.0F;
+  if (!std::isfinite(linear))
+    return 1.0F;
   linear = std::clamp(linear, 0.0F, 1.0F);
   if (linear <= 0.0031308F)
     return linear * 12.92F;

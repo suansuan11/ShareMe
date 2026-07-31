@@ -140,7 +140,9 @@ if(WIN32)
   )
   target_include_directories(
     shareme_desktop_capture_source_test
-    PRIVATE "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src"
+    PRIVATE
+      "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src"
+      "${PROJECT_SOURCE_DIR}/client/rtc/desktop/src"
   )
   target_link_libraries(
     shareme_desktop_capture_source_test

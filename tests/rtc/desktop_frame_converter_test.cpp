@@ -110,11 +110,58 @@ void converts_hdr_float_rows_directly_to_i420() {
   REQUIRE(converted->DataV()[0] > 120 && converted->DataV()[0] < 136);
 }
 
+void handles_hdr_nonfinite_values_and_odd_dimensions() {
+  constexpr int width = 3;
+  constexpr int height = 3;
+  constexpr std::size_t row_pitch = 26;
+  constexpr std::uint16_t positive_infinity = 0x7c00;
+  constexpr std::uint16_t quiet_nan = 0x7e00;
+  constexpr std::uint16_t negative_one = 0xbc00;
+  constexpr std::uint16_t one = 0x3c00;
+  std::array<std::uint16_t, row_pitch * height / sizeof(std::uint16_t)>
+      pixels{};
+  for (int y = 0; y < height; ++y) {
+    auto *row = pixels.data() +
+                static_cast<std::size_t>(y) * row_pitch / sizeof(std::uint16_t);
+    for (int x = 0; x < width; ++x) {
+      row[x * 4 + 0] = positive_infinity;
+      row[x * 4 + 1] = positive_infinity;
+      row[x * 4 + 2] = positive_infinity;
+      row[x * 4 + 3] = one;
+    }
+  }
+  pixels[0] = quiet_nan;
+  pixels[1] = quiet_nan;
+  pixels[2] = quiet_nan;
+  pixels[4] = negative_one;
+  pixels[5] = negative_one;
+  pixels[6] = negative_one;
+
+  using shareme::rtc::detail::MappedRgba16FloatFrame;
+  using shareme::rtc::detail::convert_mapped_rgba16_float_to_i420;
+  const auto converted = convert_mapped_rgba16_float_to_i420(
+      {reinterpret_cast<const std::uint8_t *>(pixels.data()), width, height,
+       row_pitch});
+
+  REQUIRE(converted != nullptr);
+  REQUIRE(converted->width() == width);
+  REQUIRE(converted->height() == height);
+  REQUIRE(converted->DataY()[0] < 32);
+  REQUIRE(converted->DataY()[1] < 32);
+  REQUIRE(converted->DataY()[2] > 220);
+  REQUIRE(converted->DataY()[2 * converted->StrideY() + 2] > 220);
+  REQUIRE(convert_mapped_rgba16_float_to_i420(
+              MappedRgba16FloatFrame{
+                  reinterpret_cast<const std::uint8_t *>(pixels.data()),
+                  width, height, width * 8U - 1U}) == nullptr);
+}
+
 } // namespace
 
 int main() {
   converts_padded_bgra_rows_without_reading_padding();
   converts_hdr_float_rows_directly_to_i420();
+  handles_hdr_nonfinite_values_and_odd_dimensions();
   rejects_invalid_mapped_views();
   return EXIT_SUCCESS;
 }

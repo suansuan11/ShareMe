@@ -1,4 +1,5 @@
 #include "counting_video_sink.hpp"
+#include "desktop_capture_recovery.hpp"
 #include "shareme/rtc/desktop_capture_source.hpp"
 
 #include <chrono>
@@ -62,6 +63,28 @@ void validates_capture_configuration() {
       DesktopCaptureConfig{.max_frames_per_second = 241}));
 }
 
+void validates_access_loss_recovery_state() {
+  using shareme::rtc::detail::AccessLossResult;
+  shareme::rtc::detail::AccessLossRecovery recovery;
+  int rebuild_count = 0;
+  const auto successful_rebuild = [&] {
+    ++rebuild_count;
+    return true;
+  };
+  REQUIRE(shareme::rtc::detail::recover_from_access_loss(
+              recovery, successful_rebuild) == AccessLossResult::recovered);
+  REQUIRE(shareme::rtc::detail::recover_from_access_loss(
+              recovery, successful_rebuild) == AccessLossResult::failed);
+  REQUIRE(rebuild_count == 1);
+  recovery.on_frame_acquired();
+  REQUIRE(shareme::rtc::detail::recover_from_access_loss(
+              recovery, [&] {
+                ++rebuild_count;
+                return false;
+              }) == AccessLossResult::failed);
+  REQUIRE(rebuild_count == 2);
+}
+
 int captures_real_primary_display_frames() {
   using namespace std::chrono_literals;
   VisibleTestWindow window;
@@ -119,5 +142,6 @@ int captures_real_primary_display_frames() {
 
 int main() {
   validates_capture_configuration();
+  validates_access_loss_recovery_state();
   return captures_real_primary_display_frames();
 }

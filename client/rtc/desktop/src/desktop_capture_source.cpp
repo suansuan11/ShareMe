@@ -1,5 +1,6 @@
 #include "shareme/rtc/desktop_capture_source.hpp"
 
+#include "desktop_capture_recovery.hpp"
 #include "desktop_frame_converter.hpp"
 
 #include <algorithm>
@@ -112,12 +113,13 @@ public:
   }
 
 private:
-  [[nodiscard]] bool initialize() {
+  [[nodiscard]] bool initialize(bool report_error = true) {
     release_device();
 
     ComPtr<IDXGIFactory1> factory;
     if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
-      set_error("desktop-dxgi-unavailable");
+      if (report_error)
+        set_error("desktop-dxgi-unavailable");
       return false;
     }
 
@@ -170,7 +172,8 @@ private:
     }
 
     if (selected_output == nullptr || selected_adapter == nullptr) {
-      set_error("desktop-output-unavailable");
+      if (report_error)
+        set_error("desktop-output-unavailable");
       return false;
     }
 
@@ -188,7 +191,8 @@ private:
           D3D11_SDK_VERSION, &device_, nullptr, &context_);
     }
     if (FAILED(device_result)) {
-      set_error("desktop-d3d11-unavailable");
+      if (report_error)
+        set_error("desktop-d3d11-unavailable");
       return false;
     }
 
@@ -209,7 +213,8 @@ private:
             output1->DuplicateOutput(device_.Get(), &duplication_);
     }
     if (FAILED(duplication_result)) {
-      set_error("desktop-duplication-unavailable");
+      if (report_error)
+        set_error("desktop-duplication-unavailable");
       return false;
     }
 
@@ -261,7 +266,7 @@ private:
     const auto minimum_interval = std::chrono::microseconds(
         1'000'000 / owner_.config_.max_frames_per_second);
     auto last_delivery = std::chrono::steady_clock::time_point::min();
-    bool rebuilt_after_access_loss = false;
+    detail::AccessLossRecovery access_loss_recovery;
 
     while (!stop_token.stop_requested()) {
       DXGI_OUTDUPL_FRAME_INFO frame_info{};
@@ -271,12 +276,13 @@ private:
       if (acquire_result == DXGI_ERROR_WAIT_TIMEOUT)
         continue;
       if (acquire_result == DXGI_ERROR_ACCESS_LOST) {
-        if (rebuilt_after_access_loss || !initialize()) {
-          if (owner_.error().empty())
-            set_error("desktop-access-lost");
+        if (detail::recover_from_access_loss(
+                access_loss_recovery,
+                [this] { return initialize(false); }) ==
+            detail::AccessLossResult::failed) {
+          set_error("desktop-access-lost", true);
           break;
         }
-        rebuilt_after_access_loss = true;
         continue;
       }
       if (FAILED(acquire_result)) {
@@ -285,6 +291,7 @@ private:
       }
 
       AcquiredFrame acquired(duplication_.Get());
+      access_loss_recovery.on_frame_acquired();
       const auto now = std::chrono::steady_clock::now();
       if (last_delivery != std::chrono::steady_clock::time_point::min() &&
           now - last_delivery + 1ms < minimum_interval) {
@@ -334,14 +341,13 @@ private:
 
       owner_.deliver_frame(std::move(buffer), rotation_);
       last_delivery = now;
-      rebuilt_after_access_loss = false;
     }
     owner_.running_.store(false, std::memory_order_release);
   }
 
-  void set_error(std::string category) {
+  void set_error(std::string category, bool replace = false) {
     std::lock_guard lock(owner_.error_mutex_);
-    if (owner_.error_.empty())
+    if (replace || owner_.error_.empty())
       owner_.error_ = std::move(category);
   }
 
