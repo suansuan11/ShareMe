@@ -193,6 +193,13 @@ int main() {
   peer.reset();
 
   auto fake_state = std::make_shared<FakeAudioState>();
+  std::promise<std::string> movie_offer_promise;
+  auto movie_offer_future = movie_offer_promise.get_future();
+  shareme::rtc::SignaledPeerCallbacks movie_callbacks;
+  movie_callbacks.description = [&](std::string type, std::string description) {
+    if (type == "offer")
+      movie_offer_promise.set_value(std::move(description));
+  };
   auto movie_peer = shareme::rtc::SignaledPeer::create(
       {.role = SignaledRole::host,
        .movie_audio_source_factory =
@@ -200,10 +207,22 @@ int main() {
              return webrtc::scoped_refptr<shareme::rtc::LocalAudioSource>(
                  new FakeMovieAudioSource(fake_state));
            }},
-      {});
+      std::move(movie_callbacks));
   REQUIRE(movie_peer != nullptr);
   REQUIRE(movie_peer->start());
   REQUIRE(fake_state->started.load());
+  REQUIRE(movie_offer_future.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+  const auto movie_offer = movie_offer_future.get();
+  const auto host_voice_id = movie_offer.find("host-voice");
+  const auto movie_audio_id = movie_offer.find("movie-audio");
+  REQUIRE(host_voice_id != std::string::npos);
+  REQUIRE(movie_audio_id != std::string::npos);
+  REQUIRE(host_voice_id != movie_audio_id);
+  REQUIRE(movie_offer.find("a=msid:shareme-test host-voice") !=
+          std::string::npos);
+  REQUIRE(movie_offer.find("a=msid:shareme-test movie-audio") !=
+          std::string::npos);
   movie_peer->cancel_wait();
   const auto movie_result = movie_peer->wait(std::chrono::seconds(1));
   REQUIRE(movie_result.movie_audio_chunks_generated == 123);
@@ -229,7 +248,7 @@ int main() {
       std::move(failing_callbacks));
   REQUIRE(failing_movie_peer != nullptr);
   REQUIRE(!failing_movie_peer->start());
-  REQUIRE(sanitized_start_error == "movie-audio-source-start-failed");
+  REQUIRE(sanitized_start_error == "movie-audio-source-unavailable");
   REQUIRE(sanitized_start_error.find("movie.mov") == std::string::npos);
   failing_movie_peer->stop();
 }

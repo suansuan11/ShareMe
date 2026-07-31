@@ -44,7 +44,7 @@ sanitized_movie_audio_error(const std::string &error) {
       error == "movie-audio-frame-invalid") {
     return error;
   }
-  return "movie-audio-source-start-failed";
+  return "movie-audio-source-unavailable";
 }
 
 [[nodiscard]] std::optional<std::int64_t>
