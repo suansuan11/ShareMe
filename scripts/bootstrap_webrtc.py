@@ -134,7 +134,16 @@ def make_manifest(
 
 
 def _run(command: Sequence[str], *, cwd: Path, env: Dict[str, str]) -> None:
-    subprocess.run(list(command), cwd=cwd, env=env, check=True)
+    # Windows subprocess does not always resolve depot_tools .bat wrappers
+    # (gn.bat/autoninja.bat/gclient.bat) the same way as an interactive CMD.
+    # Explicitly use the batch entry points on Windows.
+    normalized_command = list(command)
+    if os.name == "nt" and normalized_command:
+        windows_batch_tools = {"gn", "autoninja", "gclient"}
+        if normalized_command[0] in windows_batch_tools:
+            normalized_command[0] = normalized_command[0] + ".bat"
+
+    subprocess.run(normalized_command, cwd=cwd, env=env, check=True)
 
 
 def _tool_environment(depot_tools: Path) -> Dict[str, str]:

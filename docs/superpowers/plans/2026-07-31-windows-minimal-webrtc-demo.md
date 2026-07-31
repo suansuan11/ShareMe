@@ -35,7 +35,7 @@ Replace the tab before `WEBRTC_ROOT` with spaces so `git diff --check` is clean.
 
 - [ ] **Step 2: Run the bootstrap script contract test**
 
-Run: `python tests/scripts/bootstrap_webrtc_test.py scripts/bootstrap_webrtc.py deps/webrtc.lock.json`
+Run: `python tests/scripts/bootstrap_webrtc_test.py`
 
 Expected: exit code 0 without downloading or invoking bootstrap commands.
 
@@ -274,4 +274,3 @@ Use a normal non-force merge after confirming `origin/main` has not diverged.
 - [ ] **Step 4: Verify the merged tree and push**
 
 Run the relevant full suites on merged `main`, then execute `git push origin main`.
-

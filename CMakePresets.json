@@ -95,6 +95,16 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "SHAREME_ENABLE_WEBRTC": "ON"
       }
+    },
+    {
+      "name": "webrtc-dev-windows",
+      "displayName": "ShareMe WebRTC probe development (Windows)",
+      "inherits": "webrtc-dev",
+      "cacheVariables": {
+        "CMAKE_MAKE_PROGRAM": "C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe",
+        "CMAKE_LINKER": "D:/Deps/shareme-webrtc/checkout/src/third_party/llvm-build/Release+Asserts/bin/lld-link.exe",
+        "WEBRTC_ROOT": "D:/Deps/shareme-webrtc"
+      }
     }
   ],
   "buildPresets": [
@@ -134,6 +144,10 @@
     {
       "name": "build-webrtc-dev",
       "configurePreset": "webrtc-dev"
+    },
+    {
+      "name": "build-webrtc-dev-windows",
+      "configurePreset": "webrtc-dev-windows"
     }
   ],
   "testPresets": [
@@ -162,7 +176,9 @@
     {
       "name": "test-signaling-dev",
       "configurePreset": "signaling-dev",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "test-playback-dev",
@@ -174,12 +190,16 @@
     {
       "name": "test-call-dev",
       "configurePreset": "call-dev",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "test-movie-call-dev",
       "configurePreset": "movie-call-dev",
-      "output": { "outputOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      }
     },
     {
       "name": "test-webrtc-dev",
