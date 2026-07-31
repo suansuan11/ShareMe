@@ -22,7 +22,7 @@
 #include "api/units/time_delta.h"
 #include "audio_device_factory.hpp"
 #include "counting_audio_sink.hpp"
-#include "counting_video_sink.hpp"
+#include "remote_video_sink.hpp"
 #include "microphone_permission.hpp"
 #include "pc/session_description.h"
 #include "rtc_base/thread.h"
@@ -183,7 +183,9 @@ bool is_expected_inbound_voice_rtp_track(
 class SignaledPeer::Impl final {
 public:
   Impl(SignaledPeerConfig config, SignaledPeerCallbacks callbacks)
-      : config_(config), role_(config.role), callbacks_(std::move(callbacks)) {}
+      : config_(std::move(config)), role_(config_.role),
+        callbacks_(std::move(callbacks)),
+        sink_(config_.remote_video_frame) {}
   bool initialize() {
     if (!valid_signaled_peer_config(config_)) {
       if (config_.role != SignaledRole::host &&
@@ -360,6 +362,7 @@ public:
     if (stopped_.exchange(true))
       return;
     callbacks_active_->store(false, std::memory_order_release);
+    sink_.clear_callback();
     stop_movie_audio_source();
     if (video_source_)
       video_source_->stop();
@@ -741,7 +744,7 @@ private:
   std::unique_ptr<webrtc::TaskQueueFactory> queues_;
   webrtc::scoped_refptr<LocalVideoSource> video_source_;
   webrtc::scoped_refptr<LocalAudioSource> movie_audio_source_;
-  CountingVideoSink sink_;
+  RemoteVideoSink sink_;
   CountingAudioSink movie_audio_sink_;
   std::unique_ptr<PeerObserver> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_;
