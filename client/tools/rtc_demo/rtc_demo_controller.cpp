@@ -12,6 +12,10 @@
 
 #include "libyuv/convert_argb.h"
 
+#if defined(SHAREME_HAS_DESKTOP_CAPTURE)
+#include "shareme/rtc/desktop_capture_source.hpp"
+#endif
+
 namespace {
 
 QByteArray description_payload(const std::string &type,
@@ -35,9 +39,11 @@ QByteArray candidate_payload(const std::string &mid, int line,
 
 RtcDemoController::RtcDemoController(QUrl server_url,
                                      shareme::rtc::SignaledRole role,
-                                     QString requested_room, QObject *parent)
+                                     QString requested_room,
+                                     bool desktop_source, QObject *parent)
     : QObject(parent), server_url_(std::move(server_url)), role_(role),
-      requested_room_(std::move(requested_room)) {
+      requested_room_(std::move(requested_room)),
+      desktop_source_(desktop_source) {
   connect(&signaling_, &QtSignalingClient::statusChanged, this,
           [this](const QString &state) {
             setStatus(state);
@@ -144,6 +150,15 @@ bool RtcDemoController::createPeer() {
         Qt::QueuedConnection);
   };
   shareme::rtc::SignaledPeerConfig config{.role = role_};
+#if defined(SHAREME_HAS_DESKTOP_CAPTURE)
+  if (desktop_source_) {
+    config.video_mode = shareme::rtc::SignaledVideoMode::injected;
+    config.video_source_factory = [](webrtc::TaskQueueFactory &)
+        -> webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> {
+      return shareme::rtc::DesktopCaptureSource::create();
+    };
+  }
+#endif
   config.remote_video_frame =
       [this](const webrtc::VideoFrame &frame) { deliverRemoteFrame(frame); };
   peer_ = shareme::rtc::SignaledPeer::create(std::move(config),

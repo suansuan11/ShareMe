@@ -29,6 +29,8 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("--server", result.stdout)
         self.assertIn("--role", result.stdout)
         self.assertIn("--room", result.stdout)
+        self.assertIn("--source", result.stdout)
+        self.assertIn("test or desktop", result.stdout)
         self.assertIn("host or viewer", result.stdout)
 
     def test_missing_required_options_is_usage_error(self):
@@ -48,6 +50,29 @@ class RtcDemoCliTest(unittest.TestCase):
             "viewer",
         )
         self.assertEqual(result.returncode, 2)
+
+    def test_rejects_invalid_or_viewer_desktop_source(self):
+        invalid = self.run_demo(
+            "--server",
+            "ws://127.0.0.1:18080/v1/ws",
+            "--role",
+            "host",
+            "--source",
+            "camera",
+        )
+        self.assertEqual(invalid.returncode, 2)
+
+        viewer = self.run_demo(
+            "--server",
+            "ws://127.0.0.1:18080/v1/ws",
+            "--role",
+            "viewer",
+            "--room",
+            "ROOM1",
+            "--source",
+            "desktop",
+        )
+        self.assertEqual(viewer.returncode, 2)
 
 def main() -> int:
     parser = argparse.ArgumentParser()

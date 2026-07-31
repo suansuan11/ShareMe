@@ -38,9 +38,14 @@ int main(int argc, char **argv) {
   QCommandLineOption room_option(QStringList{QStringLiteral("room")},
                                  QStringLiteral("Room ID for viewer"),
                                  QStringLiteral("room"));
+  QCommandLineOption source_option(QStringList{QStringLiteral("source")},
+                                   QStringLiteral("test or desktop"),
+                                   QStringLiteral("source"),
+                                   QStringLiteral("test"));
   parser.addOption(server_option);
   parser.addOption(role_option);
   parser.addOption(room_option);
+  parser.addOption(source_option);
   if (!parser.parse(app.arguments())) {
     std::cerr << parser.errorText().toStdString() << std::endl;
     exit_cli(2);
@@ -51,22 +56,34 @@ int main(int argc, char **argv) {
   }
 
   const auto role_text = parser.value(role_option);
+  const auto source_text = parser.value(source_option);
   if (!parser.isSet(server_option) ||
       (role_text != QStringLiteral("host") &&
        role_text != QStringLiteral("viewer")) ||
       (role_text == QStringLiteral("viewer") &&
-       !parser.isSet(room_option))) {
+       !parser.isSet(room_option)) ||
+      (source_text != QStringLiteral("test") &&
+       source_text != QStringLiteral("desktop")) ||
+      (role_text == QStringLiteral("viewer") &&
+       source_text != QStringLiteral("test"))) {
     std::cerr << "required: --server URL --role host|viewer "
-                 "[--room ROOM]"
+                 "[--room ROOM] [--source test|desktop]"
               << std::endl;
     exit_cli(2);
   }
+#if !defined(SHAREME_HAS_DESKTOP_CAPTURE)
+  if (source_text == QStringLiteral("desktop")) {
+    std::cerr << "desktop source is only available on Windows" << std::endl;
+    exit_cli(2);
+  }
+#endif
 
   const auto role = role_text == QStringLiteral("host")
                         ? shareme::rtc::SignaledRole::host
                         : shareme::rtc::SignaledRole::viewer;
   RtcDemoController controller(QUrl(parser.value(server_option)), role,
-                               parser.value(room_option));
+                               parser.value(room_option),
+                               source_text == QStringLiteral("desktop"));
   QQmlApplicationEngine engine;
   engine.setInitialProperties(
       {{QStringLiteral("controller"), QVariant::fromValue(&controller)}});

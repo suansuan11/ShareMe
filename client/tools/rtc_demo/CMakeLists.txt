@@ -36,4 +36,12 @@ target_link_libraries(
     Qt6::Multimedia
 )
 
+if(TARGET ShareMe::DesktopRTC)
+  target_link_libraries(shareme_rtc_demo PRIVATE ShareMe::DesktopRTC)
+  target_compile_definitions(
+    shareme_rtc_demo
+    PRIVATE SHAREME_HAS_DESKTOP_CAPTURE=1
+  )
+endif()
+
 shareme_set_project_warnings(shareme_rtc_demo)

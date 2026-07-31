@@ -22,7 +22,8 @@ class RtcDemoController final : public QObject {
 
 public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
-                    QString requested_room, QObject *parent = nullptr);
+                    QString requested_room, bool desktop_source,
+                    QObject *parent = nullptr);
   ~RtcDemoController() override;
 
   RtcDemoController(const RtcDemoController &) = delete;
@@ -50,6 +51,7 @@ private:
   QUrl server_url_;
   shareme::rtc::SignaledRole role_;
   QString requested_room_;
+  bool desktop_source_{false};
   QString status_{QStringLiteral("idle")};
   QString room_id_;
   QPointer<QVideoSink> video_sink_;
