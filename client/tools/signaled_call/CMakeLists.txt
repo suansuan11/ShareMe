@@ -12,6 +12,17 @@ else()
   target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::WebRTC)
 endif()
 
+if(TARGET ShareMe::DesktopRTC)
+  target_link_libraries(
+    shareme_signaled_call_probe
+    PRIVATE ShareMe::DesktopRTC
+  )
+  target_compile_definitions(
+    shareme_signaled_call_probe
+    PRIVATE SHAREME_HAS_DESKTOP_RTC=1
+  )
+endif()
+
 if(APPLE)
   target_link_options(
     shareme_signaled_call_probe

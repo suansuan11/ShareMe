@@ -7,6 +7,10 @@
 #include "shareme/rtc/movie_video_source.hpp"
 #endif
 
+#ifdef SHAREME_HAS_DESKTOP_RTC
+#include "shareme/rtc/desktop_capture_source.hpp"
+#endif
+
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -55,8 +59,9 @@ int main(int argc, char **argv) {
                                  "role");
   QCommandLineOption audio_option(
       QStringList{"audio"}, "synthetic or microphone", "mode", "synthetic");
-  QCommandLineOption video_option(QStringList{"video"}, "synthetic or movie",
-                                  "mode", "synthetic");
+  QCommandLineOption video_option(QStringList{"video"},
+                                  "synthetic, movie, or desktop", "mode",
+                                  "synthetic");
   QCommandLineOption movie_option(QStringList{"movie"}, "Host movie path",
                                   "path");
   QCommandLineOption movie_audio_option(QStringList{"movie-audio"},
@@ -85,8 +90,10 @@ int main(int argc, char **argv) {
   const auto movie_audio_is_set = parser.isSet(movie_audio_option);
   if (!parser.isSet(server) || (role_text != "host" && role_text != "viewer") ||
       (audio_text != "synthetic" && audio_text != "microphone") ||
-      (video_text != "synthetic" && video_text != "movie") ||
+      (video_text != "synthetic" && video_text != "movie" &&
+       video_text != "desktop") ||
       (video_text == "movie" && (role_text != "host" || !movie_is_set)) ||
+      (video_text == "desktop" && role_text != "host") ||
       (video_text != "movie" && movie_is_set) ||
       (movie_audio_is_set &&
        (role_text != "host" || video_text != "movie" || !movie_is_set)) ||
@@ -99,6 +106,12 @@ int main(int argc, char **argv) {
   }
   if (video_text == "movie") {
     std::cerr << "PEER_ERROR movie-video-dependency-unavailable" << std::endl;
+    exit_cli(1);
+  }
+#endif
+#ifndef SHAREME_HAS_DESKTOP_RTC
+  if (video_text == "desktop") {
+    std::cerr << "PEER_ERROR desktop-video-dependency-unavailable" << std::endl;
     exit_cli(1);
   }
 #endif
@@ -206,6 +219,15 @@ int main(int argc, char **argv) {
           return shareme::rtc::MovieVideoSource::create(movie_path);
         };
       }
+    }
+#endif
+#ifdef SHAREME_HAS_DESKTOP_RTC
+    if (video_text == "desktop") {
+      config.video_mode = shareme::rtc::SignaledVideoMode::injected;
+      config.video_source_factory = [](webrtc::TaskQueueFactory &)
+          -> webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> {
+        return shareme::rtc::DesktopCaptureSource::create();
+      };
     }
 #endif
     peer = shareme::rtc::SignaledPeer::create(std::move(config),

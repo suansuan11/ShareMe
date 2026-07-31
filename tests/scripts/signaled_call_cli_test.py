@@ -54,6 +54,15 @@ def main() -> int:
             "synthetic",
             "--movie-audio",
         ],
+        [
+            *common,
+            "--role",
+            "viewer",
+            "--room",
+            "ABCDEF",
+            "--video",
+            "desktop",
+        ],
     )
     for arguments in invalid_cases:
         result = run(args.probe, arguments)

@@ -472,7 +472,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--video",
-        choices=("synthetic", "movie"),
+        choices=("synthetic", "movie", "desktop"),
         default="synthetic",
     )
     parser.add_argument("--movie", type=Path)
