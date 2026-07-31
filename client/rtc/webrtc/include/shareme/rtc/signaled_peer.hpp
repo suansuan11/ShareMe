@@ -10,6 +10,7 @@
 
 #include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_factory.h"
+#include "shareme/rtc/local_audio_source.hpp"
 #include "shareme/rtc/local_video_source.hpp"
 
 namespace shareme::rtc {
@@ -21,12 +22,15 @@ enum class SignaledVideoMode { synthetic, injected };
 using LocalVideoSourceFactory =
     std::function<webrtc::scoped_refptr<LocalVideoSource>(
         webrtc::TaskQueueFactory &)>;
+using LocalAudioSourceFactory =
+    std::function<webrtc::scoped_refptr<LocalAudioSource>()>;
 
 struct SignaledPeerConfig {
   SignaledRole role{SignaledRole::host};
   SignaledAudioMode audio_mode{SignaledAudioMode::synthetic};
   SignaledVideoMode video_mode{SignaledVideoMode::synthetic};
   LocalVideoSourceFactory video_source_factory;
+  LocalAudioSourceFactory movie_audio_source_factory;
 };
 
 struct SignaledAudioPolicy {
@@ -42,6 +46,12 @@ struct SignaledPeerResult {
   std::uint64_t audio_packets_sent{0};
   std::uint64_t audio_packets_received{0};
   std::optional<double> local_audio_level;
+  std::uint64_t movie_audio_frames_received{0};
+  int movie_audio_sample_rate{0};
+  int movie_audio_channels{0};
+  int movie_audio_peak{0};
+  std::uint64_t movie_audio_chunks_generated{0};
+  std::optional<std::int64_t> movie_av_skew_ms;
   std::string selected_candidate_type;
   std::string error;
 };

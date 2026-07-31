@@ -3,6 +3,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <future>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -19,6 +20,7 @@
 #include "api/stats/rtcstats_objects.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "audio_device_factory.hpp"
+#include "counting_audio_sink.hpp"
 #include "counting_video_sink.hpp"
 #include "microphone_permission.hpp"
 #include "rtc_base/thread.h"
@@ -33,6 +35,30 @@ struct PendingCandidate {
   int line{};
   std::string candidate;
 };
+
+[[nodiscard]] std::string
+sanitized_movie_audio_error(const std::string &error) {
+  if (error == "movie-audio-open-failed" ||
+      error == "movie-audio-unavailable" ||
+      error == "movie-audio-decode-failed" ||
+      error == "movie-audio-frame-invalid") {
+    return error;
+  }
+  return "movie-audio-source-start-failed";
+}
+
+[[nodiscard]] std::optional<std::int64_t>
+checked_absolute_difference(std::int64_t left, std::int64_t right) noexcept {
+  const auto difference = left >= right ? static_cast<std::uint64_t>(left) -
+                                              static_cast<std::uint64_t>(right)
+                                        : static_cast<std::uint64_t>(right) -
+                                              static_cast<std::uint64_t>(left);
+  if (difference >
+      static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+    return std::nullopt;
+  }
+  return static_cast<std::int64_t>(difference);
+}
 
 class CreateObserver final : public webrtc::CreateSessionDescriptionObserver,
                              private webrtc::RefCountedBase {
@@ -129,7 +155,9 @@ bool valid_signaled_peer_config(const SignaledPeerConfig &config) noexcept {
   const auto valid_video = config.video_mode == SignaledVideoMode::synthetic ||
                            (config.video_mode == SignaledVideoMode::injected &&
                             static_cast<bool>(config.video_source_factory));
-  return valid_role && valid_audio && valid_video;
+  const auto valid_movie_audio =
+      !config.movie_audio_source_factory || config.role == SignaledRole::host;
+  return valid_role && valid_audio && valid_video && valid_movie_audio;
 }
 bool valid_remote_candidate(std::string_view mid, int line,
                             std::string_view candidate) noexcept {
@@ -148,6 +176,9 @@ public:
       else if (config_.audio_mode != SignaledAudioMode::synthetic &&
                config_.audio_mode != SignaledAudioMode::microphone)
         fail("invalid-audio-mode");
+      else if (config_.movie_audio_source_factory &&
+               config_.role != SignaledRole::host)
+        fail("invalid-movie-audio-config");
       else
         fail("invalid-video-mode");
       return false;
@@ -189,6 +220,13 @@ public:
       fail("video-source-unavailable");
       return false;
     }
+    if (config_.movie_audio_source_factory) {
+      movie_audio_source_ = config_.movie_audio_source_factory();
+      if (!movie_audio_source_) {
+        fail("movie-audio-source-unavailable");
+        return false;
+      }
+    }
     return runtime_->signaling_thread()->BlockingCall(
         [this] { return setup(); });
   }
@@ -198,6 +236,11 @@ public:
     if (!video_source_->start()) {
       const auto source_error = video_source_->error();
       fail(source_error.empty() ? "video-source-start-failed" : source_error);
+      return false;
+    }
+    if (movie_audio_source_ && !movie_audio_source_->start()) {
+      video_source_->stop();
+      fail(sanitized_movie_audio_error(movie_audio_source_->error()));
       return false;
     }
     if (role_ == SignaledRole::host)
@@ -237,12 +280,26 @@ public:
         fail(source_error);
         break;
       }
+      if (movie_audio_source_) {
+        const auto movie_audio_error = movie_audio_source_->error();
+        if (!movie_audio_error.empty()) {
+          fail(sanitized_movie_audio_error(movie_audio_error));
+          break;
+        }
+      }
       {
         std::lock_guard lock(mu_);
         if (!result_.error.empty())
           break;
-        if (result_.connected && sink_.frame_count() > 0 && !media_ready)
-          media_ready = std::chrono::steady_clock::now();
+        if (result_.connected && sink_.frame_count() > 0) {
+          const auto movie_audio_ready =
+              !remote_movie_audio_seen_.load(std::memory_order_acquire) ||
+              movie_audio_sink_.callback_count() >= 100;
+          if (movie_audio_ready && !media_ready)
+            media_ready = std::chrono::steady_clock::now();
+          else if (!movie_audio_ready)
+            media_ready.reset();
+        }
       }
       if (media_ready && std::chrono::steady_clock::now() - *media_ready >=
                              std::chrono::seconds(2))
@@ -251,18 +308,14 @@ public:
     }
     if (wait_cancelled_.load(std::memory_order_acquire)) {
       std::lock_guard lock(mu_);
-      result_.video_frames_received = sink_.frame_count();
-      result_.video_width = sink_.last_width();
-      result_.video_height = sink_.last_height();
+      populate_media_result();
       if (result_.error.empty())
         result_.error = "signaled call cancelled";
       return result_;
     }
     collect_stats();
     std::lock_guard lock(mu_);
-    result_.video_frames_received = sink_.frame_count();
-    result_.video_width = sink_.last_width();
-    result_.video_height = sink_.last_height();
+    populate_media_result();
     if (!result_.connected && result_.error.empty())
       result_.error = "signaled call timed out";
     if (result_.video_frames_received == 0 && result_.error.empty())
@@ -280,6 +333,8 @@ public:
     if (stopped_.exchange(true))
       return;
     callbacks_active_->store(false, std::memory_order_release);
+    if (movie_audio_source_)
+      movie_audio_source_->stop();
     if (video_source_)
       video_source_->stop();
     if (runtime_ && runtime_->signaling_thread() &&
@@ -287,15 +342,20 @@ public:
       runtime_->signaling_thread()->BlockingCall([this] {
         if (remote_video_)
           remote_video_->RemoveSink(&sink_);
+        if (remote_movie_audio_)
+          remote_movie_audio_->RemoveSink(&movie_audio_sink_);
         peer_ = nullptr;
         remote_video_ = nullptr;
         remote_audio_ = nullptr;
+        remote_movie_audio_ = nullptr;
         video_track_ = nullptr;
         audio_track_ = nullptr;
+        movie_audio_track_ = nullptr;
         audio_source_ = nullptr;
         observer_.reset();
       });
     video_source_ = nullptr;
+    movie_audio_source_ = nullptr;
     if (runtime_)
       static_cast<void>(runtime_->stop());
   }
@@ -367,6 +427,15 @@ private:
         !peer_->AddTrack(audio_track_, {"shareme-test"}).ok()) {
       fail("adding test tracks failed");
       return false;
+    }
+    if (movie_audio_source_) {
+      movie_audio_track_ = runtime_->factory()->CreateAudioTrack(
+          "movie-audio", movie_audio_source_.get());
+      if (!movie_audio_track_ ||
+          !peer_->AddTrack(movie_audio_track_, {"shareme-test"}).ok()) {
+        fail("movie-audio-source-unavailable");
+        return false;
+      }
     }
     return true;
   }
@@ -445,9 +514,37 @@ private:
       remote_video_ = static_cast<webrtc::VideoTrackInterface *>(track.get());
       remote_video_->AddOrUpdateSink(&sink_, {});
     } else if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
-      remote_audio_ = static_cast<webrtc::AudioTrackInterface *>(track.get());
-      remote_audio_->set_enabled(false);
+      auto audio_track = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
+          static_cast<webrtc::AudioTrackInterface *>(track.get()));
+      if (track->id() == "movie-audio") {
+        if (remote_movie_audio_)
+          remote_movie_audio_->RemoveSink(&movie_audio_sink_);
+        remote_movie_audio_ = std::move(audio_track);
+        remote_movie_audio_->AddSink(&movie_audio_sink_);
+        remote_movie_audio_seen_.store(true, std::memory_order_release);
+      } else {
+        remote_audio_ = std::move(audio_track);
+        remote_audio_->set_enabled(false);
+      }
     }
+  }
+  void populate_media_result() {
+    result_.video_frames_received = sink_.frame_count();
+    result_.video_width = sink_.last_width();
+    result_.video_height = sink_.last_height();
+    result_.movie_audio_frames_received = movie_audio_sink_.callback_count();
+    result_.movie_audio_sample_rate = movie_audio_sink_.sample_rate();
+    result_.movie_audio_channels = movie_audio_sink_.channels();
+    result_.movie_audio_peak = movie_audio_sink_.peak();
+    if (!movie_audio_source_)
+      return;
+    result_.movie_audio_chunks_generated =
+        movie_audio_source_->generated_count();
+    const auto audio_pts = movie_audio_source_->last_pts_ms();
+    const auto video_pts = video_source_->last_pts_ms();
+    if (audio_pts && video_pts)
+      result_.movie_av_skew_ms =
+          checked_absolute_difference(*audio_pts, *video_pts);
   }
   void collect_stats() {
     if (!runtime_ || !peer_)
@@ -503,20 +600,23 @@ private:
   std::shared_ptr<WebRtcRuntime> runtime_;
   std::unique_ptr<webrtc::TaskQueueFactory> queues_;
   webrtc::scoped_refptr<LocalVideoSource> video_source_;
+  webrtc::scoped_refptr<LocalAudioSource> movie_audio_source_;
   CountingVideoSink sink_;
+  CountingAudioSink movie_audio_sink_;
   std::unique_ptr<PeerObserver> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_;
   webrtc::scoped_refptr<webrtc::VideoTrackInterface> video_track_,
       remote_video_;
   webrtc::scoped_refptr<webrtc::AudioSourceInterface> audio_source_;
   webrtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track_,
-      remote_audio_;
+      remote_audio_, movie_audio_track_, remote_movie_audio_;
   CandidateStager<PendingCandidate, 64> candidates_;
   bool remote_set_{};
   std::mutex mu_;
   SignaledPeerResult result_;
   std::atomic_bool wait_cancelled_{false};
   std::atomic_bool stopped_{false};
+  std::atomic_bool remote_movie_audio_seen_{false};
   std::shared_ptr<std::atomic_bool> callbacks_active_{
       std::make_shared<std::atomic_bool>(true)};
 };
