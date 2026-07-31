@@ -41,9 +41,9 @@ public:
       DestroyWindow(window_);
   }
 
-  void move() const {
+  void move(int x) const {
     if (window_ != nullptr) {
-      SetWindowPos(window_, HWND_TOPMOST, 220, 20, 160, 90, SWP_SHOWWINDOW);
+      SetWindowPos(window_, HWND_TOPMOST, x, 20, 160, 90, SWP_SHOWWINDOW);
       UpdateWindow(window_);
     }
   }
@@ -82,8 +82,14 @@ int captures_real_primary_display_frames() {
     REQUIRE(false);
   }
 
-  window.move();
-  const auto deadline = std::chrono::steady_clock::now() + 3s;
+  const auto animation_deadline = std::chrono::steady_clock::now() + 1s;
+  int animation_frame = 0;
+  while (std::chrono::steady_clock::now() < animation_deadline &&
+         source->error().empty()) {
+    window.move(animation_frame++ % 2 == 0 ? 20 : 220);
+    std::this_thread::sleep_for(16ms);
+  }
+  const auto deadline = std::chrono::steady_clock::now() + 2s;
   while (sink.frame_count() < 2 && source->error().empty() &&
          std::chrono::steady_clock::now() < deadline) {
     std::this_thread::sleep_for(10ms);
@@ -97,7 +103,7 @@ int captures_real_primary_display_frames() {
   if (!source->error().empty())
     std::cerr << "Capture error: " << source->error() << '\n';
   REQUIRE(source->error().empty());
-  REQUIRE(sink.frame_count() >= 2);
+  REQUIRE(sink.frame_count() >= 30);
   REQUIRE(sink.timestamps_increase());
   REQUIRE(source->last_width() > 0);
   REQUIRE(source->last_height() > 0);

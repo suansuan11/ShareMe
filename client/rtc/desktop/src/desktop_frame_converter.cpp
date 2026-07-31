@@ -1,6 +1,7 @@
 #include "desktop_frame_converter.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -85,6 +86,17 @@ valid_frame(const MappedRgba16FloatFrame &frame) noexcept {
   return 1.055F * std::pow(linear, 1.0F / 2.4F) - 0.055F;
 }
 
+[[nodiscard]] const std::array<float, 65'536> &srgb_half_lut() noexcept {
+  static const auto table = [] {
+    std::array<float, 65'536> values{};
+    for (std::size_t index = 0; index < values.size(); ++index) {
+      values[index] = srgb(half_to_float(static_cast<std::uint16_t>(index)));
+    }
+    return values;
+  }();
+  return table;
+}
+
 struct Rgb {
   float red;
   float green;
@@ -94,9 +106,8 @@ struct Rgb {
 [[nodiscard]] Rgb read_rgba16_float(const std::uint8_t *pixel) noexcept {
   std::uint16_t components[3]{};
   std::memcpy(components, pixel, sizeof(components));
-  return {srgb(half_to_float(components[0])),
-          srgb(half_to_float(components[1])),
-          srgb(half_to_float(components[2]))};
+  const auto &table = srgb_half_lut();
+  return {table[components[0]], table[components[1]], table[components[2]]};
 }
 
 [[nodiscard]] std::uint8_t byte(float value) noexcept {
@@ -146,15 +157,6 @@ convert_mapped_rgba16_float_to_i420(
     return nullptr;
 
   auto output = webrtc::I420Buffer::Create(frame.width, frame.height);
-  for (int y = 0; y < frame.height; ++y) {
-    const auto *source_row =
-        frame.data + static_cast<std::size_t>(y) * frame.row_pitch;
-    auto *target_row = output->MutableDataY() +
-                       static_cast<std::size_t>(y) * output->StrideY();
-    for (int x = 0; x < frame.width; ++x)
-      target_row[x] = luma(read_rgba16_float(source_row + x * 8));
-  }
-
   for (int y = 0; y < frame.height; y += 2) {
     auto *target_u = output->MutableDataU() +
                      static_cast<std::size_t>(y / 2) * output->StrideU();
@@ -167,9 +169,12 @@ convert_mapped_rgba16_float_to_i420(
            ++sample_y) {
         const auto *source_row =
             frame.data + static_cast<std::size_t>(sample_y) * frame.row_pitch;
+        auto *target_y = output->MutableDataY() +
+                         static_cast<std::size_t>(sample_y) * output->StrideY();
         for (int sample_x = x;
              sample_x < std::min(x + 2, frame.width); ++sample_x) {
           const auto rgb = read_rgba16_float(source_row + sample_x * 8);
+          target_y[sample_x] = luma(rgb);
           average.red += rgb.red;
           average.green += rgb.green;
           average.blue += rgb.blue;
