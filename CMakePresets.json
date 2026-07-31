@@ -77,6 +77,17 @@
       }
     },
     {
+      "name": "movie-call-dev",
+      "displayName": "ShareMe Qt, FFmpeg, and WebRTC movie call development",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SHAREME_ENABLE_QT": "ON",
+        "SHAREME_ENABLE_FFMPEG": "ON",
+        "SHAREME_ENABLE_WEBRTC": "ON"
+      }
+    },
+    {
       "name": "webrtc-dev",
       "displayName": "ShareMe WebRTC probe development",
       "inherits": "base",
@@ -115,6 +126,10 @@
     {
       "name": "build-call-dev",
       "configurePreset": "call-dev"
+    },
+    {
+      "name": "build-movie-call-dev",
+      "configurePreset": "movie-call-dev"
     },
     {
       "name": "build-webrtc-dev",
@@ -159,6 +174,11 @@
     {
       "name": "test-call-dev",
       "configurePreset": "call-dev",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "test-movie-call-dev",
+      "configurePreset": "movie-call-dev",
       "output": { "outputOnFailure": true }
     },
     {

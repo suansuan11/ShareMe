@@ -71,6 +71,8 @@ namespace {
 
 class FfmpegMediaSource::Impl {
 public:
+  explicit Impl(FfmpegMediaSourceOptions options) : options_(options) {}
+
   ~Impl() {
     close();
   }
@@ -102,24 +104,26 @@ public:
           &video_decoder,
           0);
       if (video_stream_index_ < 0 || video_decoder == nullptr) {
-        throw std::runtime_error{"Media file has no decodable video stream"};
+        throw VideoStreamUnavailable{};
       }
       video_codec_context_ =
           open_decoder(format_context_, video_stream_index_, video_decoder);
 
-      const AVCodec* audio_decoder = nullptr;
-      audio_stream_index_ = av_find_best_stream(
-          format_context_,
-          AVMEDIA_TYPE_AUDIO,
-          -1,
-          video_stream_index_,
-          &audio_decoder,
-          0);
-      if (audio_stream_index_ >= 0 && audio_decoder != nullptr) {
-        audio_codec_context_ =
-            open_decoder(format_context_, audio_stream_index_, audio_decoder);
-      } else {
-        audio_stream_index_ = -1;
+      if (options_.decode_audio) {
+        const AVCodec* audio_decoder = nullptr;
+        audio_stream_index_ = av_find_best_stream(
+            format_context_,
+            AVMEDIA_TYPE_AUDIO,
+            -1,
+            video_stream_index_,
+            &audio_decoder,
+            0);
+        if (audio_stream_index_ >= 0 && audio_decoder != nullptr) {
+          audio_codec_context_ =
+              open_decoder(format_context_, audio_stream_index_, audio_decoder);
+        } else {
+          audio_stream_index_ = -1;
+        }
       }
 
       packet_ = av_packet_alloc();
@@ -480,9 +484,11 @@ private:
   std::optional<std::int64_t> video_discard_before_ms_;
   std::optional<std::int64_t> audio_discard_before_ms_;
   std::deque<MediaEvent> pending_events_;
+  const FfmpegMediaSourceOptions options_;
 };
 
-FfmpegMediaSource::FfmpegMediaSource() : impl_{std::make_unique<Impl>()} {}
+FfmpegMediaSource::FfmpegMediaSource(FfmpegMediaSourceOptions options)
+    : impl_{std::make_unique<Impl>(options)} {}
 
 FfmpegMediaSource::~FfmpegMediaSource() = default;
 

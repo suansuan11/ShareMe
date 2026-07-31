@@ -11,8 +11,8 @@ from pathlib import Path
 
 
 RESULT = re.compile(
-    r"RESULT connected=1 video=(\d+) audio_sent=(\d+) "
-    r"audio_received=(\d+) audio_level=([0-9.eE+-]+) "
+    r"RESULT connected=1 video=(\d+) width=(\d+) height=(\d+) "
+    r"audio_sent=(\d+) audio_received=(\d+) audio_level=([0-9.eE+-]+) "
     r"candidate=([^ ]+) error=$"
 )
 
@@ -29,13 +29,24 @@ def wait_for_health(url: str) -> None:
     raise RuntimeError("signaling service did not become healthy")
 
 
-def validate(label: str, output: str, audio_mode: str) -> None:
+def validate(label: str, output: str, audio_mode: str, video_mode: str) -> None:
     lines = [line for line in output.splitlines() if line.startswith("RESULT ")]
     match = RESULT.fullmatch(lines[-1]) if lines else None
-    if match is None or any(int(value) <= 0 for value in match.groups()[:3]):
+    if match is None:
+        raise RuntimeError(f"{label} did not report a valid result")
+    video_frames, width, height, audio_sent, audio_received = (
+        int(value) for value in match.groups()[:5]
+    )
+    if any(
+        value <= 0
+        for value in (video_frames, width, height, audio_sent, audio_received)
+    ):
         raise RuntimeError(f"{label} did not report received test media")
-    if audio_mode == "microphone" and float(match.group(4)) <= 0.0:
+    if audio_mode == "microphone" and float(match.group(6)) <= 0.0:
         raise RuntimeError(f"{label} did not report local microphone activity")
+    if video_mode == "movie" and label == "viewer":
+        if video_frames < 20 or (width, height) != (320, 180):
+            raise RuntimeError("viewer did not receive the expected movie video")
 
 
 def main() -> int:
@@ -48,7 +59,15 @@ def main() -> int:
         choices=("synthetic", "microphone"),
         default="synthetic",
     )
+    parser.add_argument(
+        "--video",
+        choices=("synthetic", "movie"),
+        default="synthetic",
+    )
+    parser.add_argument("--movie", type=Path)
     args = parser.parse_args()
+    if (args.video == "movie") != (args.movie is not None):
+        parser.error("--video movie requires --movie, and --movie requires movie mode")
     address = f"127.0.0.1:{args.port}"
     websocket_url = f"ws://{address}/v1/ws"
     environment = os.environ.copy()
@@ -64,16 +83,21 @@ def main() -> int:
     host = None
     try:
         wait_for_health(f"http://{address}/healthz")
+        host_command = [
+            str(args.probe),
+            "--server",
+            websocket_url,
+            "--role",
+            "host",
+            "--audio",
+            args.audio,
+            "--video",
+            args.video,
+        ]
+        if args.movie is not None:
+            host_command.extend(("--movie", str(args.movie)))
         host = subprocess.Popen(
-            [
-                str(args.probe),
-                "--server",
-                websocket_url,
-                "--role",
-                "host",
-                "--audio",
-                args.audio,
-            ],
+            host_command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -93,6 +117,8 @@ def main() -> int:
                 room_id,
                 "--audio",
                 args.audio,
+                "--video",
+                "synthetic",
             ],
             capture_output=True,
             text=True,
@@ -102,8 +128,8 @@ def main() -> int:
         host_output, host_error = host.communicate(timeout=25)
         if host.returncode != 0:
             raise RuntimeError(f"host failed: {host_error.strip()}")
-        validate("viewer", viewer.stdout, args.audio)
-        validate("host", host_output, args.audio)
+        validate("viewer", viewer.stdout, args.audio, args.video)
+        validate("host", host_output, args.audio, args.video)
         print(room_line)
         print(viewer.stdout.strip())
         print(host_output.strip())

@@ -233,7 +233,7 @@ ProbeResult run_webrtc_probe(const ProbeConfig &config) {
         if (!audio_sender.ok()) {
           return std::string{"adding probe audio track failed"};
         }
-        video_source->start();
+        static_cast<void>(video_source->start());
         return std::string{};
       };
   hooks.remote_track =

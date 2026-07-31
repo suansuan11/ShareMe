@@ -1,6 +1,16 @@
 add_executable(shareme_signaled_call_probe main.cpp)
 target_compile_features(shareme_signaled_call_probe PRIVATE cxx_std_20)
-target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::QtSignaling ShareMe::WebRTC)
+target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::QtSignaling)
+
+if(TARGET ShareMe::MovieRTC)
+  target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::MovieRTC)
+  target_compile_definitions(
+    shareme_signaled_call_probe
+    PRIVATE SHAREME_HAS_MOVIE_VIDEO=1
+  )
+else()
+  target_link_libraries(shareme_signaled_call_probe PRIVATE ShareMe::WebRTC)
+endif()
 
 if(APPLE)
   target_link_options(

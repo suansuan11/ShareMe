@@ -8,14 +8,25 @@
 #include <string>
 #include <string_view>
 
+#include "api/scoped_refptr.h"
+#include "api/task_queue/task_queue_factory.h"
+#include "shareme/rtc/local_video_source.hpp"
+
 namespace shareme::rtc {
 
 enum class SignaledRole { host, viewer };
 enum class SignaledAudioMode { synthetic, microphone };
+enum class SignaledVideoMode { synthetic, injected };
+
+using LocalVideoSourceFactory =
+    std::function<webrtc::scoped_refptr<LocalVideoSource>(
+        webrtc::TaskQueueFactory &)>;
 
 struct SignaledPeerConfig {
   SignaledRole role{SignaledRole::host};
   SignaledAudioMode audio_mode{SignaledAudioMode::synthetic};
+  SignaledVideoMode video_mode{SignaledVideoMode::synthetic};
+  LocalVideoSourceFactory video_source_factory;
 };
 
 struct SignaledAudioPolicy {
@@ -26,6 +37,8 @@ struct SignaledAudioPolicy {
 struct SignaledPeerResult {
   bool connected{false};
   std::uint64_t video_frames_received{0};
+  int video_width{0};
+  int video_height{0};
   std::uint64_t audio_packets_sent{0};
   std::uint64_t audio_packets_received{0};
   std::optional<double> local_audio_level;

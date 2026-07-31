@@ -128,6 +128,23 @@ stable failure category instead of silently falling back. Probe speaker playout
 remains disabled to prevent feedback while two local processes share one
 physical microphone.
 
+Local WebRTC video sources share one lifecycle and metrics contract. The
+deterministic source generates I420 test frames without FFmpeg. The optional
+movie source combines `PlaybackSession` and libwebrtc only when both
+dependencies are enabled: FFmpeg produces bounded RGBA frames, libyuv converts
+them to I420, and a monotonic worker emits them according to media PTS. The host
+alone opens the file; the viewer receives only encoded WebRTC media. Movie
+timing is normalized against the first decoded PTS, including files whose
+timeline does not start at zero. Source shutdown interrupts any pending PTS
+wait, joins its pacing worker, and closes the playback session before the
+PeerConnection releases its track.
+
+Movie audio is deliberately absent from this video slice. It must use a
+separate unprocessed stereo PCM track and must never enter the native
+microphone ADM or voice AEC/NS/AGC path. `MovieVideoSource` therefore opens its
+FFmpeg source with audio decoding disabled, so an earlier audio timeline cannot
+block discovery or pacing of the first video frame.
+
 ## Capability and Failure Model
 
 Hardware encoders report supported codec, pixel format, resolution, frame rate,
@@ -150,6 +167,6 @@ Platform errors cross adapter boundaries as:
 3. WebRTC test video and microphone demonstration;
 4. Windows process-loopback audio demonstration;
 5. minimum call system;
-6. direct movie pipeline;
-7. audio isolation and synchronization;
+6. direct movie video pipeline;
+7. isolated movie audio and synchronization;
 8. adaptation, fallback capture, then later HDR/macOS work.

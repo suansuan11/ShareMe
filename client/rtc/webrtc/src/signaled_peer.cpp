@@ -126,7 +126,10 @@ bool valid_signaled_peer_config(const SignaledPeerConfig &config) noexcept {
       config.role == SignaledRole::host || config.role == SignaledRole::viewer;
   const auto valid_audio = config.audio_mode == SignaledAudioMode::synthetic ||
                            config.audio_mode == SignaledAudioMode::microphone;
-  return valid_role && valid_audio;
+  const auto valid_video = config.video_mode == SignaledVideoMode::synthetic ||
+                           (config.video_mode == SignaledVideoMode::injected &&
+                            static_cast<bool>(config.video_source_factory));
+  return valid_role && valid_audio && valid_video;
 }
 bool valid_remote_candidate(std::string_view mid, int line,
                             std::string_view candidate) noexcept {
@@ -142,8 +145,11 @@ public:
       if (config_.role != SignaledRole::host &&
           config_.role != SignaledRole::viewer)
         fail("invalid-role");
-      else
+      else if (config_.audio_mode != SignaledAudioMode::synthetic &&
+               config_.audio_mode != SignaledAudioMode::microphone)
         fail("invalid-audio-mode");
+      else
+        fail("invalid-video-mode");
       return false;
     }
     const auto policy = signaled_audio_policy(config_.audio_mode);
@@ -175,13 +181,25 @@ public:
       return false;
     }
     queues_ = webrtc::CreateDefaultTaskQueueFactory();
-    video_source_ = TestPatternSource::create(*queues_, 640, 360, 30);
+    if (config_.video_mode == SignaledVideoMode::injected)
+      video_source_ = config_.video_source_factory(*queues_);
+    else
+      video_source_ = TestPatternSource::create(*queues_, 640, 360, 30);
+    if (!video_source_) {
+      fail("video-source-unavailable");
+      return false;
+    }
     return runtime_->signaling_thread()->BlockingCall(
         [this] { return setup(); });
   }
   bool start() {
-    if (!runtime_ || !peer_)
+    if (!runtime_ || !peer_ || !video_source_)
       return false;
+    if (!video_source_->start()) {
+      const auto source_error = video_source_->error();
+      fail(source_error.empty() ? "video-source-start-failed" : source_error);
+      return false;
+    }
     if (role_ == SignaledRole::host)
       runtime_->signaling_thread()->PostTask([this] { create_offer(); });
     return true;
@@ -214,6 +232,11 @@ public:
     while (std::chrono::steady_clock::now() < deadline) {
       if (wait_cancelled_.load(std::memory_order_acquire))
         break;
+      const auto source_error = video_source_->error();
+      if (!source_error.empty()) {
+        fail(source_error);
+        break;
+      }
       {
         std::lock_guard lock(mu_);
         if (!result_.error.empty())
@@ -229,6 +252,8 @@ public:
     if (wait_cancelled_.load(std::memory_order_acquire)) {
       std::lock_guard lock(mu_);
       result_.video_frames_received = sink_.frame_count();
+      result_.video_width = sink_.last_width();
+      result_.video_height = sink_.last_height();
       if (result_.error.empty())
         result_.error = "signaled call cancelled";
       return result_;
@@ -236,6 +261,8 @@ public:
     collect_stats();
     std::lock_guard lock(mu_);
     result_.video_frames_received = sink_.frame_count();
+    result_.video_width = sink_.last_width();
+    result_.video_height = sink_.last_height();
     if (!result_.connected && result_.error.empty())
       result_.error = "signaled call timed out";
     if (result_.video_frames_received == 0 && result_.error.empty())
@@ -341,7 +368,6 @@ private:
       fail("adding test tracks failed");
       return false;
     }
-    video_source_->start();
     return true;
   }
   void create_offer() { create_description(true); }
@@ -476,7 +502,7 @@ private:
   SignaledPeerCallbacks callbacks_;
   std::shared_ptr<WebRtcRuntime> runtime_;
   std::unique_ptr<webrtc::TaskQueueFactory> queues_;
-  webrtc::scoped_refptr<TestPatternSource> video_source_;
+  webrtc::scoped_refptr<LocalVideoSource> video_source_;
   CountingVideoSink sink_;
   std::unique_ptr<PeerObserver> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_;

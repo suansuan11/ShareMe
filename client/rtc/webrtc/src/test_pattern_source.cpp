@@ -68,11 +68,11 @@ TestPatternSource::TestPatternSource(
 
 TestPatternSource::~TestPatternSource() { stop(); }
 
-void TestPatternSource::start() {
+bool TestPatternSource::start() {
   bool expected = false;
   if (!running_.compare_exchange_strong(expected, true,
                                         std::memory_order_relaxed)) {
-    return;
+    return true;
   }
 
   std::promise<void> ready;
@@ -88,6 +88,7 @@ void TestPatternSource::start() {
     ready.set_value();
   });
   ready_future.wait();
+  return true;
 }
 
 void TestPatternSource::stop() noexcept {

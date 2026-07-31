@@ -1,4 +1,5 @@
 #include "counting_video_sink.hpp"
+#include "shareme/rtc/local_video_source.hpp"
 #include "test_pattern_source.hpp"
 
 #include <chrono>
@@ -31,14 +32,18 @@ void generates_real_i420_frames_without_queueing_them() {
 
   auto task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
   auto source = TestPatternSource::create(*task_queue_factory, 640, 360, 30);
+  webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> local_source = source;
   CountingVideoSink sink;
 
-  webrtc::VideoSourceInterface<webrtc::VideoFrame> *video_source = source.get();
+  webrtc::VideoSourceInterface<webrtc::VideoFrame> *video_source =
+      local_source.get();
   video_source->AddOrUpdateSink(&sink, webrtc::VideoSinkWants{});
 
-  source->start();
+  REQUIRE(local_source->start());
+  REQUIRE(local_source->start());
   std::this_thread::sleep_for(250ms);
-  source->stop();
+  local_source->stop();
+  local_source->stop();
 
   video_source->RemoveSink(&sink);
 
@@ -48,6 +53,7 @@ void generates_real_i420_frames_without_queueing_them() {
   REQUIRE(sink.timestamps_increase());
   REQUIRE(source->generated_count() >= sink.frame_count());
   REQUIRE(source->pending_frame_count() == 0);
+  REQUIRE(local_source->error().empty());
   REQUIRE(sink.last_luma_min() < sink.last_luma_max());
 }
 

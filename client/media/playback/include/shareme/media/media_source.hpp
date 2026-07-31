@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <stdexcept>
 #include <variant>
 
 namespace shareme::media {
@@ -17,6 +18,12 @@ struct MediaInfo {
 };
 
 struct EndOfStream {};
+
+class VideoStreamUnavailable final : public std::runtime_error {
+public:
+  VideoStreamUnavailable()
+      : std::runtime_error{"Media file has no decodable video stream"} {}
+};
 
 using MediaEvent = std::variant<VideoFrame, AudioFrame, EndOfStream>;
 
