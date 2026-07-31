@@ -1,11 +1,15 @@
 #include "shareme/media/ffmpeg_media_source.hpp"
+#include "shareme/media/pcm_chunker.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <variant>
 
 namespace {
@@ -287,6 +291,166 @@ void defaults_unknown_container_start_time_to_zero(
   static_cast<void>(first_audio_pts(source, 14));
 }
 
+void drains_all_resampled_audio_at_end_of_stream(
+    const std::filesystem::path& audio_44100_path) {
+  using shareme::media::AudioFrame;
+  using shareme::media::EndOfStream;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::PcmChunker;
+  using shareme::media::VideoFrame;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  const auto info = source.open(audio_44100_path);
+  REQUIRE_FALSE(info.has_video);
+  REQUIRE(info.has_audio);
+
+  PcmChunker chunker;
+  std::size_t samples_per_channel = 0;
+  std::size_t chunk_count = 0;
+  struct AudioPosition {
+    std::int64_t pts_ms;
+    std::size_t samples_per_channel;
+  };
+  std::optional<AudioPosition> previous_audio_position;
+  std::optional<AudioPosition> last_audio_position;
+  for (int event_count = 0; event_count < 2'000; ++event_count) {
+    auto event = source.read_next(15);
+    REQUIRE_FALSE(std::holds_alternative<VideoFrame>(event));
+    if (std::holds_alternative<EndOfStream>(event)) {
+      break;
+    }
+    if (const auto* audio = std::get_if<AudioFrame>(&event)) {
+      const auto frame_samples_per_channel =
+          audio->interleaved_samples.size() / 2U;
+      previous_audio_position = last_audio_position;
+      last_audio_position =
+          AudioPosition{audio->pts_ms, frame_samples_per_channel};
+      samples_per_channel += frame_samples_per_channel;
+      for (std::size_t offset = 0; offset < frame_samples_per_channel;) {
+        const auto slice_samples =
+            std::min<std::size_t>(480U, frame_samples_per_channel - offset);
+        AudioFrame slice;
+        slice.sample_rate = audio->sample_rate;
+        slice.channels = audio->channels;
+        slice.pts_ms =
+            audio->pts_ms + static_cast<std::int64_t>(offset / 48U);
+        slice.generation = audio->generation;
+        slice.interleaved_samples.assign(
+            audio->interleaved_samples.begin() +
+                static_cast<std::ptrdiff_t>(offset * 2U),
+            audio->interleaved_samples.begin() +
+                static_cast<std::ptrdiff_t>((offset + slice_samples) * 2U));
+        REQUIRE(chunker.push(std::move(slice)));
+        while (chunker.pop().has_value()) {
+          ++chunk_count;
+        }
+        offset += slice_samples;
+      }
+    }
+  }
+
+  REQUIRE(samples_per_channel == 48'000U);
+  REQUIRE(chunk_count == 100U);
+  REQUIRE_FALSE(chunker.pop().has_value());
+  REQUIRE(previous_audio_position.has_value());
+  REQUIRE(last_audio_position.has_value());
+  REQUIRE(last_audio_position->samples_per_channel < 480U);
+  const auto expected_tail_pts_ms =
+      previous_audio_position->pts_ms +
+      static_cast<std::int64_t>(
+          (previous_audio_position->samples_per_channel * 1'000U + 24'000U) /
+          48'000U);
+  REQUIRE(last_audio_position->pts_ms == expected_tail_pts_ms);
+}
+
+std::size_t count_audio_samples_to_end(
+    shareme::media::FfmpegMediaSource& source,
+    std::uint64_t generation) {
+  using shareme::media::AudioFrame;
+  using shareme::media::EndOfStream;
+  using shareme::media::VideoFrame;
+
+  std::size_t samples_per_channel = 0;
+  for (int event_count = 0; event_count < 2'000; ++event_count) {
+    auto event = source.read_next(generation);
+    REQUIRE_FALSE(std::holds_alternative<VideoFrame>(event));
+    if (std::holds_alternative<EndOfStream>(event)) {
+      return samples_per_channel;
+    }
+    if (const auto* audio = std::get_if<AudioFrame>(&event)) {
+      REQUIRE(audio->generation == generation);
+      samples_per_channel += audio->interleaved_samples.size() / 2U;
+    }
+  }
+
+  REQUIRE(false);
+  return 0;
+}
+
+void resets_resampler_after_partial_decode_seek(
+    const std::filesystem::path& audio_44100_path) {
+  using shareme::media::AudioFrame;
+  using shareme::media::EndOfStream;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  static_cast<void>(source.open(audio_44100_path));
+  while (true) {
+    auto event = source.read_next(17);
+    REQUIRE_FALSE(std::holds_alternative<EndOfStream>(event));
+    if (std::holds_alternative<AudioFrame>(event)) {
+      break;
+    }
+  }
+
+  source.seek(0);
+  REQUIRE(count_audio_samples_to_end(source, 18) == 48'000U);
+}
+
+void resets_resampler_after_end_of_stream_seek(
+    const std::filesystem::path& audio_44100_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  static_cast<void>(source.open(audio_44100_path));
+  REQUIRE(count_audio_samples_to_end(source, 19) == 48'000U);
+
+  source.seek(0);
+  REQUIRE(count_audio_samples_to_end(source, 20) == 48'000U);
+}
+
+void default_options_decode_video_only_media(
+    const std::filesystem::path& video_only_path) {
+  using shareme::media::EndOfStream;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::VideoFrame;
+
+  FfmpegMediaSource source;
+  const auto info = source.open(video_only_path);
+  REQUIRE(info.has_video);
+  REQUIRE_FALSE(info.has_audio);
+
+  bool saw_video = false;
+  for (int event_count = 0; event_count < 1'000; ++event_count) {
+    auto event = source.read_next(16);
+    if (std::holds_alternative<EndOfStream>(event)) {
+      break;
+    }
+    if (const auto* video = std::get_if<VideoFrame>(&event)) {
+      REQUIRE(video->generation == 16);
+      saw_video = true;
+      break;
+    }
+  }
+  REQUIRE(saw_video);
+}
+
 void rejects_video_only_media_for_audio_decode(
     const std::filesystem::path& video_only_path) {
   using shareme::media::AudioStreamUnavailable;
@@ -320,7 +484,7 @@ void rejects_when_all_decoders_are_disabled() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  REQUIRE(argc == 6);
+  REQUIRE(argc == 7);
   decodes_generated_movie(argv[1]);
   seeks_to_requested_region(argv[1]);
   decodes_audio_without_video(argv[1]);
@@ -331,6 +495,10 @@ int main(int argc, char** argv) {
   rejects_audio_only_media_for_video_decode(argv[3]);
   reports_nonzero_container_start_time(argv[4]);
   defaults_unknown_container_start_time_to_zero(argv[5]);
+  drains_all_resampled_audio_at_end_of_stream(argv[6]);
+  resets_resampler_after_partial_decode_seek(argv[6]);
+  resets_resampler_after_end_of_stream_seek(argv[6]);
+  default_options_decode_video_only_media(argv[2]);
   rejects_when_all_decoders_are_disabled();
   return EXIT_SUCCESS;
 }

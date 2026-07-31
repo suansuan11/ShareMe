@@ -246,8 +246,10 @@ public:
     pending_events_.clear();
     input_finished_ = false;
     decoders_flushed_ = false;
+    resampler_drained_ = false;
     last_video_pts_ms_ = target_ms - 1;
     last_audio_pts_ms_ = target_ms - 1;
+    next_audio_output_pts_ms_.reset();
     video_discard_before_ms_ = target_ms;
     audio_discard_before_ms_ = target_ms;
   }
@@ -281,8 +283,10 @@ public:
     audio_stream_index_ = -1;
     input_finished_ = false;
     decoders_flushed_ = false;
+    resampler_drained_ = false;
     last_video_pts_ms_ = -1;
     last_audio_pts_ms_ = -1;
+    next_audio_output_pts_ms_.reset();
     video_discard_before_ms_.reset();
     audio_discard_before_ms_.reset();
   }
@@ -457,6 +461,12 @@ private:
     output.interleaved_samples.resize(
         static_cast<std::size_t>(converted_samples) *
         static_cast<std::size_t>(output.channels));
+    next_audio_output_pts_ms_ =
+        output.pts_ms +
+        av_rescale_q(
+            converted_samples,
+            AVRational{1, output.sample_rate},
+            AVRational{1, 1'000});
     return output;
   }
 
@@ -490,6 +500,75 @@ private:
 
     flush_one(video_codec_context_, true);
     flush_one(audio_codec_context_, false);
+    drain_resampler(generation);
+  }
+
+  void drain_resampler(std::uint64_t generation) {
+    if (resampler_drained_) {
+      return;
+    }
+    resampler_drained_ = true;
+    if (swr_context_ == nullptr) {
+      return;
+    }
+
+    while (swr_get_delay(swr_context_, 48'000) > 0) {
+      const auto output_sample_capacity =
+          swr_get_out_samples(swr_context_, 0);
+      if (output_sample_capacity < 0) {
+        throw ffmpeg_error(
+            "Could not calculate drained audio size",
+            output_sample_capacity);
+      }
+      if (output_sample_capacity == 0) {
+        return;
+      }
+
+      AudioFrame output;
+      output.sample_rate = 48'000;
+      output.channels = 2;
+      output.generation = generation;
+      if (!next_audio_output_pts_ms_.has_value()) {
+        throw std::logic_error{
+            "Resampled audio drain has no output timestamp"};
+      }
+      output.pts_ms = *next_audio_output_pts_ms_;
+      output.interleaved_samples.resize(
+          static_cast<std::size_t>(output_sample_capacity) *
+          static_cast<std::size_t>(output.channels));
+
+      std::uint8_t* destination[]{
+          reinterpret_cast<std::uint8_t*>(
+              output.interleaved_samples.data())};
+      const auto converted_samples = swr_convert(
+          swr_context_,
+          destination,
+          output_sample_capacity,
+          nullptr,
+          0);
+      if (converted_samples < 0) {
+        throw ffmpeg_error(
+            "Could not drain resampled audio", converted_samples);
+      }
+      if (converted_samples == 0) {
+        return;
+      }
+
+      output.interleaved_samples.resize(
+          static_cast<std::size_t>(converted_samples) *
+          static_cast<std::size_t>(output.channels));
+      next_audio_output_pts_ms_ =
+          output.pts_ms +
+          av_rescale_q(
+              converted_samples,
+              AVRational{1, output.sample_rate},
+              AVRational{1, 1'000});
+      if (!audio_discard_before_ms_.has_value() ||
+          output.pts_ms >= *audio_discard_before_ms_) {
+        audio_discard_before_ms_.reset();
+        pending_events_.emplace_back(std::move(output));
+      }
+    }
   }
 
   AVFormatContext* format_context_{nullptr};
@@ -503,8 +582,10 @@ private:
   int audio_stream_index_{-1};
   bool input_finished_{false};
   bool decoders_flushed_{false};
+  bool resampler_drained_{false};
   std::int64_t last_video_pts_ms_{-1};
   std::int64_t last_audio_pts_ms_{-1};
+  std::optional<std::int64_t> next_audio_output_pts_ms_;
   std::optional<std::int64_t> video_discard_before_ms_;
   std::optional<std::int64_t> audio_discard_before_ms_;
   std::deque<MediaEvent> pending_events_;

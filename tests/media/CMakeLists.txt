@@ -26,6 +26,10 @@ set(
   SHAREME_GENERATED_RAW_AAC_MEDIA
   "${CMAKE_CURRENT_BINARY_DIR}/generated-raw-audio.aac"
 )
+set(
+  SHAREME_GENERATED_44100_AUDIO_MEDIA
+  "${CMAKE_CURRENT_BINARY_DIR}/generated-44100-audio.flac"
+)
 
 add_test(
   NAME generate_media_fixture
@@ -122,6 +126,23 @@ set_tests_properties(
   PROPERTIES FIXTURES_SETUP raw_aac_media_fixture
 )
 
+add_test(
+  NAME generate_44100_audio_media_fixture
+  COMMAND
+    "${SHAREME_FFMPEG_EXECUTABLE}"
+    -hide_banner
+    -loglevel error
+    -y
+    -f lavfi
+    -i "sine=frequency=550:sample_rate=44100:duration=1"
+    -c:a flac
+    "${SHAREME_GENERATED_44100_AUDIO_MEDIA}"
+)
+set_tests_properties(
+  generate_44100_audio_media_fixture
+  PROPERTIES FIXTURES_SETUP audio_44100_media_fixture
+)
+
 add_executable(
   shareme_ffmpeg_media_source_test
   ffmpeg_media_source_test.cpp
@@ -140,12 +161,13 @@ add_test(
     "${SHAREME_GENERATED_AUDIO_ONLY_MEDIA}"
     "${SHAREME_GENERATED_NONZERO_AUDIO_MEDIA}"
     "${SHAREME_GENERATED_RAW_AAC_MEDIA}"
+    "${SHAREME_GENERATED_44100_AUDIO_MEDIA}"
 )
 set_tests_properties(
   ffmpeg_media_source
   PROPERTIES
     FIXTURES_REQUIRED
-      "media_fixture;video_only_media_fixture;audio_only_media_fixture;nonzero_audio_media_fixture;raw_aac_media_fixture"
+      "media_fixture;video_only_media_fixture;audio_only_media_fixture;nonzero_audio_media_fixture;raw_aac_media_fixture;audio_44100_media_fixture"
 )
 
 add_executable(
