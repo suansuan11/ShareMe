@@ -51,14 +51,14 @@ ctest --preset test-movie-call-dev --output-on-failure
 python3 scripts/run_signaled_call_smoke.py \
   --probe build/movie-call-dev/client/tools/signaled_call/shareme_signaled_call_probe \
   --server-root server \
-  --port 18123 \
+  --port 18130 \
   --audio synthetic \
   --video synthetic
 
 python3 scripts/run_signaled_call_smoke.py \
   --probe build/movie-call-dev/client/tools/signaled_call/shareme_signaled_call_probe \
   --server-root server \
-  --port 18124 \
+  --port 18131 \
   --audio microphone \
   --video movie \
   --movie-audio \
@@ -69,30 +69,40 @@ python3 scripts/run_signaled_call_smoke.py \
 Viewer, missing-path, and non-movie combinations return exit code 2 without
 printing the path. A call-only binary given the otherwise valid combination
 prints exactly `PEER_ERROR movie-audio-dependency-unavailable` and exits 1.
-Movie video without `--movie-audio` remains supported.
+Movie video without `--movie-audio` remains supported. These contracts run as
+`signaled_call_cli_contract` in both call-only and movie-call CTest presets.
+
+The smoke orchestrator waits a bounded interval for the host room line instead
+of blocking on `readline()`. Server, host, and viewer each start in a new
+process session. Every exit path terminates the complete process group, waits a
+bounded grace period, and escalates to `SIGKILL`. The
+`signaled_call_smoke_contract` test uses a fake host with no room output and an
+uncooperative descendant to verify both the deadline and descendant cleanup.
+An unavailable optional A/V skew is printed as numeric sentinel `-1`; movie
+audio acceptance rejects that sentinel before applying the 50 ms threshold.
 
 ## Recorded results
 
 All verification commands above exited zero. CTest passed 6/6 portable-core
-tests, 19/19 playback tests, 11/11 call-only tests, and 33/33 combined
+tests, 19/19 playback tests, 13/13 call-only tests, and 35/35 combined
 movie-call tests. Go race tests passed all five tested internal packages plus
 the command package with no tests, and `go vet ./...` exited zero.
 
 Synthetic two-process regression; viewer result is first:
 
 ```text
-ROOM UGC6XF
-RESULT connected=1 video=60 width=640 height=360 audio_sent=103 audio_received=102 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=0 candidate=host error=
-RESULT connected=1 video=59 width=640 height=360 audio_sent=102 audio_received=101 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=0 candidate=host error=
+ROOM NO3BXA
+RESULT connected=1 video=61 width=640 height=360 audio_sent=104 audio_received=104 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+RESULT connected=1 video=60 width=640 height=360 audio_sent=104 audio_received=104 audio_level=0.244148 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
 ```
 
 Movie video, independent movie audio, and bidirectional microphones; viewer
 result is first:
 
 ```text
-ROOM 3Y6YXN
-RESULT connected=1 video=58 width=320 height=180 audio_sent=149 audio_received=299 audio_level=0.0182806 movie_audio_frames_received=302 sample_rate=48000 channels=2 peak=3448 chunks_generated=0 movie_av_skew_ms=0 candidate=host error=
-RESULT connected=1 video=59 width=640 height=360 audio_sent=299 audio_received=102 audio_level=0.0908841 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=200 movie_av_skew_ms=23 candidate=host error=
+ROOM 7YNJAT
+RESULT connected=1 video=57 width=320 height=180 audio_sent=149 audio_received=297 audio_level=0.0185858 movie_audio_frames_received=303 sample_rate=48000 channels=2 peak=3328 chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=
+RESULT connected=1 video=60 width=640 height=360 audio_sent=297 audio_received=101 audio_level=0.0908841 movie_audio_frames_received=0 sample_rate=0 channels=0 peak=0 chunks_generated=200 movie_av_skew_ms=23 candidate=host error=
 ```
 
 This exceeds the acceptance thresholds of 100 viewer movie-audio callbacks,
@@ -105,7 +115,7 @@ bidirectional voice RTP.
 - macOS 26.6 (25G72), Apple silicon ARM64
 - CMake 4.3.3, Ninja 1.13.2, Apple Clang 21.0.0
 - Qt 6.11.1 and FFmpeg 8.1.1
-- Go 1.26.5 and Python 3.9.6
+- Go 1.26.5; Python 3.9.6 for manual smoke and 3.14.6 for CTest contracts
 - locked libwebrtc revision `5ad58d70eea10785fab05ba4150e2fe22ecc7f97`
 
 The existing repository-external cached libwebrtc dependency was preserved and

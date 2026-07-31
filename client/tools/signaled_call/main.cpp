@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
                       << " chunks_generated="
                       << result.movie_audio_chunks_generated
                       << " movie_av_skew_ms="
-                      << result.movie_av_skew_ms.value_or(0)
+                      << result.movie_av_skew_ms.value_or(-1)
                       << " candidate=" << result.selected_candidate_type
                       << " error=" << result.error << std::endl;
             exit_code = result.error.empty() ? 0 : 1;

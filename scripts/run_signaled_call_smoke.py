@@ -2,9 +2,12 @@
 
 import argparse
 import os
+import queue
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -70,19 +73,76 @@ def validate(
         movie_av_skew_ms = int(match.group(12))
         if chunks_generated < 100:
             raise RuntimeError("host did not generate enough movie audio")
+        if movie_av_skew_ms < 0:
+            raise RuntimeError("host movie audio/video skew was unavailable")
         if abs(movie_av_skew_ms) > 50:
             raise RuntimeError("host movie audio/video skew exceeded 50 ms")
 
 
-def terminate(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
-    process.terminate()
+def wait_for_room(
+    host: subprocess.Popen[str], timeout_seconds: float = 10
+) -> str:
+    if host.stdout is None:
+        raise RuntimeError("host room output unavailable")
+    result: queue.Queue[str] = queue.Queue(maxsize=1)
+
+    def read_line() -> None:
+        try:
+            line = host.stdout.readline()
+        except (OSError, ValueError):
+            line = ""
+        result.put(line)
+
+    reader = threading.Thread(target=read_line, daemon=True)
+    reader.start()
     try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=5)
+        room_line = result.get(timeout=timeout_seconds).strip()
+    except queue.Empty as error:
+        raise RuntimeError("host room timeout") from error
+    if not re.fullmatch(r"ROOM [A-Z2-7]{6}", room_line):
+        raise RuntimeError("host did not create a valid room")
+    return room_line
+
+
+def process_group_exists(group_id: int) -> bool:
+    try:
+        os.killpg(group_id, 0)
+        return True
+    except (PermissionError, ProcessLookupError):
+        return False
+
+
+def terminate_process_group(
+    process: subprocess.Popen[str], grace_seconds: float = 5
+) -> None:
+    group_id = process.pid
+    if group_id <= 0 or group_id == os.getpgrp():
+        raise RuntimeError("unsafe process group cleanup refused")
+    try:
+        os.killpg(group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        if process.poll() is None:
+            process.terminate()
+    deadline = time.monotonic() + grace_seconds
+    while process_group_exists(group_id) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if process_group_exists(group_id):
+        try:
+            os.killpg(group_id, signal.SIGKILL)
+        except (PermissionError, ProcessLookupError):
+            pass
+    if process.poll() is None:
+        try:
+            process.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=grace_seconds)
+    if process.stdout is not None:
+        process.stdout.close()
+    if process.stderr is not None:
+        process.stderr.close()
 
 
 def main() -> int:
@@ -118,8 +178,10 @@ def main() -> int:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         text=True,
+        start_new_session=True,
     )
     host = None
+    viewer = None
     try:
         wait_for_health(f"http://{address}/healthz")
         host_command = [
@@ -142,12 +204,11 @@ def main() -> int:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
-        room_line = host.stdout.readline().strip()
-        if not re.fullmatch(r"ROOM [A-Z2-7]{6}", room_line):
-            raise RuntimeError("host did not create a valid room")
+        room_line = wait_for_room(host)
         room_id = room_line.split()[1]
-        viewer = subprocess.run(
+        viewer = subprocess.Popen(
             [
                 str(args.probe),
                 "--server",
@@ -161,24 +222,29 @@ def main() -> int:
                 "--video",
                 "synthetic",
             ],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=25,
-            check=True,
+            start_new_session=True,
         )
+        viewer_output, viewer_error = viewer.communicate(timeout=25)
+        if viewer.returncode != 0:
+            raise RuntimeError(f"viewer failed: {viewer_error.strip()}")
         host_output, host_error = host.communicate(timeout=25)
         if host.returncode != 0:
             raise RuntimeError(f"host failed: {host_error.strip()}")
-        validate("viewer", viewer.stdout, args.audio, args.video, args.movie_audio)
+        validate("viewer", viewer_output, args.audio, args.video, args.movie_audio)
         validate("host", host_output, args.audio, args.video, args.movie_audio)
         print(room_line)
-        print(viewer.stdout.strip())
+        print(viewer_output.strip())
         print(host_output.strip())
         return 0
     finally:
+        if viewer is not None:
+            terminate_process_group(viewer)
         if host is not None:
-            terminate(host)
-        terminate(server)
+            terminate_process_group(host)
+        terminate_process_group(server)
 
 
 if __name__ == "__main__":

@@ -11,3 +11,7 @@ endif()
 if(SHAREME_ENABLE_WEBRTC)
   add_subdirectory(rtc)
 endif()
+
+if(TARGET shareme_signaled_call_probe)
+  add_subdirectory(scripts)
+endif()
