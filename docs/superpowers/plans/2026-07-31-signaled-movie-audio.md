@@ -297,7 +297,7 @@ git commit -m "feat: pace isolated movie audio"
 - Modify: `client/rtc/webrtc/src/signaled_peer.cpp`
 - Modify: `tests/rtc/signaled_peer_test.cpp`
 
-- [ ] **Step 1: Write failing peer configuration tests**
+- [x] **Step 1: Write failing peer configuration tests**
 
 Add tests proving:
 
@@ -316,7 +316,7 @@ Require a null-producing host factory to fail with
 `movie-audio-source-unavailable`, while existing voice-only configurations
 remain valid.
 
-- [ ] **Step 2: Run the peer test and verify RED**
+- [x] **Step 2: Run the peer test and verify RED**
 
 Run:
 
@@ -327,7 +327,7 @@ ctest --preset test-call-dev -R signaled_peer --output-on-failure
 
 Expected: compilation fails because movie-audio configuration is missing.
 
-- [ ] **Step 3: Add configuration, track, sink, and result metrics**
+- [x] **Step 3: Add configuration, track, sink, and result metrics**
 
 Add:
 
@@ -350,7 +350,7 @@ from the voice ADM track. In `OnTrack`, attach `CountingAudioSink` only when
 `track->id() == "movie-audio"`; keep speaker playout disabled and keep voice
 tracks separate.
 
-- [ ] **Step 4: Verify the optional dependency boundary**
+- [x] **Step 4: Verify the optional dependency boundary**
 
 Run:
 
@@ -363,7 +363,7 @@ ctest --preset test-movie-call-dev -R 'signaled_peer|movie_audio_source' --outpu
 
 Expected: call-only remains green without FFmpeg and combined tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add client/rtc/webrtc tests/rtc/signaled_peer_test.cpp
