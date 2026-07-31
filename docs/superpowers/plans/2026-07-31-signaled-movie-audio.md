@@ -380,7 +380,7 @@ git commit -m "feat: add signaled movie audio track"
 - Create: `docs/verification/signaled-movie-audio.md`
 - Modify: `docs/superpowers/plans/2026-07-31-signaled-movie-audio.md`
 
-- [ ] **Step 1: Extend CLI and script contract tests**
+- [x] **Step 1: Extend CLI and script contract tests**
 
 Add `--movie-audio` as a host-only flag requiring movie video and a path.
 Require the call-only binary to print only
@@ -388,7 +388,7 @@ Require the call-only binary to print only
 result parser for the new sanitized numeric fields and require the viewer
 thresholds from the design.
 
-- [ ] **Step 2: Run validation and verify RED**
+- [x] **Step 2: Run validation and verify RED**
 
 Run invalid combinations directly and run the movie smoke once:
 
@@ -405,7 +405,7 @@ python3 scripts/run_signaled_call_smoke.py \
 
 Expected: current parser rejects `--movie-audio`.
 
-- [ ] **Step 3: Wire shared factories and sanitized results**
+- [x] **Step 3: Wire shared factories and sanitized results**
 
 When host movie audio is enabled:
 
@@ -422,7 +422,7 @@ config.movie_audio_source_factory = [movie_path, timeline] {
 Print only counters, dimensions, sample format, peak, A/V skew, candidate type,
 and stable errors. Pass the movie path and movie-audio flag only to the host.
 
-- [ ] **Step 4: Run full feature-branch verification**
+- [x] **Step 4: Run full feature-branch verification**
 
 Run:
 
@@ -446,7 +446,7 @@ Expected: all commands exit zero; movie smoke reports at least 100 stereo
 48 kHz movie-audio callbacks, nonzero peak, at least 20 320x180 movie-video
 frames, bidirectional voice RTP, and A/V skew at most 50 ms.
 
-- [ ] **Step 5: Record exact evidence and exclusions**
+- [x] **Step 5: Record exact evidence and exclusions**
 
 Document generated fixture properties, commands, counters, dependency versions,
 review fixes, and platform limitations. Update the architecture and README
