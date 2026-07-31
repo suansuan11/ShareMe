@@ -14,6 +14,9 @@
 
 namespace webrtc {
 class Thread;
+#if defined(_WIN32)
+class WinsockInitializer;
+#endif
 } // namespace webrtc
 
 namespace shareme::rtc {
@@ -53,6 +56,9 @@ private:
   std::unique_ptr<webrtc::Thread> network_thread_;
   std::unique_ptr<webrtc::Thread> worker_thread_;
   std::unique_ptr<webrtc::Thread> signaling_thread_;
+#if defined(_WIN32)
+  std::unique_ptr<webrtc::WinsockInitializer> winsock_initializer_;
+#endif
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory_;
   std::atomic_bool running_{false};
   std::mutex shutdown_hooks_mutex_;
