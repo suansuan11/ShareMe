@@ -115,6 +115,27 @@ target_link_libraries(shareme_signaled_peer_test PRIVATE ShareMe::WebRTC)
 shareme_set_project_warnings(shareme_signaled_peer_test)
 add_test(NAME signaled_peer COMMAND shareme_signaled_peer_test)
 
+if(WIN32)
+  add_executable(
+    shareme_desktop_frame_converter_test
+    desktop_frame_converter_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/rtc/desktop/src/desktop_frame_converter.cpp"
+  )
+  target_include_directories(
+    shareme_desktop_frame_converter_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/rtc/desktop/src"
+  )
+  target_link_libraries(
+    shareme_desktop_frame_converter_test
+    PRIVATE ShareMe::WebRTC
+  )
+  shareme_set_project_warnings(shareme_desktop_frame_converter_test)
+  add_test(
+    NAME desktop_frame_converter
+    COMMAND shareme_desktop_frame_converter_test
+  )
+endif()
+
 if(TARGET ShareMe::Playback)
   find_program(SHAREME_MOVIE_CALL_FFMPEG_EXECUTABLE ffmpeg REQUIRED)
   set(
