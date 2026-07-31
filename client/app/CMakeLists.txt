@@ -5,6 +5,10 @@ qt_add_executable(
   src/playback_controller.hpp
 )
 
+if(WIN32)
+  target_sources(shareme_playback_demo PRIVATE app.manifest)
+endif()
+
 target_include_directories(
   shareme_playback_demo
   PRIVATE
