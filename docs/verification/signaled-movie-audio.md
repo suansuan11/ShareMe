@@ -139,6 +139,24 @@ invalid callbacks, a nonzero peak, 100 generated host chunks, at most 50 ms
 sender-side A/V PTS skew, 20 received 320x180 movie frames, and nonzero
 track-specific bidirectional voice RTP.
 
+## Main delivery verification
+
+The reviewed feature branch was merged to `main` with merge commit `391ba21`.
+Fresh configuration and verification on the merged tree passed Go race tests
+and vet, portable core 6/6, playback 19/19, call-only 13/13, and combined
+movie-call 35/35. The synthetic two-process smoke passed. The final normal CLI
+movie smoke reported 303 valid and zero invalid movie-audio callbacks at
+48 kHz stereo, 58 received 320x180 movie frames, viewer voice RTP 154/101,
+host voice RTP 101/101, 200 generated chunks, and 23 ms sender A/V skew.
+
+The first merged-tree movie-smoke invocation returned the intentionally
+sanitized `SMOKE_ERROR smoke-failed` without enough public detail to identify a
+threshold. The same build and fixture then passed six diagnostic repetitions
+and a final normal CLI repetition, with no process or listener left behind.
+No code was changed to hide that non-reproduced timing/environmental event.
+Remote `main` was verified at `391ba21`; the owned feature worktree and local
+feature branch were removed after delivery.
+
 ## Environment and review fixes
 
 - macOS 26.6 (25G72), Apple silicon ARM64

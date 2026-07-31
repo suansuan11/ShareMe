@@ -454,7 +454,7 @@ review fixes, and platform limitations. Update the architecture and README
 without claiming speaker playout, remote render-time synchronization, Windows,
 TURN, or public-network verification.
 
-- [ ] **Step 6: Commit, review, merge, reverify, and clean up**
+- [x] **Step 6: Commit, review, merge, reverify, and clean up**
 
 ```bash
 git add client/tools scripts README.md docs
