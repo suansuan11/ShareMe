@@ -13,6 +13,7 @@ Thumbs.db
 
 # CMake and native build outputs
 build/
+.worktrees/
 out/
 cmake-build-*/
 CMakeFiles/
