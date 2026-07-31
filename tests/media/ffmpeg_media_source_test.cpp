@@ -203,6 +203,90 @@ void seeks_audio_without_video(const std::filesystem::path& movie_path) {
   REQUIRE(saw_audio);
 }
 
+std::int64_t first_audio_pts(
+    shareme::media::FfmpegMediaSource& source,
+    std::uint64_t generation) {
+  using shareme::media::AudioFrame;
+  using shareme::media::EndOfStream;
+  using shareme::media::VideoFrame;
+
+  for (int event_count = 0; event_count < 1'000; ++event_count) {
+    auto event = source.read_next(generation);
+    REQUIRE_FALSE(std::holds_alternative<VideoFrame>(event));
+    if (std::holds_alternative<EndOfStream>(event)) {
+      break;
+    }
+    if (const auto* audio = std::get_if<AudioFrame>(&event)) {
+      REQUIRE(audio->sample_rate == 48'000);
+      REQUIRE(audio->channels == 2);
+      REQUIRE(audio->generation == generation);
+      return audio->pts_ms;
+    }
+  }
+
+  REQUIRE(false);
+  return 0;
+}
+
+void decodes_real_audio_only_media(
+    const std::filesystem::path& audio_only_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  const auto info = source.open(audio_only_path);
+
+  REQUIRE_FALSE(info.has_video);
+  REQUIRE(info.has_audio);
+  REQUIRE(info.start_time_ms <= first_audio_pts(source, 12));
+}
+
+void rejects_audio_only_media_for_video_decode(
+    const std::filesystem::path& audio_only_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoStreamUnavailable;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = true, .decode_audio = false}};
+  try {
+    static_cast<void>(source.open(audio_only_path));
+    REQUIRE(false);
+  } catch (const VideoStreamUnavailable& error) {
+    REQUIRE(
+        std::string{error.what()} ==
+        "Media file has no decodable video stream");
+  }
+}
+
+void reports_nonzero_container_start_time(
+    const std::filesystem::path& nonzero_audio_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  const auto info = source.open(nonzero_audio_path);
+
+  REQUIRE(info.start_time_ms >= 2'900);
+  REQUIRE(info.start_time_ms <= 3'050);
+  REQUIRE(info.start_time_ms <= first_audio_pts(source, 13));
+}
+
+void defaults_unknown_container_start_time_to_zero(
+    const std::filesystem::path& raw_aac_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+
+  FfmpegMediaSource source{
+      FfmpegMediaSourceOptions{.decode_video = false, .decode_audio = true}};
+  const auto info = source.open(raw_aac_path);
+
+  REQUIRE(info.start_time_ms == 0);
+  static_cast<void>(first_audio_pts(source, 14));
+}
+
 void rejects_video_only_media_for_audio_decode(
     const std::filesystem::path& video_only_path) {
   using shareme::media::AudioStreamUnavailable;
@@ -236,13 +320,17 @@ void rejects_when_all_decoders_are_disabled() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  REQUIRE(argc == 3);
+  REQUIRE(argc == 6);
   decodes_generated_movie(argv[1]);
   seeks_to_requested_region(argv[1]);
   decodes_audio_without_video(argv[1]);
   decodes_video_without_audio(argv[1]);
   seeks_audio_without_video(argv[1]);
   rejects_video_only_media_for_audio_decode(argv[2]);
+  decodes_real_audio_only_media(argv[3]);
+  rejects_audio_only_media_for_video_decode(argv[3]);
+  reports_nonzero_container_start_time(argv[4]);
+  defaults_unknown_container_start_time_to_zero(argv[5]);
   rejects_when_all_decoders_are_disabled();
   return EXIT_SUCCESS;
 }

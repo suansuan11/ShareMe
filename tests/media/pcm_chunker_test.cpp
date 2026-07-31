@@ -105,17 +105,19 @@ void rejects_invalid_audio_formats_with_a_stable_error() {
 
   REQUIRE_FALSE(chunker.push(invalid));
   const auto first_error = chunker.error();
-  REQUIRE_FALSE(first_error.empty());
+  REQUIRE(first_error == "pcm-invalid-format");
   REQUIRE_FALSE(chunker.push(invalid));
   REQUIRE(chunker.error() == first_error);
 
   invalid.sample_rate = 48'000;
   invalid.channels = 1;
   REQUIRE_FALSE(chunker.push(invalid));
+  REQUIRE(chunker.error() == "pcm-invalid-format");
 
   invalid.channels = 2;
   invalid.interleaved_samples.pop_back();
   REQUIRE_FALSE(chunker.push(invalid));
+  REQUIRE(chunker.error() == "pcm-invalid-format");
 }
 
 void resets_partial_audio_after_a_large_discontinuity() {
@@ -137,10 +139,13 @@ void resets_partial_audio_after_a_large_discontinuity() {
 
 void rejects_pending_audio_overflow() {
   shareme::media::PcmChunker chunker;
+  const auto overflow =
+      make_frame(numbered_samples(4'801U * 2U), 0);
 
-  REQUIRE_FALSE(
-      chunker.push(make_frame(numbered_samples(4'801U * 2U), 0)));
-  REQUIRE_FALSE(chunker.error().empty());
+  REQUIRE_FALSE(chunker.push(overflow));
+  REQUIRE(chunker.error() == "pcm-buffer-overflow");
+  REQUIRE_FALSE(chunker.push(overflow));
+  REQUIRE(chunker.error() == "pcm-buffer-overflow");
   REQUIRE_FALSE(chunker.pop().has_value());
 }
 

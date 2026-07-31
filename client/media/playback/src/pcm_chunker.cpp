@@ -14,9 +14,8 @@ constexpr int required_channels = 2;
 constexpr std::int64_t discontinuity_tolerance_ms = 10;
 constexpr std::int64_t chunk_duration_ms = 10;
 
-constexpr auto invalid_format_error =
-    "PCM input must be 48 kHz stereo interleaved samples";
-constexpr auto pending_overflow_error = "PCM pending sample limit exceeded";
+constexpr auto invalid_format_error = "pcm-invalid-format";
+constexpr auto pending_overflow_error = "pcm-buffer-overflow";
 
 [[nodiscard]] std::int64_t distance(
     std::int64_t first,
