@@ -10,6 +10,7 @@
 #include <QUrl>
 #include <QVideoSink>
 
+#include <atomic>
 #include <memory>
 #include <thread>
 
@@ -55,6 +56,7 @@ private:
   QtSignalingClient signaling_;
   std::unique_ptr<shareme::rtc::SignaledPeer> peer_;
   std::jthread waiter_;
+  std::atomic_bool video_delivery_pending_{false};
   bool peer_started_{false};
   bool start_requested_{false};
 };

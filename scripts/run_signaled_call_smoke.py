@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import ctypes
 import errno
 import os
 import queue
@@ -104,8 +105,9 @@ def start_signaling_server(
             raise SignalingStartupError(
                 "signaling service could not build", diagnostic
             )
-        process = process_factory(
+        process = start_managed_process(
             [str(executable)],
+            process_factory=process_factory,
             cwd=server_root,
             env=environment,
             stdout=log,
@@ -261,14 +263,10 @@ def wait_for_room(
                 host.wait(timeout=0.5)
             except subprocess.TimeoutExpired:
                 pass
-            diagnostic = ""
-            if host.stderr is not None:
-                diagnostic = host.stderr.read().strip()
             output = " | ".join(observed_lines[-5:])
             reader_error = " | ".join(reader_errors)
             context = (
-                diagnostic
-                or output
+                output
                 or reader_error
                 or f"exit={host.poll()}"
             )
@@ -288,6 +286,127 @@ def process_group_exists(group_id: int) -> bool:
         return False
 
 
+def attach_windows_kill_job(process: subprocess.Popen[str]) -> None:
+    if os.name != "nt":
+        return
+
+    class BasicLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", ctypes.c_ulong),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_ulong),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_ulong),
+            ("SchedulingClass", ctypes.c_ulong),
+        ]
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class ExtendedLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimitInformation),
+            ("IoInfo", IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.SetInformationJobObject.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+    ]
+    kernel32.SetInformationJobObject.restype = ctypes.c_int
+    kernel32.AssignProcessToJobObject.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    information = ExtendedLimitInformation()
+    information.BasicLimitInformation.LimitFlags = 0x00002000
+    configured = kernel32.SetInformationJobObject(
+        job, 9, ctypes.byref(information), ctypes.sizeof(information)
+    )
+    assigned = configured and kernel32.AssignProcessToJobObject(
+        job, int(process._handle)
+    )
+    if not assigned:
+        error = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        raise ctypes.WinError(error)
+    setattr(process, "_shareme_job_handle", job)
+
+
+def close_windows_kill_job(process: subprocess.Popen[str]) -> None:
+    job = getattr(process, "_shareme_job_handle", None)
+    if not job:
+        return
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    kernel32.CloseHandle(job)
+    setattr(process, "_shareme_job_handle", None)
+
+
+def start_managed_process(
+    command: list[str],
+    process_factory=subprocess.Popen,
+    **options,
+) -> subprocess.Popen[str]:
+    if os.name != "nt":
+        return process_factory(command, **options)
+    if "stdin" in options:
+        raise ValueError("managed process stdin is reserved")
+    wrapper = (
+        "import subprocess,sys;"
+        "sys.stdin.buffer.read(1);"
+        "child=subprocess.Popen(sys.argv[1:]);"
+        "raise SystemExit(child.wait())"
+    )
+    process = process_factory(
+        [sys.executable, "-c", wrapper, *command],
+        stdin=subprocess.PIPE,
+        **options,
+    )
+    try:
+        attach_windows_kill_job(process)
+        if process.stdin is None:
+            raise OSError("managed process gate unavailable")
+        gate = "1" if options.get("text") or options.get("encoding") else b"1"
+        process.stdin.write(gate)
+        process.stdin.close()
+        process.stdin = None
+    except BaseException:
+        terminate_process_group(process, grace_seconds=0.1)
+        raise
+    return process
+
+
 def terminate_process_group(
     process: subprocess.Popen[str], grace_seconds: float = 5
 ) -> None:
@@ -297,9 +416,14 @@ def terminate_process_group(
                 process.send_signal(signal.CTRL_BREAK_EVENT)
                 process.wait(timeout=grace_seconds)
             except (OSError, subprocess.TimeoutExpired):
-                if process.poll() is None:
-                    process.kill()
-                    process.wait(timeout=grace_seconds)
+                pass
+        close_windows_kill_job(process)
+        if process.poll() is None:
+            try:
+                process.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=grace_seconds)
         if process.stdout is not None:
             process.stdout.close()
         if process.stderr is not None:
@@ -385,7 +509,7 @@ def main() -> int:
         if args.movie_audio:
             host_command.append("--movie-audio")
         try:
-            host = subprocess.Popen(
+            host = start_managed_process(
                 host_command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -399,7 +523,7 @@ def main() -> int:
         room_line = wait_for_room(host)
         room_id = room_line.split()[1]
         try:
-            viewer = subprocess.Popen(
+            viewer = start_managed_process(
                 [
                     str(args.probe),
                     "--server",

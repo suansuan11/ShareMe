@@ -206,23 +206,38 @@ void RtcDemoController::setRoomId(QString room_id) {
 }
 
 void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
-  const auto buffer = frame.video_frame_buffer()->ToI420();
-  if (!buffer)
+  if (video_delivery_pending_.exchange(true, std::memory_order_acq_rel))
     return;
+  const auto release_delivery = [this] {
+    video_delivery_pending_.store(false, std::memory_order_release);
+  };
+  const auto source_buffer = frame.video_frame_buffer();
+  const auto buffer = source_buffer ? source_buffer->ToI420() : nullptr;
+  if (!buffer) {
+    release_delivery();
+    return;
+  }
   QImage image(buffer->width(), buffer->height(), QImage::Format_ARGB32);
-  if (image.isNull())
+  if (image.isNull()) {
+    release_delivery();
     return;
+  }
   const auto converted = libyuv::I420ToARGB(
       buffer->DataY(), buffer->StrideY(), buffer->DataU(), buffer->StrideU(),
       buffer->DataV(), buffer->StrideV(), image.bits(), image.bytesPerLine(),
       buffer->width(), buffer->height());
-  if (converted != 0)
+  if (converted != 0) {
+    release_delivery();
     return;
-  QMetaObject::invokeMethod(
+  }
+  const auto queued = QMetaObject::invokeMethod(
       this,
       [this, image = std::move(image)] {
         if (video_sink_)
           video_sink_->setVideoFrame(QVideoFrame(image));
+        video_delivery_pending_.store(false, std::memory_order_release);
       },
       Qt::QueuedConnection);
+  if (!queued)
+    release_delivery();
 }

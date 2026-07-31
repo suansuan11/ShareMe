@@ -206,17 +206,21 @@ class SignaledCallSmokeTest(unittest.TestCase):
             child_pid_path = Path(directory) / "child.pid"
             child_code = (
                 "import signal,time;"
+                "signal.signal(signal.SIGBREAK, signal.SIG_IGN) "
+                "if hasattr(signal,'SIGBREAK') else None;"
                 "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
                 "time.sleep(60)"
             )
             host_code = (
                 "import pathlib,signal,subprocess,sys,time;"
-                "child=subprocess.Popen([sys.executable,'-c',sys.argv[2]]);"
+                "flags=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0);"
+                "child=subprocess.Popen([sys.executable,'-c',sys.argv[2]],"
+                "creationflags=flags);"
                 "pathlib.Path(sys.argv[1]).write_text(str(child.pid));"
                 "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
                 "time.sleep(60)"
             )
-            host = subprocess.Popen(
+            host = self.smoke.start_managed_process(
                 [
                     sys.executable,
                     "-c",
@@ -251,7 +255,7 @@ class SignaledCallSmokeTest(unittest.TestCase):
                 self.fail("host descendant survived process-group cleanup")
 
     def test_room_line_may_follow_runtime_diagnostics(self):
-        host = subprocess.Popen(
+        host = self.smoke.start_managed_process(
             [
                 sys.executable,
                 "-c",
@@ -270,6 +274,54 @@ class SignaledCallSmokeTest(unittest.TestCase):
             )
         finally:
             self.smoke.terminate_process_group(host, grace_seconds=0.1)
+
+    def test_closed_stdout_does_not_block_on_live_stderr(self):
+        host = self.smoke.start_managed_process(
+            [
+                sys.executable,
+                "-c",
+                "import os,sys,time;"
+                "os.close(sys.stdout.fileno());"
+                "time.sleep(2)",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            **self.smoke.popen_group_options(),
+        )
+        started = time.monotonic()
+        try:
+            with self.assertRaises(RuntimeError):
+                self.smoke.wait_for_room(host, timeout_seconds=0.1)
+        finally:
+            self.smoke.terminate_process_group(host, grace_seconds=0.1)
+        self.assertLess(time.monotonic() - started, 1)
+
+    def test_exited_host_does_not_wait_for_descendant_stderr(self):
+        host_code = (
+            "import os,subprocess,sys,time;"
+            "time.sleep(0.3);"
+            "subprocess.Popen([sys.executable,'-c','import time;time.sleep(5)'],"
+            "stdout=subprocess.DEVNULL);"
+            "time.sleep(0.1);"
+            "os.close(sys.stdout.fileno())"
+        )
+        host = self.smoke.start_managed_process(
+            [sys.executable, "-c", host_code],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            **self.smoke.popen_group_options(),
+        )
+        started = time.monotonic()
+        try:
+            with self.assertRaisesRegex(
+                RuntimeError, "host did not create a valid room"
+            ):
+                self.smoke.wait_for_room(host, timeout_seconds=1)
+        finally:
+            self.smoke.terminate_process_group(host, grace_seconds=0.1)
+        self.assertLess(time.monotonic() - started, 1.5)
 
     def test_missing_movie_skew_is_rejected(self):
         output = (
