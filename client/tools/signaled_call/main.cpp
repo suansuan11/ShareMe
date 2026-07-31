@@ -16,12 +16,19 @@
 #include <QTimer>
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 #include <thread>
 
 namespace {
+[[noreturn]] void exit_cli(int code) {
+  std::cout.flush();
+  std::cerr.flush();
+  std::_Exit(code);
+}
+
 QByteArray description_payload(const std::string &type,
                                const std::string &sdp) {
   return QJsonDocument(
@@ -42,7 +49,7 @@ QByteArray candidate_payload(const std::string &mid, int line,
 int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   QCommandLineParser parser;
-  parser.addHelpOption();
+  const auto help_option = parser.addHelpOption();
   QCommandLineOption server(QStringList{"s", "server"}, "WebSocket URL", "url");
   QCommandLineOption role_option(QStringList{"r", "role"}, "host or viewer",
                                  "role");
@@ -63,7 +70,14 @@ int main(int argc, char **argv) {
   parser.addOption(movie_option);
   parser.addOption(movie_audio_option);
   parser.addOption(room_option);
-  parser.process(app);
+  if (!parser.parse(app.arguments())) {
+    std::cerr << parser.errorText().toStdString() << std::endl;
+    exit_cli(2);
+  }
+  if (parser.isSet(help_option)) {
+    std::cout << parser.helpText().toStdString();
+    exit_cli(0);
+  }
   const auto role_text = parser.value(role_option);
   const auto audio_text = parser.value(audio_option);
   const auto video_text = parser.value(video_option);
@@ -77,15 +91,15 @@ int main(int argc, char **argv) {
       (movie_audio_is_set &&
        (role_text != "host" || video_text != "movie" || !movie_is_set)) ||
       (role_text == "viewer" && !parser.isSet(room_option)))
-    return 2;
+    exit_cli(2);
 #ifndef SHAREME_HAS_MOVIE_RTC
   if (movie_audio_is_set) {
     std::cerr << "PEER_ERROR movie-audio-dependency-unavailable" << std::endl;
-    return 1;
+    exit_cli(1);
   }
   if (video_text == "movie") {
     std::cerr << "PEER_ERROR movie-video-dependency-unavailable" << std::endl;
-    return 1;
+    exit_cli(1);
   }
 #endif
   const auto role = role_text == "host" ? shareme::rtc::SignaledRole::host

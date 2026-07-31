@@ -69,14 +69,43 @@ def start_signaling_server(
     host: str,
     port: int,
     process_factory=subprocess.Popen,
-) -> tuple[subprocess.Popen[str], TextIO]:
+) -> tuple[
+    subprocess.Popen[str], TextIO, tempfile.TemporaryDirectory[str]
+]:
     ensure_address_available(host, port)
     environment = os.environ.copy()
     environment["SHAREME_SIGNALING_ADDR"] = f"{host}:{port}"
     log = tempfile.TemporaryFile(mode="w+t", encoding="utf-8")
+    binary_directory = tempfile.TemporaryDirectory(
+        prefix="shareme-signaling-"
+    )
+    executable = Path(binary_directory.name) / (
+        "signaling.exe" if os.name == "nt" else "signaling"
+    )
     try:
+        build = subprocess.run(
+            [
+                "go",
+                "build",
+                "-o",
+                str(executable),
+                "./cmd/signaling",
+            ],
+            cwd=server_root,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+        if build.returncode != 0:
+            diagnostic = read_log_tail(log)
+            log.close()
+            binary_directory.cleanup()
+            raise SignalingStartupError(
+                "signaling service could not build", diagnostic
+            )
         process = process_factory(
-            ["go", "run", "./cmd/signaling"],
+            [str(executable)],
             cwd=server_root,
             env=environment,
             stdout=log,
@@ -86,10 +115,11 @@ def start_signaling_server(
         )
     except OSError as error:
         log.close()
+        binary_directory.cleanup()
         raise SignalingStartupError(
             "signaling service could not start"
         ) from error
-    return process, log
+    return process, log, binary_directory
 
 
 def wait_for_health(
@@ -201,24 +231,53 @@ def wait_for_room(
 ) -> str:
     if host.stdout is None:
         raise SmokeRuntimeError("host room output unavailable")
-    result: queue.Queue[str] = queue.Queue(maxsize=1)
+    deadline = time.monotonic() + timeout_seconds
+    observed_lines: list[str] = []
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise SmokeRuntimeError("host room timeout")
+        result: queue.Queue[str] = queue.Queue(maxsize=1)
+        reader_errors: list[str] = []
 
-    def read_line() -> None:
+        def read_line() -> None:
+            try:
+                result.put(host.stdout.readline())
+            except (OSError, UnicodeError, ValueError) as error:
+                reader_errors.append(f"{type(error).__name__}: {error}")
+                result.put("")
+
+        reader = threading.Thread(target=read_line, daemon=True)
+        reader.start()
         try:
-            line = host.stdout.readline()
-        except (OSError, ValueError):
-            line = ""
-        result.put(line)
-
-    reader = threading.Thread(target=read_line, daemon=True)
-    reader.start()
-    try:
-        room_line = result.get(timeout=timeout_seconds).strip()
-    except queue.Empty as error:
-        raise SmokeRuntimeError("host room timeout") from error
-    if not re.fullmatch(r"ROOM [A-Z2-7]{6}", room_line):
-        raise SmokeRuntimeError("host did not create a valid room")
-    return room_line
+            line = result.get(timeout=remaining)
+        except queue.Empty as error:
+            raise SmokeRuntimeError("host room timeout") from error
+        room_line = line.strip()
+        if re.fullmatch(r"ROOM [A-Z2-7]{6}", room_line):
+            return room_line
+        if line == "":
+            try:
+                host.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                pass
+            diagnostic = ""
+            if host.stderr is not None:
+                diagnostic = host.stderr.read().strip()
+            output = " | ".join(observed_lines[-5:])
+            reader_error = " | ".join(reader_errors)
+            context = (
+                diagnostic
+                or output
+                or reader_error
+                or f"exit={host.poll()}"
+            )
+            detail = f": {context}" if context else ""
+            raise SmokeRuntimeError(
+                f"host did not create a valid room{detail}"
+            )
+        if room_line:
+            observed_lines.append(room_line)
 
 
 def process_group_exists(group_id: int) -> bool:
@@ -301,7 +360,7 @@ def main() -> int:
         parser.error("--movie-audio requires --video movie and --movie")
     address = f"127.0.0.1:{args.port}"
     websocket_url = f"ws://{address}/v1/ws"
-    server, server_log = start_signaling_server(
+    server, server_log, server_binary_directory = start_signaling_server(
         args.server_root, "127.0.0.1", args.port
     )
     host = None
@@ -331,6 +390,8 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 **popen_group_options(),
             )
         except OSError as error:
@@ -355,6 +416,8 @@ def main() -> int:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 **popen_group_options(),
             )
         except OSError as error:
@@ -382,6 +445,7 @@ def main() -> int:
             terminate_process_group(host)
         terminate_process_group(server)
         server_log.close()
+        server_binary_directory.cleanup()
 
 
 def cli_main() -> int:

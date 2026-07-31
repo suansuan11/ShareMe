@@ -45,9 +45,72 @@ the runtime. `signaled_peer` covers immediate start/stop and exits cleanly.
 
 - TURN or public-network connectivity
 - two physical computers
-- Windows/MSVC native WebRTC
 - movie tracks in the signaled call
 - hardware encoding, adaptation, reconnect, or endurance
 
 The physical microphone extension is verified separately in
 [Signaled Microphone Call Verification](signaled-microphone-call.md).
+
+## Windows/MSVC verification
+
+On 2026-07-31, the same one-to-one path was verified on Windows with MSVC,
+Qt 6.11.1, and locked WebRTC revision
+`5ad58d70eea10785fab05ba4150e2fe22ecc7f97`. The WebRTC-enabled presets use a
+Release consumer ABI because the locked WebRTC archive was built with
+`is_debug=false`, `NDEBUG`, and the static MSVC runtime.
+
+From a Visual Studio developer PowerShell, configure and build without
+rebuilding or downloading WebRTC:
+
+```powershell
+cmake --fresh --preset call-dev `
+  -DWEBRTC_ROOT=D:/Deps/shareme-webrtc `
+  -DCMAKE_PREFIX_PATH=H:/QT6.11/6.11.1/msvc2022_64 `
+  -DCMAKE_LINKER=D:/Deps/shareme-webrtc/checkout/src/third_party/llvm-build/Release+Asserts/bin/lld-link.exe
+cmake --build --preset build-call-dev
+$env:PATH = "H:\QT6.11\6.11.1\msvc2022_64\bin;$env:PATH"
+python scripts/run_signaled_call_smoke.py `
+  --probe build/call-dev/shareme_signaled_call_probe.exe `
+  --server-root server
+```
+
+The Windows run completed Offer, Answer, trickled ICE, connected both native
+PeerConnections, and reported 59-60 received 640x360 frames plus 102-103
+bidirectional synthetic-audio RTP packets per peer.
+
+### Minimal Qt sender and receiver
+
+Start the local signaling service in terminal 1:
+
+```powershell
+$env:SHAREME_SIGNALING_ADDR = "127.0.0.1:18080"
+Set-Location server
+go run ./cmd/signaling
+```
+
+Set the Qt runtime path in terminals 2 and 3:
+
+```powershell
+$env:PATH = "H:\QT6.11\6.11.1\msvc2022_64\bin;$env:PATH"
+```
+
+Start the sender in terminal 2. It prints `ROOM ABCDEF` after creating a room:
+
+```powershell
+build/call-dev/shareme_rtc_demo.exe `
+  --server ws://127.0.0.1:18080/v1/ws `
+  --role host
+```
+
+Use that room in terminal 3:
+
+```powershell
+build/call-dev/shareme_rtc_demo.exe `
+  --server ws://127.0.0.1:18080/v1/ws `
+  --role viewer `
+  --room ABCDEF
+```
+
+The current first-stage sender transmits the WebRTC synthetic test pattern;
+the viewer renders remote I420 frames through `QVideoSink`. Desktop Duplication
+capture replaces that source in the next stage.

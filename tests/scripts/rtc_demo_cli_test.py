@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+
+class RtcDemoCliTest(unittest.TestCase):
+    demo = Path()
+
+    def run_demo(self, *arguments: str) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+        return subprocess.run(
+            [str(self.demo), *arguments],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env=environment,
+        )
+
+    def test_help_documents_sender_receiver_contract(self):
+        result = self.run_demo("--help")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("--server", result.stdout)
+        self.assertIn("--role", result.stdout)
+        self.assertIn("--room", result.stdout)
+        self.assertIn("host or viewer", result.stdout)
+
+    def test_missing_required_options_is_usage_error(self):
+        self.assertEqual(self.run_demo().returncode, 2)
+        self.assertEqual(
+            self.run_demo(
+                "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "bad"
+            ).returncode,
+            2,
+        )
+
+    def test_viewer_requires_room(self):
+        result = self.run_demo(
+            "--server",
+            "ws://127.0.0.1:18080/v1/ws",
+            "--role",
+            "viewer",
+        )
+        self.assertEqual(result.returncode, 2)
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--demo", type=Path, required=True)
+    args, unittest_args = parser.parse_known_args()
+    RtcDemoCliTest.demo = args.demo.resolve()
+    unittest.main(argv=[sys.argv[0], *unittest_args])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

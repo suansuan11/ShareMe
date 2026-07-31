@@ -71,7 +71,7 @@
       "displayName": "ShareMe Qt and WebRTC call development",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_BUILD_TYPE": "Release",
         "SHAREME_ENABLE_QT": "ON",
         "SHAREME_ENABLE_WEBRTC": "ON"
       }
@@ -81,7 +81,7 @@
       "displayName": "ShareMe Qt, FFmpeg, and WebRTC movie call development",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_BUILD_TYPE": "Release",
         "SHAREME_ENABLE_QT": "ON",
         "SHAREME_ENABLE_FFMPEG": "ON",
         "SHAREME_ENABLE_WEBRTC": "ON"
@@ -92,7 +92,7 @@
       "displayName": "ShareMe WebRTC probe development",
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_BUILD_TYPE": "Release",
         "SHAREME_ENABLE_WEBRTC": "ON"
       }
     },

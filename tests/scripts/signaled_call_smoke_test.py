@@ -250,6 +250,27 @@ class SignaledCallSmokeTest(unittest.TestCase):
             else:
                 self.fail("host descendant survived process-group cleanup")
 
+    def test_room_line_may_follow_runtime_diagnostics(self):
+        host = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "print('WebRTC initialized', flush=True);"
+                "print('ROOM ABCDEF', flush=True)",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            **self.smoke.popen_group_options(),
+        )
+        try:
+            self.assertEqual(
+                self.smoke.wait_for_room(host, timeout_seconds=1),
+                "ROOM ABCDEF",
+            )
+        finally:
+            self.smoke.terminate_process_group(host, grace_seconds=0.1)
+
     def test_missing_movie_skew_is_rejected(self):
         output = (
             "RESULT connected=1 video=30 width=640 height=360 "

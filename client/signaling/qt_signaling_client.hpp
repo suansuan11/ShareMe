@@ -11,6 +11,7 @@ class QtSignalingClient final : public QObject {
 public:
   explicit QtSignalingClient(QObject* parent = nullptr);
   void connectTo(const QUrl& url);
+  void disconnectFromServer();
   void createRoom();
   void joinRoom(const QString& roomId);
   void relay(const QString& type, const QByteArray& payload);
