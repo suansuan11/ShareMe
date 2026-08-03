@@ -350,6 +350,99 @@ void permission_preflight_denial_avoids_native_adm_creation() {
   REQUIRE(result.error == shareme::rtc::AudioDeviceError::permission_denied);
 }
 
+void native_playout_initializes_stereo_without_microphone_preflight() {
+  const auto environment = webrtc::CreateEnvironment();
+  bool native_factory_called = false;
+  bool permission_preflight_called = false;
+  const auto native_factory =
+      [&native_factory_called](const webrtc::Environment &factory_env) {
+        native_factory_called = true;
+        return test_native_device_factory()(factory_env);
+      };
+  const auto native_initializer = [](webrtc::AudioDeviceModule &device) {
+    REQUIRE(device.SetPlayoutDevice(static_cast<std::uint16_t>(0)) == 0);
+    REQUIRE(device.InitSpeaker() == 0);
+    REQUIRE(device.SetStereoPlayout(true) == 0);
+    REQUIRE(device.InitPlayout() == 0);
+    return shareme::rtc::NativeAudioInitializationResult::success();
+  };
+  const auto denied_preflight = [&permission_preflight_called] {
+    permission_preflight_called = true;
+    return shareme::rtc::MicrophonePermissionStatus::denied;
+  };
+
+  const auto result = shareme::rtc::create_audio_device(
+      environment, shareme::rtc::AudioDeviceMode::playout, native_factory,
+      native_initializer, denied_preflight);
+
+  REQUIRE(native_factory_called);
+  REQUIRE(!permission_preflight_called);
+  REQUIRE(result.ok());
+  REQUIRE(result.device != nullptr);
+  REQUIRE(result.mode == shareme::rtc::AudioDeviceMode::playout);
+  REQUIRE(result.processing ==
+          shareme::rtc::AudioProcessingPolicy::unprocessed);
+  REQUIRE(result.remote_playout == shareme::rtc::RemotePlayoutPolicy::native);
+  REQUIRE(result.device->Initialized());
+  REQUIRE(result.device->PlayoutIsInitialized());
+  REQUIRE(!result.device->RecordingIsInitialized());
+  REQUIRE(result.device->Terminate() == 0);
+}
+
+void native_playout_failure_is_typed_and_never_falls_back() {
+  const auto environment = webrtc::CreateEnvironment();
+  const auto result = shareme::rtc::create_audio_device(
+      environment, shareme::rtc::AudioDeviceMode::playout,
+      [](const webrtc::Environment &) {
+        return shareme::rtc::NativeAudioDeviceResult::failure(
+            shareme::rtc::AudioDeviceError::dependency_unavailable,
+            "native output device unavailable");
+      });
+
+  REQUIRE(!result.ok());
+  REQUIRE(result.device == nullptr);
+  REQUIRE(result.mode == shareme::rtc::AudioDeviceMode::playout);
+  REQUIRE(result.error ==
+          shareme::rtc::AudioDeviceError::dependency_unavailable);
+  REQUIRE(result.remote_playout == shareme::rtc::RemotePlayoutPolicy::native);
+}
+
+void native_playout_initializer_failures_are_typed_without_fallback() {
+  const auto environment = webrtc::CreateEnvironment();
+  bool initializer_called = false;
+  const auto result = shareme::rtc::create_audio_device(
+      environment, shareme::rtc::AudioDeviceMode::playout,
+      test_native_device_factory(), [&initializer_called](
+                                        webrtc::AudioDeviceModule &) {
+        initializer_called = true;
+        return shareme::rtc::NativeAudioInitializationResult::failure(
+            shareme::rtc::AudioDeviceError::dependency_unavailable,
+            "native speaker initialization unavailable");
+      });
+
+  REQUIRE(initializer_called);
+  REQUIRE(!result.ok());
+  REQUIRE(result.device == nullptr);
+  REQUIRE(result.error ==
+          shareme::rtc::AudioDeviceError::dependency_unavailable);
+  REQUIRE(result.remote_playout == shareme::rtc::RemotePlayoutPolicy::native);
+}
+
+void native_playout_initializer_success_requires_playout_only_readiness() {
+  const auto environment = webrtc::CreateEnvironment();
+  const auto result = shareme::rtc::create_audio_device(
+      environment, shareme::rtc::AudioDeviceMode::playout,
+      test_native_device_factory(), [](webrtc::AudioDeviceModule &) {
+        return shareme::rtc::NativeAudioInitializationResult::success();
+      });
+
+  REQUIRE(!result.ok());
+  REQUIRE(result.device == nullptr);
+  REQUIRE(result.error ==
+          shareme::rtc::AudioDeviceError::initialization_failed);
+  REQUIRE(result.remote_playout == shareme::rtc::RemotePlayoutPolicy::native);
+}
+
 void seam_exceptions_become_sanitized_typed_failures() {
   const auto environment = webrtc::CreateEnvironment();
 
@@ -513,6 +606,10 @@ int main() {
   initializer_success_requires_recording_ready_device();
   microphone_permission_failure_is_typed_and_never_falls_back();
   permission_preflight_denial_avoids_native_adm_creation();
+  native_playout_initializes_stereo_without_microphone_preflight();
+  native_playout_failure_is_typed_and_never_falls_back();
+  native_playout_initializer_failures_are_typed_without_fallback();
+  native_playout_initializer_success_requires_playout_only_readiness();
   seam_exceptions_become_sanitized_typed_failures();
   invalid_typed_factory_results_never_report_success();
   failure_factories_reject_none_error_invariants();
