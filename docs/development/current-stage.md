@@ -16,10 +16,9 @@ tests, and verification evidence before relying on it.
 
 ## Active stage
 
-Host-authoritative movie pause, resume, and seek are complete on
-`codex/host-playback-controls` through implementation commit `acc82d0` plus the
-optional-build contract repair `edbe621` and final timeline alignment repair
-`e19e15d`, pending final documentation and Git integration.
+Host-authoritative movie pause, resume, and seek are delivered on `main`
+through merge commit `48e4d27`. The preserved remote feature branch is
+`origin/codex/host-playback-controls`.
 
 Delivered behavior:
 
@@ -60,11 +59,10 @@ speaker playout as a separate audio-lifecycle stage.
 
 ## Git handoff
 
-- Finish the current feature documentation commit, push the feature branch,
-  merge it into a clean `main`, rerun final gates on merged `main`, and push.
-- After integration, replace this feature-branch handoff with the actual merge
-  commit and final remote-ref evidence.
+- Feature and merge commits are complete locally. Rerun final gates on merged
+  `main`, push it, and verify both remote refs before cleanup.
 - Preserve the repository-external libwebrtc cache and remote feature branch;
-  remove only the completed ignored worktree and local feature branch.
+  remove only the completed ignored worktree and local feature branch after
+  remote verification.
 - Keep Windows results environment-dependent until that machine reruns the
   affected configuration.

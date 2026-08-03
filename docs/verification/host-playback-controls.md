@@ -4,7 +4,7 @@ Date: 2026-08-03 (Asia/Shanghai)
 
 ## Delivered scope
 
-The `codex/host-playback-controls` stage adds host-authoritative movie controls:
+Merge commit `48e4d27` adds host-authoritative movie controls:
 
 - one thread-safe `MovieTimeline` owns absolute media PTS, playing/paused state,
   duration, revision, and seek generation;

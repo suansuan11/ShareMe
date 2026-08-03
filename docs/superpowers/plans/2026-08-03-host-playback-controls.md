@@ -317,7 +317,7 @@ Record verified host controls, partial GUI evidence, environment-dependent
 Windows reruns, and unimplemented hard resync/speaker playout. Correct the
 deterministic-workflow handoff to merge `834c917`.
 
-- [ ] **Step 4: Commit stage evidence**
+- [x] **Step 4: Commit stage evidence**
 
 ```bash
 git add README.md docs/development/current-stage.md docs/verification/host-playback-controls.md docs/superpowers/plans/2026-08-03-host-playback-controls.md
