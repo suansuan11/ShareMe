@@ -127,7 +127,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn(".agents/skills/shareme-sol-luna/SKILL.md", text)
         self.assertIn("docs/development/current-stage.md", text)
-        self.assertIn("Do not use concurrent writers", text)
+        self.assertIn("one writer owns", text)
 
     def test_stage_contract_has_required_sections(self):
         text = (ROOT / "docs/development/current-stage.md").read_text(encoding="utf-8")
@@ -142,7 +142,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             self.assertIn(heading, text)
         self.assertRegex(
             text,
-            r"dynamic-routing stage is delivered on `main` through merge commit\s+`ac118c4`",
+            r"deterministic ShareMe workflow stage is delivered on\s+`codex/shareme-workflow-simplify`",
         )
         self.assertNotIn("handoff-only", text)
 
