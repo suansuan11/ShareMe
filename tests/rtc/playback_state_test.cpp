@@ -21,6 +21,7 @@ void require(bool condition, const char *expression, int line) {
 int main() {
   using shareme::tools::PlaybackState;
   using shareme::tools::PlaybackStateTracker;
+  using shareme::tools::MoviePlaybackState;
   using shareme::tools::decode_playback_state;
   using shareme::tools::encode_playback_state;
   using shareme::tools::make_movie_playback_state;
@@ -100,15 +101,17 @@ int main() {
   REQUIRE(tracker.last()->generation == 5);
 
   const auto nonzero_pts = make_movie_playback_state(
-      QStringLiteral("ABC234"), 8, std::int64_t{42'750}, 91'000, false);
+      QStringLiteral("ABC234"), 8, 42'750, 91'000,
+      MoviePlaybackState::playing, 2);
   REQUIRE(nonzero_pts.has_value());
   REQUIRE(nonzero_pts->state == QStringLiteral("playing"));
   REQUIRE(nonzero_pts->media_pts_ms == 42'750);
-  const auto ended = make_movie_playback_state(
-      QStringLiteral("ABC234"), 9, std::int64_t{44'000}, 92'000, true);
-  REQUIRE(ended.has_value());
-  REQUIRE(ended->state == QStringLiteral("paused"));
-  REQUIRE(ended->media_pts_ms == 44'000);
-  REQUIRE(!make_movie_playback_state(QStringLiteral("ABC234"), 10,
-                                     std::nullopt, 93'000, false));
+  REQUIRE(nonzero_pts->generation == 2);
+  const auto paused = make_movie_playback_state(
+      QStringLiteral("ABC234"), 9, 44'000, 92'000,
+      MoviePlaybackState::paused, 3);
+  REQUIRE(paused.has_value());
+  REQUIRE(paused->state == QStringLiteral("paused"));
+  REQUIRE(paused->media_pts_ms == 44'000);
+  REQUIRE(paused->generation == 3);
 }

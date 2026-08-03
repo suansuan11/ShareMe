@@ -40,6 +40,8 @@ if(TARGET shareme_rtc_demo)
       "${CMAKE_CURRENT_SOURCE_DIR}/rtc_demo_cli_test.py"
       --demo
       "$<TARGET_FILE:shareme_rtc_demo>"
+      --qml
+      "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qml/Main.qml"
   )
   set_tests_properties(
     rtc_demo_cli_contract

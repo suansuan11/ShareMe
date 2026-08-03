@@ -53,6 +53,62 @@ ApplicationWindow {
             color: "#8bd5ff"
         }
 
+        ColumnLayout {
+            Layout.fillWidth: true
+            visible: !window.controller.viewer
+                     && window.controller.hostControlsAvailable
+            spacing: 6
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Button {
+                    text: window.controller.hostPlaybackState === "playing"
+                          ? "Pause" : "Resume"
+                    onClicked: {
+                        if (window.controller.hostPlaybackState === "playing")
+                            window.controller.pauseHostPlayback()
+                        else
+                            window.controller.resumeHostPlayback()
+                    }
+                }
+
+                Label {
+                    text: Math.max(0, window.controller.hostPlaybackPositionMs
+                                      - window.controller.hostPlaybackStartMs)
+                          + " / " + window.controller.hostPlaybackDurationMs
+                          + " ms · generation "
+                          + window.controller.hostPlaybackGeneration
+                    color: "#c7ccd8"
+                }
+            }
+
+            Slider {
+                id: playbackSlider
+                Layout.fillWidth: true
+                from: 0
+                to: Math.max(0, window.controller.hostPlaybackDurationMs)
+                stepSize: 10
+                onPressedChanged: {
+                    if (!pressed)
+                        window.controller.seekHostPlayback(
+                            window.controller.hostPlaybackStartMs
+                            + Math.round(value))
+                }
+
+                Binding {
+                    target: playbackSlider
+                    property: "value"
+                    when: !playbackSlider.pressed
+                    value: Math.max(
+                        playbackSlider.from,
+                        Math.min(playbackSlider.to,
+                                 window.controller.hostPlaybackPositionMs
+                                 - window.controller.hostPlaybackStartMs))
+                }
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true

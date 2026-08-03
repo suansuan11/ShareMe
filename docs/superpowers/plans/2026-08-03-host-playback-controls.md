@@ -205,7 +205,7 @@ cmake --build --preset build-movie-call-dev --target shareme_movie_timeline_test
 ctest --preset test-movie-call-dev -R '^(movie_timeline|movie_video_source|movie_audio_source)$' --output-on-failure
 ```
 
-- [ ] **Step 5: Commit synchronized audio controls**
+- [x] **Step 5: Commit synchronized audio controls**
 
 ```bash
 git add client/rtc/movie/include/shareme/rtc/movie_audio_source.hpp client/rtc/movie/src/movie_audio_source.cpp tests/rtc/movie_audio_source_test.cpp
@@ -228,20 +228,22 @@ git commit -m "feat: control movie audio playback"
 - Produces: QML properties `hostPlaybackState`, `hostPlaybackPositionMs`, `hostPlaybackStartMs`, `hostPlaybackDurationMs`, `hostPlaybackGeneration`, `hostControlsAvailable`.
 - Produces: invokables `pauseHostPlayback()`, `resumeHostPlayback()`, `seekHostPlayback(qint64 absolute_pts_ms)`.
 
-- [ ] **Step 1: Write failing playback-state generation tests**
+- [x] **Step 1: Write failing playback-state generation tests**
 
-Change `make_movie_playback_state` to accept state and generation:
+Change `make_movie_playback_state` to accept a transport-layer movie state and
+generation. The small `MoviePlaybackState` enum keeps this protocol helper
+buildable when optional FFmpeg/movie targets are disabled:
 
 ```cpp
 const auto paused = make_movie_playback_state(
     QStringLiteral("ABC234"), 10, 6'000, 92'000,
-    shareme::rtc::MovieTimelineState::paused, 3);
+    shareme::tools::MoviePlaybackState::paused, 3);
 REQUIRE(paused->state == QStringLiteral("paused"));
 REQUIRE(paused->media_pts_ms == 6'000);
 REQUIRE(paused->generation == 3);
 ```
 
-- [ ] **Step 2: Run playback-state test and verify RED**
+- [x] **Step 2: Run playback-state test and verify RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_playback_state_test
@@ -250,7 +252,7 @@ ctest --preset test-movie-call-dev -R '^playback_state$' --output-on-failure
 
 Expected: compilation fails because the state factory lacks timeline state and generation.
 
-- [ ] **Step 3: Implement controller properties and commands**
+- [x] **Step 3: Implement controller properties and commands**
 
 Sample `movie_timeline_->snapshot()` in the timer. Publish its state, PTS, and
 generation; retain EOF final-paused behavior. Each accepted host command calls
@@ -258,13 +260,13 @@ one timeline method, emits host notification, publishes immediately, and
 leaves the periodic timer active. Reject viewer, non-movie, not-started, ended,
 and out-of-range calls.
 
-- [ ] **Step 4: Add bounded sender controls in QML**
+- [x] **Step 4: Add bounded sender controls in QML**
 
 Show Pause/Resume and a duration-bounded slider only for a controllable movie
 host. Convert normalized slider milliseconds back to absolute PTS on user
 commit; property refresh must not trigger a seek.
 
-- [ ] **Step 5: Build Qt demo and run focused contracts GREEN**
+- [x] **Step 5: Build Qt demo and run focused contracts GREEN**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_rtc_demo shareme_playback_state_test

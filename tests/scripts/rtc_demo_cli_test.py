@@ -10,6 +10,7 @@ from pathlib import Path
 
 class RtcDemoCliTest(unittest.TestCase):
     demo = Path()
+    qml = Path()
 
     def run_demo(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
@@ -95,11 +96,22 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertEqual(viewer.returncode, 2)
         self.assertNotIn(movie, viewer.stderr)
 
+    def test_sender_qml_exposes_bounded_host_controls(self):
+        source = self.qml.read_text(encoding="utf-8")
+        self.assertIn("hostControlsAvailable", source)
+        self.assertIn("pauseHostPlayback()", source)
+        self.assertIn("resumeHostPlayback()", source)
+        self.assertIn("seekHostPlayback(", source)
+        self.assertIn("to: Math.max(0, window.controller.hostPlaybackDurationMs)", source)
+        self.assertIn("when: !playbackSlider.pressed", source)
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--demo", type=Path, required=True)
+    parser.add_argument("--qml", type=Path, required=True)
     args, unittest_args = parser.parse_known_args()
     RtcDemoCliTest.demo = args.demo.resolve()
+    RtcDemoCliTest.qml = args.qml.resolve()
     unittest.main(argv=[sys.argv[0], *unittest_args])
     return 0
 

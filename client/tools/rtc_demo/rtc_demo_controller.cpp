@@ -125,6 +125,30 @@ qint64 RtcDemoController::remotePlaybackPositionMs() const noexcept {
   return remote_playback_position_ms_;
 }
 
+QString RtcDemoController::hostPlaybackState() const {
+  return host_playback_state_;
+}
+
+qint64 RtcDemoController::hostPlaybackPositionMs() const noexcept {
+  return host_playback_position_ms_;
+}
+
+qint64 RtcDemoController::hostPlaybackStartMs() const noexcept {
+  return host_playback_start_ms_;
+}
+
+qint64 RtcDemoController::hostPlaybackDurationMs() const noexcept {
+  return host_playback_duration_ms_;
+}
+
+qulonglong RtcDemoController::hostPlaybackGeneration() const noexcept {
+  return host_playback_generation_;
+}
+
+bool RtcDemoController::hostControlsAvailable() const noexcept {
+  return host_controls_available_;
+}
+
 void RtcDemoController::setVideoSink(QVideoSink *sink) { video_sink_ = sink; }
 
 void RtcDemoController::start() {
@@ -133,6 +157,38 @@ void RtcDemoController::start() {
   start_requested_ = true;
   setStatus(QStringLiteral("connecting"));
   signaling_.connectTo(server_url_);
+}
+
+void RtcDemoController::pauseHostPlayback() {
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (!host_controls_available_ || !movie_timeline_ ||
+      !movie_timeline_->pause())
+    return;
+  refreshHostPlayback();
+  publishPlaybackState();
+#endif
+}
+
+void RtcDemoController::resumeHostPlayback() {
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (!host_controls_available_ || !movie_timeline_ ||
+      !movie_timeline_->resume())
+    return;
+  refreshHostPlayback();
+  publishPlaybackState();
+#endif
+}
+
+void RtcDemoController::seekHostPlayback(qint64 absolute_pts_ms) {
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (!host_controls_available_ || !movie_timeline_ ||
+      !movie_timeline_->seek(static_cast<std::int64_t>(absolute_pts_ms)))
+    return;
+  refreshHostPlayback();
+  publishPlaybackState();
+#else
+  static_cast<void>(absolute_pts_ms);
+#endif
 }
 
 bool RtcDemoController::createPeer() {
@@ -224,6 +280,8 @@ void RtcDemoController::startPeer() {
   }
   setStatus(QStringLiteral("negotiating"));
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
+    refreshHostPlayback();
+  if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
     playback_state_timer_.start();
   waiter_ = std::jthread([this] {
     const auto result = peer_->wait(std::chrono::seconds(15));
@@ -253,8 +311,13 @@ void RtcDemoController::stopPeer() noexcept {
 }
 
 void RtcDemoController::publishPlaybackState() {
-  if (!peer_ || !movie_video_source_ || room_id_.isEmpty())
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (!peer_ || !movie_video_source_ || !movie_timeline_ || room_id_.isEmpty())
     return;
+  const auto timeline = movie_timeline_->snapshot();
+  if (!timeline)
+    return;
+  refreshHostPlayback();
   const auto now = std::chrono::steady_clock::now();
   const auto effective = std::chrono::duration_cast<std::chrono::milliseconds>(
                              now.time_since_epoch())
@@ -262,8 +325,11 @@ void RtcDemoController::publishPlaybackState() {
   const auto ended = movie_video_source_->state() ==
                      webrtc::MediaSourceInterface::kEnded;
   const auto state = shareme::tools::make_movie_playback_state(
-      room_id_, playback_sequence_, movie_video_source_->last_pts_ms(),
-      effective, ended);
+      room_id_, playback_sequence_, timeline->media_pts_ms, effective,
+      ended || timeline->state == shareme::rtc::MovieTimelineState::paused
+          ? shareme::tools::MoviePlaybackState::paused
+          : shareme::tools::MoviePlaybackState::playing,
+      timeline->generation);
   if (!state)
     return;
   if (!peer_->send_control_message(
@@ -274,6 +340,46 @@ void RtcDemoController::publishPlaybackState() {
     playback_state_timer_.stop();
   else
     playback_state_timer_.setInterval(1'000);
+#endif
+}
+
+void RtcDemoController::refreshHostPlayback() {
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  QString state = QStringLiteral("unavailable");
+  qint64 position = 0;
+  qint64 start = 0;
+  qint64 duration = 0;
+  qulonglong generation = 0;
+  bool available = false;
+  if (role_ == shareme::rtc::SignaledRole::host && movie_timeline_ &&
+      movie_video_source_) {
+    if (const auto timeline = movie_timeline_->snapshot()) {
+      const auto ended = movie_video_source_->state() ==
+                         webrtc::MediaSourceInterface::kEnded;
+      state = ended || timeline->state == shareme::rtc::MovieTimelineState::paused
+                  ? QStringLiteral("paused")
+                  : QStringLiteral("playing");
+      position = static_cast<qint64>(timeline->media_pts_ms);
+      start = static_cast<qint64>(timeline->start_pts_ms);
+      duration = static_cast<qint64>(timeline->duration_ms);
+      generation = static_cast<qulonglong>(timeline->generation);
+      available = peer_started_ && !ended;
+    }
+  }
+  if (host_playback_state_ == state && host_playback_position_ms_ == position &&
+      host_playback_start_ms_ == start &&
+      host_playback_duration_ms_ == duration &&
+      host_playback_generation_ == generation &&
+      host_controls_available_ == available)
+    return;
+  host_playback_state_ = std::move(state);
+  host_playback_position_ms_ = position;
+  host_playback_start_ms_ = start;
+  host_playback_duration_ms_ = duration;
+  host_playback_generation_ = generation;
+  host_controls_available_ = available;
+  emit hostPlaybackChanged();
+#endif
 }
 
 void RtcDemoController::receiveControlMessage(std::string message) {
