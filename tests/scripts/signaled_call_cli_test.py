@@ -19,8 +19,17 @@ def run(probe: Path, arguments: list[str]) -> subprocess.CompletedProcess[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--probe", type=Path, required=True)
+    parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--has-movie-rtc", action="store_true")
     args = parser.parse_args()
+
+    source = args.source.read_text(encoding="utf-8")
+    for relay_type in (
+        "movie-audio-session-description",
+        "movie-audio-ice-candidate",
+    ):
+        if relay_type not in source:
+            raise RuntimeError(f"missing dedicated relay contract: {relay_type}")
 
     server = ["--server", "ws://127.0.0.1:1/v1/ws"]
     common = [*server, "--audio", "synthetic"]
@@ -83,6 +92,8 @@ def main() -> int:
     combined = result.stdout + result.stderr
     if secret_path in combined:
         raise RuntimeError("movie path leaked from CLI output")
+    if "codec collision" in result.stderr or "RaceDetected" in result.stderr:
+        raise RuntimeError("movie-audio CLI leaked a runtime collision diagnostic")
     if args.has_movie_rtc:
         if result.returncode == 2:
             raise RuntimeError("movie-call CLI rejected a valid argument combination")

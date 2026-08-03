@@ -161,6 +161,11 @@ int main() {
   REQUIRE(offer.find("stereo=1") != std::string::npos);
   REQUIRE(offer.find("sprop-stereo=1") != std::string::npos);
 
+  const auto host_result = host->wait(std::chrono::seconds(2));
+  REQUIRE(host_result.connected);
+  REQUIRE(host_result.chunks_generated >= 100);
+  REQUIRE(host_result.error.empty());
+
   host->stop();
   host->stop();
   viewer->stop();

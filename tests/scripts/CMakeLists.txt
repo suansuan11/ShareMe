@@ -6,6 +6,8 @@ set(
   "${CMAKE_CURRENT_SOURCE_DIR}/signaled_call_cli_test.py"
   --probe
   "$<TARGET_FILE:shareme_signaled_call_probe>"
+  --source
+  "${PROJECT_SOURCE_DIR}/client/tools/signaled_call/main.cpp"
 )
 if(TARGET ShareMe::MovieRTC)
   list(APPEND shareme_signaled_call_cli_test_command --has-movie-rtc)
@@ -46,6 +48,8 @@ if(TARGET shareme_rtc_demo)
       "$<TARGET_FILE:shareme_rtc_demo>"
       --qml
       "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qml/Main.qml"
+      --controller-source
+      "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/rtc_demo_controller.cpp"
       ${shareme_rtc_demo_test_arguments}
   )
   set_tests_properties(

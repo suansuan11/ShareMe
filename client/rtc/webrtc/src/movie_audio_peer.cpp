@@ -188,10 +188,13 @@ public:
     while (std::chrono::steady_clock::now() < deadline &&
            !wait_cancelled_.load(std::memory_order_acquire)) {
       const auto snapshot = sink_.snapshot();
+      const auto media_ready =
+          config_.role == SignaledRole::host
+              ? source_ && source_->generated_count() >= 100
+              : snapshot.valid_callback_count >= 100;
       {
         std::lock_guard lock(mu_);
-        if (!result_.error.empty() ||
-            (result_.connected && snapshot.valid_callback_count >= 100))
+        if (!result_.error.empty() || (result_.connected && media_ready))
           break;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -203,8 +206,11 @@ public:
       result_.error = "movie-audio-wait-cancelled";
     if (!result_.connected && result_.error.empty())
       result_.error = "movie-audio-connection-timed-out";
-    if (result_.connected && result_.frames_received < 100 &&
-        result_.error.empty())
+    const auto media_unavailable =
+        config_.role == SignaledRole::host
+            ? result_.chunks_generated < 100
+            : result_.frames_received < 100;
+    if (result_.connected && media_unavailable && result_.error.empty())
       result_.error = "movie-audio-unavailable";
     return result_;
   }

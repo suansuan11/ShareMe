@@ -126,7 +126,9 @@ func (h *Handler) bootstrap(c *client, m protocol.Message) {
 	}
 }
 func (h *Handler) relay(c *client, m protocol.Message) {
-	if m.Type != "session-description" && m.Type != "ice-candidate" && m.Type != "restart-ice" {
+	if m.Type != "session-description" && m.Type != "ice-candidate" &&
+		m.Type != "movie-audio-session-description" &&
+		m.Type != "movie-audio-ice-candidate" && m.Type != "restart-ice" {
 		h.error(c, m.Sequence, "unsupported-message", false)
 		return
 	}

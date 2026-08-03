@@ -323,17 +323,16 @@ class SignaledCallSmokeTest(unittest.TestCase):
             self.smoke.terminate_process_group(host, grace_seconds=0.1)
         self.assertLess(time.monotonic() - started, 1.5)
 
-    def test_missing_movie_skew_is_rejected(self):
+    def test_host_movie_audio_chunks_are_accepted_without_cross_peer_skew(self):
         output = (
             "RESULT connected=1 video=30 width=640 height=360 "
             "audio_sent=10 audio_received=10 audio_level=0.1 "
             "movie_audio_frames_received=0 "
             "movie_audio_invalid_frames_received=0 "
             "sample_rate=0 channels=0 peak=0 "
-            "chunks_generated=100 movie_av_skew_ms=-1 candidate=host error=\n"
+            "chunks_generated=100 candidate=host error=\n"
         )
-        with self.assertRaisesRegex(RuntimeError, "skew was unavailable"):
-            self.smoke.validate("host", output, "synthetic", "movie", True)
+        self.smoke.validate("host", output, "synthetic", "movie", True)
 
     def test_invalid_movie_audio_callback_is_rejected(self):
         output = (
@@ -342,7 +341,7 @@ class SignaledCallSmokeTest(unittest.TestCase):
             "movie_audio_frames_received=100 "
             "movie_audio_invalid_frames_received=1 "
             "sample_rate=48000 channels=2 peak=100 "
-            "chunks_generated=0 movie_av_skew_ms=-1 candidate=host error=\n"
+            "chunks_generated=0 candidate=host error=\n"
         )
         with self.assertRaisesRegex(RuntimeError, "invalid callback"):
             self.smoke.validate("viewer", output, "synthetic", "movie", True)

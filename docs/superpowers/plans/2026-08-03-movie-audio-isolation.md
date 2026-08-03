@@ -145,7 +145,7 @@ cmake --build --preset build-movie-call-dev --target shareme_signaled_peer_test 
 ctest --preset test-movie-call-dev -R '^(signaled_peer|movie_audio_peer)$' --output-on-failure
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add client/rtc/webrtc tests/rtc/signaled_peer_test.cpp
@@ -155,12 +155,16 @@ git commit -m "refactor: keep primary peer audio voice-only"
 ### Task 3: Wire two peers into CLI and GUI, then close the regression
 
 **Files:**
+- Modify: `client/core/src/signaling_session.cpp`
 - Modify: `client/tools/signaled_call/main.cpp`
 - Modify: `client/tools/rtc_demo/rtc_demo_controller.hpp`
 - Modify: `client/tools/rtc_demo/rtc_demo_controller.cpp`
 - Modify: `tests/scripts/signaled_call_cli_test.py`
 - Modify: `tests/scripts/rtc_demo_cli_test.py`
 - Modify: `scripts/run_signaled_call_smoke.py`
+- Modify: `server/internal/ws/handler.go`
+- Modify: `server/internal/ws/handler_test.go`
+- Modify: `tests/core/signaling_session_test.cpp`
 - Modify: `docs/development/current-stage.md`
 - Create: `docs/verification/movie-audio-isolation.md`
 
@@ -168,7 +172,7 @@ git commit -m "refactor: keep primary peer audio voice-only"
 - Consumes: Task 1 `MovieAudioPeer` and Task 2 primary `SignaledPeer`.
 - Produces: disjoint primary/movie relay routing in one room and end-to-end evidence.
 
-- [ ] **Step 1: Add failing relay and stderr contracts**
+- [x] **Step 1: Add failing relay and stderr contracts**
 
 Require the probe/controller sources and runtime path to use exactly:
 
@@ -182,7 +186,7 @@ acceptance fails with `SMOKE_ERROR smoke-failed` when it contains either
 `codec collision` or `RaceDetected`. Keep paths and captured logs out of the
 displayed error.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_signaled_call_probe shareme_rtc_demo
@@ -191,7 +195,7 @@ ctest --preset test-movie-call-dev -R '^(signaled_call_cli_contract|rtc_demo_cli
 
 Expected: relay/static contracts fail because only primary message types exist.
 
-- [ ] **Step 3: Integrate two peer lifecycles**
+- [x] **Step 3: Integrate two peer lifecycles**
 
 Keep primary relay routing unchanged. Route dedicated descriptions/candidates
 through the two exact movie relay types. Host creates the dedicated peer only
@@ -204,7 +208,7 @@ an already connected primary call.
 Aggregate movie metrics from `MovieAudioPeerResult` into the existing stable
 probe `RESULT` fields. Do not change CLI flags or QML control behavior.
 
-- [ ] **Step 4: Run focused GREEN and repeated real smoke**
+- [x] **Step 4: Run focused GREEN and repeated real smoke**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_signaled_call_probe shareme_rtc_demo
@@ -217,7 +221,7 @@ for port in 18251 18252 18253 18254 18255; do
 done
 ```
 
-- [ ] **Step 5: Run complete stage verification**
+- [x] **Step 5: Run complete stage verification**
 
 ```bash
 cmake --build --preset build-movie-call-dev
@@ -228,7 +232,7 @@ python3 scripts/validate_shareme_skill.py
 git diff --check
 ```
 
-- [ ] **Step 6: Document, commit, and hand back to Sol**
+- [x] **Step 6: Document, commit, and hand back to Sol**
 
 Record automated macOS evidence separately from the pending manual GUI rerun
 and Windows-native rerun. Keep receiver speaker playout unimplemented.

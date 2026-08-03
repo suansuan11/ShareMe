@@ -22,5 +22,24 @@ void rejects_relay_before_room() {
   shareme::signaling::SignalingSession session;
   REQUIRE(!session.relay("session-description", "{}" ).has_value());
 }
+
+void accepts_movie_audio_relays_after_room() {
+  shareme::signaling::SignalingSession session;
+  static_cast<void>(session.create_room());
+  REQUIRE(session.handle({1, "room-created", "", 1,
+                          "{\"roomId\":\"ABCDEF\",\"token\":\"token\"}"}));
+  for (const auto *type : {"movie-audio-session-description",
+                           "movie-audio-ice-candidate"}) {
+    const auto relay = session.relay(type, "{}");
+    REQUIRE(relay.has_value());
+    REQUIRE(relay->type == type);
+    REQUIRE(relay->room_id == "ABCDEF");
+  }
+  REQUIRE(!session.relay("movie-audio-unknown", "{}").has_value());
 }
-int main() { host_create_and_room_response(); rejects_relay_before_room(); }
+}
+int main() {
+  host_create_and_room_response();
+  rejects_relay_before_room();
+  accepts_movie_audio_relays_after_room();
+}

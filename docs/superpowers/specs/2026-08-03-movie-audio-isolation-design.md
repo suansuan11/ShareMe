@@ -40,8 +40,9 @@ message types:
 - movie audio: `movie-audio-session-description`,
   `movie-audio-ice-candidate`.
 
-No signaling-server protocol change is required because relay types and opaque
-payloads are already forwarded within the room.
+The client `SignalingSession` and signaling-server handler both maintain relay
+allowlists. They must admit the two movie-audio relay types while continuing to
+reject unknown types; payloads remain opaque and room routing is unchanged.
 
 ## Components and interfaces
 

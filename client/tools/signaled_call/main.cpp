@@ -1,4 +1,5 @@
 #include "qt_signaling_client.hpp"
+#include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
 #ifdef SHAREME_HAS_MOVIE_RTC
@@ -24,6 +25,8 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <thread>
 
 namespace {
@@ -122,7 +125,11 @@ int main(int argc, char **argv) {
                               : shareme::rtc::SignaledAudioMode::synthetic;
   QtSignalingClient client;
   std::unique_ptr<shareme::rtc::SignaledPeer> peer;
+  std::unique_ptr<shareme::rtc::MovieAudioPeer> movie_peer;
   std::jthread waiter;
+  std::jthread movie_waiter;
+  std::optional<shareme::rtc::MovieAudioPeerResult> movie_result;
+  std::mutex movie_result_mutex;
   bool started = false;
   int exit_code = 1;
   auto start_peer = [&] {
@@ -133,11 +140,25 @@ int main(int argc, char **argv) {
       app.quit();
       return;
     }
+    if (movie_peer && movie_peer->start()) {
+      movie_waiter = std::jthread([&] {
+        auto result = movie_peer->wait(std::chrono::seconds(15));
+        std::lock_guard lock(movie_result_mutex);
+        movie_result = std::move(result);
+      });
+    }
     waiter = std::jthread([&] {
       const auto result = peer->wait(std::chrono::seconds(15));
+      if (movie_waiter.joinable())
+        movie_waiter.join();
       QMetaObject::invokeMethod(
           &app,
           [&, result] {
+            std::optional<shareme::rtc::MovieAudioPeerResult> movie;
+            {
+              std::lock_guard lock(movie_result_mutex);
+              movie = movie_result;
+            }
             std::cout << "RESULT connected=" << (result.connected ? 1 : 0)
                       << " video=" << result.video_frames_received
                       << " width=" << result.video_width
@@ -147,16 +168,16 @@ int main(int argc, char **argv) {
                       << " audio_level="
                       << result.local_audio_level.value_or(0.0)
                       << " movie_audio_frames_received="
-                      << result.movie_audio_frames_received
+                      << (movie ? movie->frames_received : 0)
                       << " movie_audio_invalid_frames_received="
-                      << result.movie_audio_invalid_frames_received
-                      << " sample_rate=" << result.movie_audio_sample_rate
-                      << " channels=" << result.movie_audio_channels
-                      << " peak=" << result.movie_audio_peak
+                      << (movie ? movie->invalid_frames_received : 0)
+                      << " sample_rate="
+                      << (movie ? movie->sample_rate : 0)
+                      << " channels="
+                      << (movie ? movie->channels : 0)
+                      << " peak=" << (movie ? movie->peak : 0)
                       << " chunks_generated="
-                      << result.movie_audio_chunks_generated
-                      << " movie_av_skew_ms="
-                      << result.movie_av_skew_ms.value_or(-1)
+                      << (movie ? movie->chunks_generated : 0)
                       << " candidate=" << result.selected_candidate_type
                       << " error=" << result.error << std::endl;
             exit_code = result.error.empty() ? 0 : 1;
@@ -211,9 +232,33 @@ int main(int argc, char **argv) {
                                        timeline](webrtc::TaskQueueFactory &) {
           return shareme::rtc::MovieVideoSource::create(movie_path, timeline);
         };
-        config.movie_audio_source_factory = [movie_path, timeline] {
-          return shareme::rtc::MovieAudioSource::create(movie_path, timeline);
+        shareme::rtc::MovieAudioPeerCallbacks movie_callbacks;
+        movie_callbacks.description = [&](std::string type, std::string sdp) {
+          QMetaObject::invokeMethod(
+              &client, [&, type = std::move(type), sdp = std::move(sdp)] {
+                client.relay(QStringLiteral("movie-audio-session-description"),
+                             description_payload(type, sdp));
+              }, Qt::QueuedConnection);
         };
+        movie_callbacks.candidate =
+            [&](std::string mid, int line, std::string candidate) {
+              QMetaObject::invokeMethod(
+                  &client, [&, mid = std::move(mid), line,
+                     candidate = std::move(candidate)] {
+                    client.relay(QStringLiteral("movie-audio-ice-candidate"),
+                                 candidate_payload(mid, line, candidate));
+                  }, Qt::QueuedConnection);
+            };
+        movie_callbacks.failure = [&](std::string category) {
+          std::cerr << "MOVIE_AUDIO_ERROR " << category << std::endl;
+        };
+        movie_peer = shareme::rtc::MovieAudioPeer::create(
+            {.role = role,
+             .source_factory = [movie_path, timeline] {
+               return shareme::rtc::MovieAudioSource::create(movie_path,
+                                                              timeline);
+             }},
+            std::move(movie_callbacks));
       } else {
         config.video_source_factory = [movie_path](webrtc::TaskQueueFactory &) {
           return shareme::rtc::MovieVideoSource::create(movie_path);
@@ -232,7 +277,35 @@ int main(int argc, char **argv) {
 #endif
     peer = shareme::rtc::SignaledPeer::create(std::move(config),
                                               std::move(callbacks));
-    return peer != nullptr;
+    if (!peer)
+      return false;
+#ifdef SHAREME_HAS_MOVIE_RTC
+    if (role == shareme::rtc::SignaledRole::viewer && !movie_peer) {
+      shareme::rtc::MovieAudioPeerCallbacks movie_callbacks;
+      movie_callbacks.description = [&](std::string type, std::string sdp) {
+        QMetaObject::invokeMethod(
+            &client, [&, type = std::move(type), sdp = std::move(sdp)] {
+              client.relay(QStringLiteral("movie-audio-session-description"),
+                           description_payload(type, sdp));
+            }, Qt::QueuedConnection);
+      };
+      movie_callbacks.candidate =
+          [&](std::string mid, int line, std::string candidate) {
+            QMetaObject::invokeMethod(
+                &client, [&, mid = std::move(mid), line,
+                   candidate = std::move(candidate)] {
+                  client.relay(QStringLiteral("movie-audio-ice-candidate"),
+                               candidate_payload(mid, line, candidate));
+                }, Qt::QueuedConnection);
+          };
+      movie_callbacks.failure = [&](std::string category) {
+        std::cerr << "MOVIE_AUDIO_ERROR " << category << std::endl;
+      };
+      movie_peer = shareme::rtc::MovieAudioPeer::create(
+          {.role = role}, std::move(movie_callbacks));
+    }
+#endif
+    return true;
   };
   QObject::connect(&client, &QtSignalingClient::statusChanged, &app,
                    [&](const QString &state) {
@@ -262,15 +335,22 @@ int main(int argc, char **argv) {
           start_peer();
           return;
         }
-        if (!peer)
-          return;
         const auto object = QJsonDocument::fromJson(raw).object();
-        if (type == "session-description")
+        if (type == "session-description" && peer)
           static_cast<void>(peer->receive_description(
               object.value("descriptionType").toString().toStdString(),
               object.value("sdp").toString().toStdString()));
-        else if (type == "ice-candidate")
+        else if (type == "ice-candidate" && peer)
           static_cast<void>(peer->receive_candidate(
+              object.value("sdpMid").toString().toStdString(),
+              object.value("sdpMLineIndex").toInt(),
+              object.value("candidate").toString().toStdString()));
+        else if (type == "movie-audio-session-description" && movie_peer)
+          static_cast<void>(movie_peer->receive_description(
+              object.value("descriptionType").toString().toStdString(),
+              object.value("sdp").toString().toStdString()));
+        else if (type == "movie-audio-ice-candidate" && movie_peer)
+          static_cast<void>(movie_peer->receive_candidate(
               object.value("sdpMid").toString().toStdString(),
               object.value("sdpMLineIndex").toInt(),
               object.value("candidate").toString().toStdString()));
@@ -289,8 +369,14 @@ int main(int argc, char **argv) {
   static_cast<void>(app.exec());
   if (peer && waiter.joinable())
     peer->cancel_wait();
+  if (movie_peer && movie_waiter.joinable())
+    movie_peer->cancel_wait();
   if (waiter.joinable())
     waiter.join();
+  if (movie_waiter.joinable())
+    movie_waiter.join();
+  if (movie_peer)
+    movie_peer->stop();
   if (peer)
     peer->stop();
   return exit_code;

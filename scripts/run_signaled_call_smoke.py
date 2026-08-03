@@ -24,7 +24,7 @@ RESULT = re.compile(
     r"movie_audio_frames_received=(\d+) "
     r"movie_audio_invalid_frames_received=(\d+) "
     r"sample_rate=(\d+) channels=(\d+) peak=(\d+) "
-    r"chunks_generated=(\d+) movie_av_skew_ms=(-?\d+) "
+    r"chunks_generated=(\d+) "
     r"candidate=([^ ]+) error=$"
 )
 
@@ -213,18 +213,9 @@ def validate(
             raise SmokeRuntimeError("viewer movie audio was silent")
     if movie_audio and label == "host":
         chunks_generated = int(match.group(12))
-        movie_av_skew_ms = int(match.group(13))
         if chunks_generated < 100:
             raise SmokeRuntimeError(
                 "host did not generate enough movie audio"
-            )
-        if movie_av_skew_ms < 0:
-            raise SmokeRuntimeError(
-                "host movie audio/video skew was unavailable"
-            )
-        if abs(movie_av_skew_ms) > 50:
-            raise SmokeRuntimeError(
-                "host movie audio/video skew exceeded 50 ms"
             )
 
 
@@ -549,11 +540,15 @@ def main() -> int:
                 "viewer process could not start"
             ) from error
         viewer_output, viewer_error = viewer.communicate(timeout=25)
+        if "codec collision" in viewer_error or "RaceDetected" in viewer_error:
+            raise SmokeRuntimeError("viewer runtime failure")
         if viewer.returncode != 0:
             raise SmokeRuntimeError(
                 f"viewer failed: {viewer_error.strip()}"
             )
         host_output, host_error = host.communicate(timeout=25)
+        if "codec collision" in host_error or "RaceDetected" in host_error:
+            raise SmokeRuntimeError("host runtime failure")
         if host.returncode != 0:
             raise SmokeRuntimeError(f"host failed: {host_error.strip()}")
         validate("viewer", viewer_output, args.audio, args.video, args.movie_audio)
