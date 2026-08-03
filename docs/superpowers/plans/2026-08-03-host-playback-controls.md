@@ -98,7 +98,7 @@ cmake --build --preset build-movie-call-dev --target shareme_movie_timeline_test
 ctest --preset test-movie-call-dev -R '^movie_timeline$' --output-on-failure
 ```
 
-- [ ] **Step 5: Commit timeline core**
+- [x] **Step 5: Commit timeline core**
 
 ```bash
 git add client/rtc/movie/include/shareme/rtc/movie_timeline.hpp client/rtc/movie/src/movie_timeline.cpp tests/rtc/movie_timeline_test.cpp tests/rtc/CMakeLists.txt
@@ -116,7 +116,7 @@ git commit -m "feat: add controllable movie timeline"
 - Consumes: Task 1 timeline snapshot and wait APIs.
 - Produces: video delivery that freezes during pause and seeks on generation change.
 
-- [ ] **Step 1: Write failing pause/resume/seek integration tests**
+- [x] **Step 1: Write failing pause/resume/seek integration tests**
 
 Use the generated nonzero-PTS movie. Start a source and sink, pause its shared
 timeline after at least five frames, and assert the count grows by at most one
@@ -133,7 +133,7 @@ REQUIRE(timeline->resume());
 REQUIRE(timeline->seek(6'000));
 ```
 
-- [ ] **Step 2: Run video test and verify RED**
+- [x] **Step 2: Run video test and verify RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_video_source_test
@@ -142,7 +142,7 @@ ctest --preset test-movie-call-dev -R '^movie_video_source$' --output-on-failure
 
 Expected: new assertions fail because the source still owns a fixed epoch.
 
-- [ ] **Step 3: Make video obey timeline state and generation**
+- [x] **Step 3: Make video obey timeline state and generation**
 
 Initialize the timeline from `MediaInfo`; fail with
 `movie-timeline-mismatch` if it rejects the values. Apply a new generation with
@@ -150,7 +150,7 @@ Initialize the timeline from `MediaInfo`; fail with
 `OnFrame`, require `wait_until(frame.pts_ms, generation, stop_token) == due`;
 discard and restart on `generation_changed`.
 
-- [ ] **Step 4: Run video tests GREEN**
+- [x] **Step 4: Run video tests GREEN**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_video_source_test
