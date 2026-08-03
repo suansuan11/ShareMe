@@ -5,9 +5,11 @@ ShareMe 是面向一名主播和一名观众的桌面影片实时共享与语音
 观众麦克风保持独立。
 
 项目已完成可移植 C++ 核心、构建基线、队列约束和同步决策测试，并在
-macOS ARM64 上验证 FFmpeg 解码、Qt/QML 本地播放、libwebrtc 本机回环，
-以及经 Qt/Go 信令建立的双进程真实影片音视频和双向真实麦克风通话。
-Windows 进程音频捕获仍是后续独立技术验证。
+macOS ARM64 上已验证 FFmpeg 解码、Qt/QML 本地播放、libwebrtc 本机回环，
+以及经 Qt/Go 信令建立的双进程真实影片音视频和双向真实麦克风通话；
+Windows 上也已完成 Qt/FFmpeg/libwebrtc 真机构建、影片与麦克风回归、
+Desktop Duplication 硬件采集及本地双进程桌面传输。Windows 进程音频捕获
+仍是后续独立技术验证。
 
 ## 当前范围
 
@@ -109,6 +111,8 @@ SHAREME_ENABLE_WEBRTC
 - [WebRTC 双进程真实麦克风通话验证](docs/verification/signaled-microphone-call.md)
 - [WebRTC 双进程真实影片视频验证](docs/verification/signaled-movie-video.md)
 - [WebRTC 双进程真实影片音频验证](docs/verification/signaled-movie-audio.md)
+- [Windows 跨平台媒体回归验证](docs/verification/windows-cross-platform-regression.md)
+- [Windows Desktop Duplication 桌面共享验证](docs/verification/windows-desktop-duplication.md)
 
 ## 验证状态
 
@@ -117,10 +121,11 @@ SHAREME_ENABLE_WEBRTC
 | macOS ARM64 可移植核心 | 本地与 Core CI 已验证 |
 | Windows x64 可移植核心 | Core CI 已验证 |
 | macOS ARM64 Qt/FFmpeg 本地播放 | 自动化通过；首屏人工检查通过 |
-| Windows Qt/FFmpeg 播放 | 环境受限，尚未验证 |
+| Windows Qt/FFmpeg 播放 | Windows 真机构建与影片回归通过；组合配置 36/36 CTest 通过 |
 | macOS ARM64 libwebrtc 合成音视频回环 | 自动化与 CLI 实跑通过 |
 | macOS ARM64 libwebrtc 麦克风回环 | 10 秒真实麦克风验收通过 |
-| Windows x64 libwebrtc | 尚未真机构建；默认 Core CI 通过 |
+| Windows x64 libwebrtc | MSVC 真机构建、16/16 通话配置及本地双进程音视频/麦克风通话通过 |
+| Windows Desktop Duplication 桌面共享 | 38/38 组合配置、4K HDR 硬件采集及本地双进程接收通过 |
 | Windows 进程级音频捕获 | 尚未接入 |
 | 媒体性能指标 | 尚未测量 |
 | 本地 Go 信令服务 | 自动化 WebSocket 集成测试及 Qt 原生客户端接入已验证 |
@@ -134,8 +139,9 @@ SHAREME_ENABLE_WEBRTC
 [信令基础验证](docs/verification/signaling-foundation.md)与
 [WebRTC 双进程真实影片音频验证](docs/verification/signaled-movie-audio.md)。
 现有仓库外缓存的 libwebrtc 构建依赖仍用于这些验证并已保留。下一阶段
-进入播放器集成与接收端播放控制；TURN、Windows 真机 WebRTC 与进程级
-音频捕获验收继续并行进行；在完成前不得宣称 Windows 原生媒体支持已经验证。
+进入播放器集成与接收端播放控制；TURN、Windows 进程级音频捕获、持续
+性能测量和跨机器公网验收仍需后续完成。已有 Windows 结论仅覆盖上述真机
+构建、媒体回归、硬件桌面采集和本地双进程范围，不代表这些后续项已验证。
 
 状态必须以最近一次真实构建或测试结果为准。平台、硬件或网络未参与
 验证时，应明确标记为未验证或环境受限。
