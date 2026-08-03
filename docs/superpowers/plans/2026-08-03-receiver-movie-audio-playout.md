@@ -30,11 +30,11 @@
 - Produces: `AudioDeviceMode::playout`, `RemotePlayoutPolicy::native`, and a `create_audio_device(..., AudioDeviceMode::playout)` result whose ADM is initialized for stereo playout but not recording.
 - Consumes: existing `NativeAudioDeviceFactory`, `NativeAudioDeviceInitializer`, and typed `AudioDeviceError` seams.
 
-- [ ] **Step 1: Write failing playout-mode tests**
+- [x] **Step 1: Write failing playout-mode tests**
 
 Add tests requiring a fake native ADM initializer to select/init stereo playout, leave recording uninitialized, return `RemotePlayoutPolicy::native`, skip microphone permission preflight, and preserve dependency/initialization failures without synthetic fallback.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_audio_device_factory_test
@@ -42,11 +42,11 @@ cmake --build --preset build-movie-call-dev --target shareme_audio_device_factor
 
 Expected: compilation fails because `AudioDeviceMode::playout` and native remote playout do not exist.
 
-- [ ] **Step 3: Implement minimal playout initialization**
+- [x] **Step 3: Implement minimal playout initialization**
 
 Extend the mode switch and native initializer branch. The default initializer selects the platform-default output, calls `InitSpeaker()`, `SetStereoPlayout(true)`, and `InitPlayout()`, then requires `PlayoutIsInitialized()` and rejects any recording initialization.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_audio_device_factory_test
@@ -54,7 +54,7 @@ ctest --preset test-movie-call-dev -R '^audio_device_factory$' --output-on-failu
 git diff --check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add client/rtc/webrtc/src/audio_device_factory.* tests/rtc/audio_device_factory_test.cpp
@@ -74,11 +74,11 @@ git commit -m "feat: add native movie audio playout device"
 - Consumes: Task 1 `AudioDeviceMode::playout` and `RemotePlayoutPolicy::native`.
 - Produces: `MovieAudioPeerConfig::native_playout`; valid only for viewers. The Qt viewer sets it true, while hosts and `shareme_signaled_call_probe` retain false.
 
-- [ ] **Step 1: Write failing peer and GUI contracts**
+- [x] **Step 1: Write failing peer and GUI contracts**
 
 Require host + `native_playout=true` to be rejected. Add a test seam or observable policy requiring an enabled viewer to choose playout mode and call `SetAudioPlayout(true)`, while the default viewer remains discard-only. Require the RTC controller source to opt its viewer movie peer into native playout.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_audio_peer_test shareme_rtc_demo
@@ -87,11 +87,11 @@ ctest --preset test-movie-call-dev -R '^(movie_audio_peer|rtc_demo_cli_contract)
 
 Expected: the new config and controller contract are absent.
 
-- [ ] **Step 3: Implement viewer-only policy**
+- [x] **Step 3: Implement viewer-only policy**
 
 Choose `AudioDeviceMode::playout` only for a viewer with `native_playout`; otherwise keep `synthetic`. Call `SetAudioRecording(false)` for both roles and `SetAudioPlayout(config_.native_playout)` on the dedicated PeerConnection. Set the RTC demo viewer flag true; do not change the signaled-call probe.
 
-- [ ] **Step 4: Run GREEN and regression loops**
+- [x] **Step 4: Run GREEN and regression loops**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_audio_peer_test shareme_rtc_demo shareme_signaled_call_probe
@@ -99,7 +99,7 @@ ctest --preset test-movie-call-dev -R '^(audio_device_factory|movie_audio_peer|s
 git diff --check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add client/rtc/webrtc client/tools/rtc_demo tests/rtc tests/scripts/rtc_demo_cli_test.py
@@ -118,11 +118,11 @@ git commit -m "feat: play received movie audio on viewer"
 - Consumes: unchanged stable `RESULT width=... height=...` and movie-audio metrics.
 - Produces: `valid_movie_dimensions(width, height)` accepting positive even 16:9 adaptive output, including 320x180 and 960x540, while rejecting invalid aspect ratios and zero sizes.
 
-- [ ] **Step 1: Write failing adaptive-dimension tests**
+- [x] **Step 1: Write failing adaptive-dimension tests**
 
 Require 320x180 and 960x540 to pass, and 0x0, odd sizes, and non-16:9 output to fail with the existing generic smoke error contract.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 ctest --preset test-movie-call-dev -R '^signaled_call_smoke_contract$' --output-on-failure
@@ -130,11 +130,11 @@ ctest --preset test-movie-call-dev -R '^signaled_call_smoke_contract$' --output-
 
 Expected: 960x540 is rejected by the current fixed-size validation.
 
-- [ ] **Step 3: Implement the narrow validator repair**
+- [x] **Step 3: Implement the narrow validator repair**
 
 Replace the `(width, height) == (320, 180)` check with positive, even, exact `width * 9 == height * 16` validation. Keep the minimum 20 received movie frames and all audio assertions unchanged.
 
-- [ ] **Step 4: Run generated and supplied-media acceptance**
+- [x] **Step 4: Run generated and supplied-media acceptance**
 
 ```bash
 ctest --preset test-movie-call-dev -R '^signaled_call_smoke_contract$' --output-on-failure
@@ -146,7 +146,7 @@ python3 scripts/run_signaled_call_smoke.py \
 
 Require nonzero primary video/voice, at least 100 valid stereo movie callbacks, zero invalid callbacks, nonzero peak, and no captured codec-collision/race diagnostics.
 
-- [ ] **Step 5: Run complete stage gates**
+- [x] **Step 5: Run complete stage gates**
 
 ```bash
 cmake --build --preset build-movie-call-dev
@@ -157,7 +157,7 @@ python3 scripts/validate_shareme_skill.py
 git diff --check
 ```
 
-- [ ] **Step 6: Document and commit**
+- [x] **Step 6: Document and commit**
 
 Correct the stale merge status, record automated real-file decode/transport separately from manual audible output and Windows evidence, then commit:
 

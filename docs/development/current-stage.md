@@ -23,10 +23,11 @@ tests, and verification evidence before relying on it.
 
 ## Active stage
 
-Movie-audio transport isolation is implemented on
-`codex/movie-audio-isolation` and is ready for integration after automated
-macOS verification. Host-authoritative movie pause, resume, and seek remain the
-merged baseline through `48e4d27`.
+Movie-audio transport isolation is merged on `main` through `2d806a5`.
+Receiver native movie-audio playout is implemented on
+`codex/receiver-movie-audio-playout` and is undergoing final stage verification.
+Host-authoritative movie pause, resume, and seek remain the merged baseline
+through `48e4d27`.
 
 Delivered behavior:
 
@@ -40,6 +41,8 @@ Delivered behavior:
 - primary WebRTC transport owns video, bidirectional voice, and control only;
 - a dedicated WebRTC runtime and PeerConnection carry one stereo movie-audio
   track with ADM recording disabled;
+- the Qt viewer uses a native playout-only ADM for the dedicated movie track;
+  host and headless probe paths retain the deterministic discard renderer;
 - client and server signaling allowlists route dedicated SDP and ICE messages
   in the same room without changing primary relay types;
 - builds without MovieRTC keep compiling and test a stable unsupported result.
@@ -64,25 +67,27 @@ for exact proof and evidence boundaries.
   Luna configuration check.
 - **Verified — cache preservation:** the repository-external Darwin arm64
   libwebrtc cache was used read-only; it was not cleaned, rewritten, or staged.
-- **Partial — GUI:** QML compiled and control bindings have an automated
-  contract, but no human visual acceptance is claimed for this run.
+- **Partial — GUI:** the supplied 4K HEVC/FLAC movie kept a macOS host/viewer
+  GUI session connected with native output initialization and no RTC error;
+  audible speaker confirmation remains a human acceptance step.
 - **Environment-dependent — Windows:** rerun native movie-call build/tests and
   GUI/media acceptance after pulling the merged `main`.
 - **Unimplemented:** viewer playout reports, generation-aware receiver buffer
-  reconciliation, bounded hard resync, receiver speaker playout, TURN/public
-  network acceptance, process-loopback audio, and measured performance.
+  reconciliation, bounded hard resync, TURN/public network acceptance,
+  process-loopback audio, and measured performance.
 
 ## Next recommended stage
 
-After a manual macOS GUI rerun, add receiver playout reports and generation-aware reconciliation before a
-bounded host hard-resync command. This supplies the missing evidence and buffer
-semantics needed to correct drift without faking synchronization. Keep receiver
-speaker playout as a separate audio-lifecycle stage.
+After manual audible macOS confirmation, add receiver playout reports and
+generation-aware reconciliation before a bounded host hard-resync command.
+This supplies the missing evidence and buffer semantics needed to correct drift
+without faking synchronization.
 
 ## Git handoff
 
-- The movie-audio isolation branch is not yet merged or pushed. Its focused
-  commits and final verification commit are the current handoff boundary.
+- `codex/movie-audio-isolation` has no unique commits relative to `main`; it is
+  fully merged and retained only as a linked historical worktree.
+- `codex/receiver-movie-audio-playout` is the current unmerged stage branch.
 - The Luna parallelism refinement is an unmerged, unpushed focused branch with
   separate RED-test, policy, and handoff commits. Keep its runtime dispatch
   evidence environment-dependent until a fresh ShareMe task accepts Luna.

@@ -107,6 +107,17 @@ class SignaledCallSmokeTest(unittest.TestCase):
         else:
             self.assertEqual(options, {"start_new_session": True})
 
+    def test_movie_dimensions_accept_fixture_and_adaptive_4k_output(self):
+        self.assertTrue(self.smoke.valid_movie_dimensions(320, 180))
+        self.assertTrue(self.smoke.valid_movie_dimensions(960, 540))
+
+    def test_movie_dimensions_reject_invalid_or_non_widescreen_output(self):
+        for width, height in ((0, 0), (959, 540), (640, 480)):
+            with self.subTest(width=width, height=height):
+                self.assertFalse(
+                    self.smoke.valid_movie_dimensions(width, height)
+                )
+
     def test_occupied_health_port_is_rejected_before_server_start(self):
         occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         occupied.bind(("127.0.0.1", 0))
