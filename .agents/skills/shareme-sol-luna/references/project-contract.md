@@ -32,6 +32,8 @@ Exclude build trees, generated media or fixtures, dependency caches, secrets, lo
 
 Use an ignored feature worktree for substantive stages. Complete the agreed acceptance target, affected verification, review gates, and focused commits before stopping; exploration or one internal task is not a stage result. Keep commits coherent and reversible. Push, merge, deployment, and cleanup require existing authorization. After pushing, verify the intended remote ref rather than assuming delivery.
 
+Compute numerical Git claims from exact current commands such as `git rev-list --count` and `git diff --stat`; never infer counts from a narrative or hand-count a log. Name the compared refs with every count.
+
 ## Evidence labels
 
 - **Verified:** The stated behavior passed named, current evidence on the claimed platform and scope.

@@ -53,6 +53,8 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             'A read-only or "Do not edit" request authorizes zero filesystem mutations',
             "A request to free disk space is not deletion authorization",
             "Never bypass a rejected destructive command",
+            "Compute numerical Git claims from exact current commands",
+            "Every role named for dispatch needs its own fully instantiated contract",
             "verified",
             "environment-dependent",
             "libwebrtc",

@@ -43,6 +43,8 @@ Use before implementation when work changes long-term architecture or protocol, 
 
 Every Luna task must contain all fields below. Use `Not applicable` plus a reason rather than omit a field.
 
+Every role named for dispatch needs its own fully instantiated contract. A template with placeholders, “same fields,” or a combined tester/reviewer contract is incomplete when the plan names separate roles or review gates.
+
 ```text
 Role:
 Goal:
