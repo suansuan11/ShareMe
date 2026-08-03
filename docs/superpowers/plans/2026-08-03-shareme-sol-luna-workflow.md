@@ -534,7 +534,7 @@ git add docs/development/current-stage.md \
 git commit -m "docs: complete ShareMe agent workflow"
 ```
 
-- [ ] **Step 5: Push, merge, reverify, and clean up**
+- [x] **Step 5: Push, merge, reverify, and clean up**
 
 Under the user's standing authorization:
 
@@ -550,7 +550,7 @@ remove the owned `.worktrees/shareme-sol-luna-workflow`, prune worktrees, and
 delete the local feature branch. Keep the remote feature branch as a stage
 backup unless the user requests deletion.
 
-- [ ] **Step 6: Report activation boundaries**
+- [x] **Step 6: Report activation boundaries**
 
 Report new-session automatic discovery as verified only if a fresh agent loads
 `AGENTS.md` and the skill. Report the current session as explicitly adopted.

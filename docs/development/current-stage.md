@@ -46,10 +46,11 @@ relying on them; those current sources outrank this summary when they diverge.
 
 ## Active stage
 
-Repository automation is delivered on the feature branch and ready for
-integration: root `AGENTS.md` activates the repository-owned ShareMe skill,
-bounded Sol-Luna roles, exact review/test permissions, cache safeguards, and
-this cross-session handoff. This stage changes no product behavior.
+Repository automation is delivered on `main` through merge commit `9c9eb19`:
+root `AGENTS.md` activates the repository-owned ShareMe skill, bounded Sol-Luna
+roles, exact review/test permissions, cache safeguards, and this cross-session
+handoff. The merged result passed the complete verification listed above. This
+stage changes no product behavior.
 
 ## Next recommended stage
 
@@ -64,9 +65,9 @@ claimed platform and scope.
 
 ## Git handoff
 
-- Workflow integration is authorized after both review gates and complete
-  feature-branch verification pass. Verify the pushed feature and `main` refs,
-  then remove only the owned workflow worktree and local feature branch.
+- The workflow feature and merge refs were pushed and verified. The owned
+  workflow worktree and local feature branch were removed; the remote feature
+  branch remains as a stage backup.
 - Future sessions must rely on the committed root `AGENTS.md`, not an old
   worktree. New sessions discover it automatically. A session opened before
   the workflow commit may require reopening the repository or the one-time
