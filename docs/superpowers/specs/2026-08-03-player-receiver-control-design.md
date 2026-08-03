@@ -55,11 +55,13 @@ The RTC demo CLI accepts `--source movie --movie PATH` and optional
 `--movie-audio`, only for the host. It reuses `MovieVideoSource`,
 `MovieAudioSource`, and a shared `MovieTimeline` when audio is enabled.
 
-Once the control channel is open, the movie host publishes a `playing` snapshot
-immediately and once per second. Position is derived from the shared monotonic
-movie timeline. The viewer displays the last accepted remote state and media
-position as read-only information beside the rendered video. The periodic
-snapshot is reconciliation evidence, not a synchronization guarantee.
+Once the control channel is open and a frame has been emitted, the movie host
+publishes a `playing` snapshot and refreshes it once per second. Position is the
+last emitted source media PTS, preserving a container's non-zero start offset.
+At EOF the host publishes one final `paused` snapshot at the last PTS and stops
+the timer. The viewer displays the last accepted remote state and media position
+as read-only information beside the rendered video. These snapshots are
+reconciliation evidence, not a synchronization guarantee.
 
 ## Error handling and lifecycle
 
