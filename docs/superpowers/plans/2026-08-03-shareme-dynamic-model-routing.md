@@ -189,20 +189,20 @@ git commit -m "docs: verify dynamic Luna model routing"
 - Consumes: Tasks 1-3 commits and verification evidence.
 - Produces: reviewed and remotely verified `main`, cleaned local feature state, and an accurate next product stage.
 
-- [ ] **Step 1: Run independent specification review**
+- [x] **Step 1: Run independent specification review**
 
 Require a filesystem-read-only reviewer to compare the complete branch against
 the approved design, including portability, routing precedence, fallback,
 credit-claim boundaries, unchanged authority, and test coverage. Fix all
 Critical and Important findings and repeat review.
 
-- [ ] **Step 2: Run independent quality review**
+- [x] **Step 2: Run independent quality review**
 
 Require a separate filesystem-read-only reviewer to inspect clarity,
 duplication, trigger behavior, word count, test brittleness, evidence honesty,
 and Git scope. Fix all Critical and Important findings and repeat review.
 
-- [ ] **Step 3: Run final branch verification**
+- [x] **Step 3: Run final branch verification**
 
 ```bash
 python3 -m unittest tests/workflow/shareme_sol_luna_workflow_test -v
