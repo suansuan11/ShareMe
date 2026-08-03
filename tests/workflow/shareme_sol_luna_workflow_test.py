@@ -105,6 +105,11 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             "## Git handoff",
         ):
             self.assertIn(heading, text)
+        self.assertRegex(
+            text,
+            r"from design commit `ea59d64` through\s+the current feature-branch `HEAD`",
+        )
+        self.assertNotIn("handoff-only", text)
 
     def test_workflow_is_portable_and_complete(self):
         files = [
