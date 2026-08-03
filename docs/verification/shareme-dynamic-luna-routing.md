@@ -1,5 +1,11 @@
 # ShareMe Dynamic Luna Model Routing Verification
 
+> **Historical and superseded:** This dated check established that one explicit
+> override was accepted for one bounded audit. It did not configure default
+> routing or prove lasting credit savings. Future ShareMe sessions use the
+> deterministic project configuration described in
+> [ShareMe Deterministic Sol-Luna Workflow Design](../superpowers/specs/2026-08-03-shareme-deterministic-sol-luna-design.md).
+
 ## Scope and environment
 
 This is dated verification evidence from 2026-08-03 in the ShareMe feature

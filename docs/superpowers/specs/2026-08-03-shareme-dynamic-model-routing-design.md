@@ -1,5 +1,11 @@
 # ShareMe Dynamic Luna Model Routing Design
 
+> **Historical and superseded:** The deterministic project configuration in
+> [ShareMe Deterministic Sol-Luna Workflow Design](2026-08-03-shareme-deterministic-sol-luna-design.md)
+> replaces this per-dispatch policy for future ShareMe sessions. This document
+> preserves a dated explicit-override observation only; it did not configure
+> defaults or prove lasting credit savings.
+
 ## Goal
 
 Make the repository-owned Sol-Luna workflow actually route bounded Luna work

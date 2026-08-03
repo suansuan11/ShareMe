@@ -1,27 +1,21 @@
 # ShareMe Agent Instructions
 
-Before planning, diagnosing, reviewing, changing, testing, or continuing this
-repository, read `.agents/skills/shareme-sol-luna/SKILL.md` completely and
-follow it. Then read `docs/development/current-stage.md` and verify its dynamic
-claims against current Git and code before relying on them.
+For a ShareMe change, diagnosis, review, test, plan, or continuation, read
+`.agents/skills/shareme-sol-luna/SKILL.md` and
+`docs/development/current-stage.md` first. Verify dynamic handoff claims against
+current source and Git before relying on them.
 
-Sol is the root decision and acceptance owner. Luna agents perform bounded
-exploration, implementation, or testing only through the role contract.
-Subagent output is evidence for Sol to inspect, never completion by itself.
+Sol owns scope, architecture, integration, verification, Git, and completion.
+Sol works directly by default. Use at most one active Luna only for a bounded
+task that materially reduces noise or elapsed time. The project configuration
+provides `luna_explorer` and `luna_implementer`; one writer owns an overlapping
+implementation scope.
 
-Do not use concurrent writers on overlapping repository state. Do not stop a
-continuation request after exploration or a small internal task; finish the
-defined verifiable stage. Do not expand scope, perform destructive cleanup,
-push, merge, deploy, or claim an untested platform without user authority.
+Do not expand scope, use concurrent writers, perform destructive cleanup,
+push, merge, deploy, or claim untested platform behavior without user
+authority. Keep commits focused; exclude generated output, dependency caches,
+secrets, local settings, IDE state, and unrelated user changes.
 
-Create focused, coherent commits. Exclude generated output, dependency caches,
-secrets, local configuration, IDE state, unrelated files, and unrelated user
-changes. Inspect Git state and the staged diff before committing.
-
-Report evidence with the skill's honest verification labels: verified,
-partial, environment-dependent, or unimplemented. Name the platform, scope,
-and exact evidence behind every completion claim.
-
-For repository-external libwebrtc cache preservation and all detailed cache
-checks, follow the project contract referenced by the skill. Do not copy or
-weaken that procedure here.
+Report evidence as verified, partial, environment-dependent, or unimplemented,
+with platform and exact proof. Preserve the external libwebrtc cache and follow
+the project contract for its detailed safeguards.

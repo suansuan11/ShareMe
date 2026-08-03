@@ -43,14 +43,22 @@ relying on them; those current sources outrank this summary when they diverge.
   `5ad58d70eea10785fab05ba4150e2fe22ecc7f97`, including all required nonempty
   archives. Its live state must still be rechecked before future cache claims
   or cleanup decisions.
-- **Verified — dynamic Luna routing:** the feature branch records one fresh,
-  filesystem-read-only lower-cost-model audit whose explicit override and
-  response quality Sol independently verified. See
+- **Historical — dynamic Luna routing:** one dated explicit-override audit was
+  accepted, but it did not configure default routing or prove savings. It is
+  superseded by the deterministic configuration; see
   [Dynamic Luna Model Routing Verification](../verification/shareme-dynamic-luna-routing.md).
-  Realized credit savings are unmeasured because per-agent token and credit
-  telemetry were unavailable. The final-review repair passed the workflow
-  contract 7/7; both the repository validator and the installed validator
-  reported `Skill is valid!` on macOS.
+- **Verified — deterministic workflow configuration:** the repository now
+  supplies Sol/medium defaults, Luna/medium child defaults, a one-child limit,
+  and two project-scoped Luna role files. On macOS, the workflow contract passed
+  8/8, the repository skill validator reported `Skill is valid!`, the portable
+  C++ suite passed 6/6, and Go `-race` plus `go vet ./...` passed. The bundled
+  desktop Codex parsed the project configuration without a
+  project-configuration error.
+  **Environment-dependent:** strict validation is blocked by an unrelated
+  unknown field in the user-level Playwright configuration; this stage does not
+  modify that global file. **Unmeasured:** realized credit saving has no
+  comparable per-agent usage telemetry. New-session activation requires a
+  fresh trusted ShareMe task and is not yet observed in this stage.
 - **Verified — receiver control automation:** the macOS movie-call build and
   complete CTest suite passed 37/37, including real two-peer data-channel
   delivery and playback-state validation. Go race/vet, workflow 7/7, and the
@@ -68,11 +76,15 @@ roles, exact review/test permissions, cache safeguards, and this cross-session
 handoff. The merged result passed the complete verification listed above. This
 stage changes no product behavior.
 
-The follow-on dynamic-routing stage is delivered on `main` through merge commit
-`ac118c4`. Its final specification and quality gates were approved with no
-remaining findings, and the merged result passed workflow 7/7, the repository
-validator, portable C++ 6/6, and Go race/vet. It adds no product behavior or
-new platform acceptance.
+The historical dynamic-routing stage remains on `main` through merge commit
+`ac118c4`, but it is superseded for future ShareMe tasks by the deterministic
+configuration described above.
+
+The deterministic ShareMe workflow stage is delivered on
+`codex/shareme-workflow-simplify` through commits `46b41fb`, `e043bcd`, and
+`1e7f9de`, followed by its documentation handoff. It adds no product behavior
+or new platform acceptance. Push and merge remain outside the current
+authorization.
 
 The receiver-control product stage is delivered on `main` through merge commit
 `87138a9`. It adds host movie selection to the Qt RTC demo plus a reliable
@@ -107,3 +119,6 @@ claimed platform and scope.
   hot reload in an already-running external session.
 - Keep workflow commits focused and preserve unrelated files and the external
   libwebrtc cache.
+- The deterministic-workflow branch is in an ignored local worktree. Its
+  configuration applies to future trusted ShareMe tasks; it does not change an
+  already-running task or global Codex settings.

@@ -10,9 +10,41 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / ".agents/skills/shareme-sol-luna/SKILL.md"
 VALIDATOR = ROOT / "scripts/validate_shareme_skill.py"
+CONFIG = ROOT / ".codex/config.toml"
+LUNA_EXPLORER = ROOT / ".codex/agents/luna_explorer.toml"
+LUNA_IMPLEMENTER = ROOT / ".codex/agents/luna_implementer.toml"
 
 
 class ShareMeSolLunaWorkflowTest(unittest.TestCase):
+    def test_runtime_configuration_is_deterministic_and_bounded(self):
+        self.assertTrue(CONFIG.is_file(), "project Codex configuration is missing")
+        self.assertTrue(LUNA_EXPLORER.is_file(), "Luna explorer configuration is missing")
+        self.assertTrue(LUNA_IMPLEMENTER.is_file(), "Luna implementer configuration is missing")
+        config = CONFIG.read_text(encoding="utf-8")
+        for required in (
+            'model = "gpt-5.6-sol"',
+            'model_reasoning_effort = "medium"',
+            "[agents]",
+            "enabled = true",
+            "max_concurrent_threads_per_session = 1",
+            'default_subagent_model = "gpt-5.6-luna"',
+            'default_subagent_reasoning_effort = "medium"',
+        ):
+            self.assertIn(required, config)
+
+        explorer = LUNA_EXPLORER.read_text(encoding="utf-8")
+        implementer = LUNA_IMPLEMENTER.read_text(encoding="utf-8")
+        for name, agent in (("luna_explorer", explorer), ("luna_implementer", implementer)):
+            with self.subTest(agent=name):
+                self.assertIn(f'name = "{name}"', agent)
+                self.assertRegex(agent, r'description = "[^"\n]+"')
+                self.assertIn('developer_instructions = """', agent)
+                self.assertIn('model = "gpt-5.6-luna"', agent)
+                self.assertIn('model_reasoning_effort = "medium"', agent)
+        self.assertIn('sandbox_mode = "read-only"', explorer)
+        self.assertIn("do not commit", implementer.lower())
+        self.assertRegex(implementer.lower(), r"do not\s+expand scope")
+
     def test_required_files_exist(self):
         required = (
             ROOT / "AGENTS.md",
@@ -20,6 +52,9 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             ROOT / ".agents/skills/shareme-sol-luna/agents/openai.yaml",
             ROOT / ".agents/skills/shareme-sol-luna/references/project-contract.md",
             ROOT / ".agents/skills/shareme-sol-luna/references/role-contracts.md",
+            CONFIG,
+            LUNA_EXPLORER,
+            LUNA_IMPLEMENTER,
             ROOT / "docs/development/current-stage.md",
         )
         self.assertEqual([], [str(path.relative_to(ROOT)) for path in required if not path.is_file()])
@@ -92,7 +127,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn(".agents/skills/shareme-sol-luna/SKILL.md", text)
         self.assertIn("docs/development/current-stage.md", text)
-        self.assertIn("Do not use concurrent writers", text)
+        self.assertIn("one writer owns", text)
 
     def test_stage_contract_has_required_sections(self):
         text = (ROOT / "docs/development/current-stage.md").read_text(encoding="utf-8")
@@ -107,7 +142,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             self.assertIn(heading, text)
         self.assertRegex(
             text,
-            r"dynamic-routing stage is delivered on `main` through merge commit\s+`ac118c4`",
+            r"deterministic ShareMe workflow stage is delivered on\s+`codex/shareme-workflow-simplify`",
         )
         self.assertNotIn("handoff-only", text)
 
@@ -119,42 +154,19 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             *SKILL.parent.joinpath("references").glob("*.md"),
         ]
         combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
-        dynamic_documents = (
-            ROOT / "docs/superpowers/specs/2026-08-03-shareme-dynamic-model-routing-design.md",
-            ROOT / "docs/superpowers/plans/2026-08-03-shareme-dynamic-model-routing.md",
-        )
-        dynamic_text = "\n".join(path.read_text(encoding="utf-8") for path in dynamic_documents)
-        self.assertNotRegex(dynamic_text, r"/Users/[^/]+/")
-        self.assertNotRegex(dynamic_text, r"[A-Za-z]:\\Users\\")
-        self.assertIn("Cost-tier basis:", dynamic_text)
-        self.assertIn("Actual model/fallback:", dynamic_text)
-        self.assertNotIn("without mutations", dynamic_text)
-        self.assertNotIn("zero-write behavior", dynamic_text)
-
         for required in (
-            "Default active Luna count: <= 2",
-            "Hard maximum: 3",
-            "Concurrent writers in overlapping scope: 0",
+            "Sol works directly by default",
+            "at most one active Luna",
+            "luna_explorer",
+            "luna_implementer",
+            "one writer",
+            "Unmeasured",
             'A user-level filesystem-read-only or "Do not edit" request authorizes zero filesystem mutations',
             "A request to free disk space is not deletion authorization",
             "Never bypass a rejected destructive command",
             "Compute numerical Git claims from exact current commands",
-            "Every role named for dispatch needs its own fully instantiated contract",
             "Source-read-only test execution may write only explicitly allowed ignored build output",
             '"Do not edit" overrides source-read-only test execution',
-            "Independent review | Filesystem-read-only Tester/Reviewer; no writes",
-            "Independent test execution | Source-read-only Tester/Reviewer; builds only with explicit ignored build-output scope",
-            "Inspect the model choices exposed by the current runtime",
-            "Target capability tier:",
-            "Requested model:",
-            "Requested reasoning effort:",
-            "Selection reason:",
-            "Cost-tier basis:",
-            "Fallback or difference:",
-            "Actual model/fallback:",
-            "Never claim measured credit savings without per-agent usage telemetry",
-            "Never create duplicate agents merely to save credits",
-            "Without a cost-tier basis, select by capability only and make no expected or realized cost-saving claim",
             "verified",
             "environment-dependent",
             "libwebrtc",
@@ -162,54 +174,23 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             self.assertIn(required, combined)
         self.assertNotRegex(combined, r"/Users/[^/]+/")
         self.assertNotRegex(combined, r"[A-Za-z]:\\Users\\")
-        self.assertNotRegex(combined, re.compile(r"gpt-[0-9]", re.IGNORECASE))
-        self.assertFalse((ROOT / ".codex/config.toml").exists())
         self.assertNotRegex(combined, r"\b(?:TODO|TBD|FIXME)\b")
         self.assertLessEqual(len((ROOT / "AGENTS.md").read_text(encoding="utf-8").splitlines()), 120)
-        self.assertLessEqual(len(re.findall(r"\S+", SKILL.read_text(encoding="utf-8"))), 500)
+        self.assertLessEqual(len(re.findall(r"\S+", SKILL.read_text(encoding="utf-8"))), 300)
 
-    def test_dispatch_and_return_templates_are_exact(self):
+    def test_direct_first_role_contract_is_concise(self):
         role_contract = (SKILL.parent / "references/role-contracts.md").read_text(
             encoding="utf-8"
         )
-
-        def normalized_template(heading):
-            match = re.search(
-                rf"## {re.escape(heading)}.*?```text\n(.*?)\n```",
-                role_contract,
-                re.DOTALL,
-            )
-            self.assertIsNotNone(match)
-            return [line.strip() for line in match.group(1).splitlines() if line.strip()]
-
-        expected_dispatch = [
-            "Role:",
-            "Target capability tier:",
-            "Requested model:",
-            "Requested reasoning effort:",
-            "Selection reason:",
-            "Cost-tier basis:",
-            "Fallback or difference:",
-            "Goal:",
-            "Allowed scope:",
-            "Forbidden scope:",
-            "Context and evidence:",
-            "Acceptance:",
-            "Commands/tests:",
-            "Rollback:",
-            "Return format:",
-        ]
-        expected_return = [
-            "Investigation:",
-            "Changes:",
-            "Commands:",
-            "Tests:",
-            "Risks:",
-            "Open issues:",
-            "Actual model/fallback:",
-        ]
-        self.assertEqual(expected_dispatch, normalized_template("Exact dispatch contract"))
-        self.assertEqual(expected_return, normalized_template("Exact return contract"))
+        self.assertIn("Sol works directly by default", role_contract)
+        self.assertIn("at most one active Luna", role_contract)
+        self.assertIn("luna_explorer", role_contract)
+        self.assertIn("luna_implementer", role_contract)
+        self.assertIn("Target:", role_contract)
+        self.assertIn("Return summary:", role_contract)
+        self.assertNotIn("Target capability tier:", role_contract)
+        self.assertNotIn("Actual model/fallback:", role_contract)
+        self.assertLessEqual(len(re.findall(r"\S+", role_contract)), 350)
 
 
 if __name__ == "__main__":

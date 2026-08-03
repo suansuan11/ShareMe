@@ -5,48 +5,30 @@ description: Use when working in the ShareMe repository on implementation, diagn
 
 # ShareMe Sol-Luna
 
-## Core principle
+## Direct-first workflow
 
-Own one verifiable stage from current evidence through review, tests, and a focused handoff. Luna output is evidence; Sol owns every decision and completion claim.
+1. Inspect current Git, relevant source, tests, and the current-stage handoff.
+   Read [project-contract.md](references/project-contract.md) before claims
+   about architecture, platform, media, Git, cache, or verification.
+2. Define one verifiable stage with acceptance evidence. Preserve unrelated
+   worktrees and user changes.
+3. Sol works directly by default. Use at most one active Luna only for a
+   bounded task that materially improves focus or elapsed time; read
+   [role-contracts.md](references/role-contracts.md) before dispatching.
+4. Use TDD for behavior changes and an ignored worktree for substantive stages.
+   One writer owns an overlapping implementation scope.
+5. Run focused tests, affected suites, `git diff --check`, and platform
+   acceptance proportional to the claim. Label results verified, partial,
+   environment-dependent, or unimplemented.
+6. Create focused commits after checking Git state and the staged diff. Update
+   the handoff only at a stage boundary. Push, merge, deployment, and cleanup
+   require existing user authority.
 
-## Required workflow
+## Guardrails
 
-1. Read `AGENTS.md`, `docs/development/current-stage.md`, relevant current code, tests, plans, verification evidence, and Git state. Verify freshness in the owned checkout; treat other worktrees as unrelated user state.
-2. Classify the request as answer, diagnosis, change, review, risky operation, or continuation. Read [project-contract.md](references/project-contract.md) whenever a claim touches architecture, platform, media, Git, cache, or verification boundaries.
-3. Define a verifiable stage with acceptance evidence. Do not stop after exploration or an internal subtask.
-4. Before every Luna dispatch: Inspect the model choices exposed by the current runtime; select the least expensive adequate capability tier; read [role-contracts.md](references/role-contracts.md). Skip delegation when coordination cost exceeds benefit; otherwise choose one bounded Luna role.
-5. Use TDD for behavior changes. Use an ignored feature worktree for a substantive stage.
-6. Before integration, apply the specification-compliance gate, then the code-quality gate. Fix Critical and Important findings.
-7. Run focused tests, affected suites, `git diff --check`, and platform acceptance proportional to the claim. Label outcomes verified, partial, environment-dependent, or unimplemented.
-8. Create focused commits. Update the current-stage handoff only at a stage boundary or future-changing decision. Push, merge, and cleanup require existing authorization; verify a pushed remote ref.
-
-## Quick reference
-
-| Situation | Action |
-|---|---|
-| Small, tightly coupled work | Sol works directly |
-| Bounded read-only discovery | Luna Explorer; at most two independent readers |
-| Independent bounded implementation | One Luna Implementer; no parallel implementation |
-| Independent review | Filesystem-read-only Tester/Reviewer; no writes |
-| Independent test execution | Source-read-only Tester/Reviewer; builds only with explicit ignored build-output scope |
-| Architecture, security, deletion, concurrency, lifetime, consistency | Sol High before implementation |
-| “继续开发” | Resume the recorded next stage through delivery |
-
-## Observed rationalizations
-
-| Rationalization | Required response |
-|---|---|
-| “Infer the next stage from nearby docs.” | Reconcile the canonical handoff with current code, tests, evidence, and Git. |
-| “More writers are faster.” | Keep overlapping writers at zero and reviewers read-only. |
-| “Delete the external cache to make room.” | Inspect purpose and recoverability; preserve it absent explicit authorization. |
-| “A nearby worktree has fresher context.” | Use only the owned checkout unless that worktree is explicitly in scope. |
-
-## Common mistakes
-
-- Treating README history or macOS results as current Windows evidence.
-- Reporting a Luna response, skipped suite, or source inspection as completion.
-- Mixing generated, cache, secret, or unrelated files into a commit.
-
-## Red flags
-
-Stop and correct the plan if it has four agents, concurrent writers, a fixing reviewer, cache deletion without authorization, cross-worktree context, stale platform claims, or a small-task stopping point.
+- Preserve repository-external libwebrtc caches unless the user explicitly
+  authorizes deletion after the project-contract checks.
+- Do not treat source inspection, skipped tests, or another agent's summary as
+  end-to-end proof.
+- Routine small changes, ordinary tests, formatting, and review stay with Sol.
+  Do not create a subagent merely to save credits.
