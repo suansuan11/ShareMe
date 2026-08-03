@@ -115,6 +115,12 @@ target_link_libraries(shareme_signaled_peer_test PRIVATE ShareMe::WebRTC)
 shareme_set_project_warnings(shareme_signaled_peer_test)
 add_test(NAME signaled_peer COMMAND shareme_signaled_peer_test)
 
+add_executable(shareme_movie_audio_peer_test movie_audio_peer_test.cpp)
+target_link_libraries(shareme_movie_audio_peer_test PRIVATE ShareMe::WebRTC)
+shareme_set_project_warnings(shareme_movie_audio_peer_test)
+add_test(NAME movie_audio_peer COMMAND shareme_movie_audio_peer_test)
+set_tests_properties(movie_audio_peer PROPERTIES TIMEOUT 15)
+
 if(TARGET ShareMe::QtSignaling)
   add_executable(
     shareme_playback_state_test

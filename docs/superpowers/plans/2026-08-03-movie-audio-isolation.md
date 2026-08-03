@@ -33,7 +33,7 @@
 - Produces: `MovieAudioPeerConfig`, `MovieAudioPeerResult`, `MovieAudioPeerCallbacks`, and `MovieAudioPeer`.
 - Consumes: `SignaledRole`, `LocalAudioSourceFactory`, `CandidateStager`, `WebRtcRuntime`, and `CountingAudioSink`.
 
-- [ ] **Step 1: Write the failing configuration and negotiation test**
+- [x] **Step 1: Write the failing configuration and negotiation test**
 
 Require these contracts:
 
@@ -54,7 +54,7 @@ callbacks, zero invalid callbacks, two channels, and exactly one source stop.
 Serialize the offer and require one `m=audio`, `stereo=1`, and
 `sprop-stereo=1`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_audio_peer_test
@@ -62,7 +62,7 @@ cmake --build --preset build-movie-call-dev --target shareme_movie_audio_peer_te
 
 Expected: target/type missing.
 
-- [ ] **Step 3: Implement the dedicated peer**
+- [x] **Step 3: Implement the dedicated peer**
 
 Define:
 
@@ -91,7 +91,7 @@ fmtp only to this single-audio-m-line connection. Stage at most 64 candidates.
 Make `stop()` idempotent, stop/join the source before clearing the track on the
 signaling thread, and cancel/join waiters before destruction.
 
-- [ ] **Step 4: Run GREEN and repeat lifecycle coverage**
+- [x] **Step 4: Run GREEN and repeat lifecycle coverage**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_audio_peer_test
