@@ -22,7 +22,9 @@ Queues remain bounded and observable. Before changing drop/reject policy, capaci
 
 Preserve repository-external libwebrtc checkout, build, and cache content by default. Before proposing cleanup, inspect its purpose, rebuild cost, ownership, recoverability, and exact scope without exposing machine-specific paths. Delete only with explicit user authorization after those facts are known.
 
-A read-only or "Do not edit" request authorizes zero filesystem mutations, including deletion of generated build output. A request to free disk space is not deletion authorization; in a read-only task, report candidates and evidence only. Never bypass a rejected destructive command with a different deletion mechanism. Conflicting wording must resolve toward preservation and explicit confirmation, especially for repository-external dependencies.
+A user-level filesystem-read-only or "Do not edit" request authorizes zero filesystem mutations, including deletion or creation of generated build output. A request to free disk space is not deletion authorization; in that task, report candidates and evidence only. Never bypass a rejected destructive command with a different deletion mechanism. Conflicting wording must resolve toward preservation and explicit confirmation, especially for repository-external dependencies.
+
+Source-read-only test execution may write only explicitly allowed ignored build output whose exact root is named in the dispatch; it never authorizes source, document, cache, dependency, or unrelated generated-output changes. "Do not edit" overrides source-read-only test execution and forbids even build-output writes.
 
 ## Repository hygiene
 

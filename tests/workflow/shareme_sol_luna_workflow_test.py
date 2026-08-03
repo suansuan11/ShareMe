@@ -44,17 +44,24 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             self.assertIn(heading, text)
 
     def test_workflow_is_portable_and_complete(self):
-        files = [ROOT / "AGENTS.md", SKILL, *SKILL.parent.joinpath("references").glob("*.md")]
+        files = [
+            ROOT / "AGENTS.md",
+            SKILL,
+            ROOT / "docs/development/current-stage.md",
+            *SKILL.parent.joinpath("references").glob("*.md"),
+        ]
         combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
         for required in (
             "Default active Luna count: <= 2",
             "Hard maximum: 3",
             "Concurrent writers in overlapping scope: 0",
-            'A read-only or "Do not edit" request authorizes zero filesystem mutations',
+            'A user-level filesystem-read-only or "Do not edit" request authorizes zero filesystem mutations',
             "A request to free disk space is not deletion authorization",
             "Never bypass a rejected destructive command",
             "Compute numerical Git claims from exact current commands",
             "Every role named for dispatch needs its own fully instantiated contract",
+            "Source-read-only test execution may write only explicitly allowed ignored build output",
+            '"Do not edit" overrides source-read-only test execution',
             "verified",
             "environment-dependent",
             "libwebrtc",

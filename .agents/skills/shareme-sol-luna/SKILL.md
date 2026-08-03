@@ -27,7 +27,7 @@ Own one verifiable stage from current evidence through review, tests, and a focu
 | Small, sequential, tightly coupled work | Sol works directly |
 | Bounded read-only discovery | Luna Explorer; at most two independent readers |
 | Independent bounded implementation | One Luna Implementer; no parallel implementation |
-| Independent verification | Read-only Luna Tester/Reviewer |
+| Independent verification | Source-read-only Tester/Reviewer only with explicit ignored build-output scope |
 | Architecture, security, deletion, concurrency, lifetime, consistency | Sol High before implementation |
 | “继续开发” | Resume the recorded next stage through delivery |
 

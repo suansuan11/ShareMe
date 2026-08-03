@@ -18,7 +18,7 @@ Parallel work is limited to independent read-only discovery or independent verif
 | Read-only discovery | Dispatch Luna Explorer with a bounded question; parallelize only independent reads |
 | Tightly coupled small work | Sol performs it directly |
 | Independent implementation | Dispatch one Luna Implementer after freezing its contract; Sol reviews the diff |
-| Independent verification | Dispatch Luna Tester/Reviewer read-only after implementation |
+| Independent verification | Dispatch Luna Tester/Reviewer source-read-only after implementation only when ignored build output is explicitly allowed |
 | High-risk architecture, security, deletion, concurrency, lifetime, or consistency | Enter Sol High before implementation; analyze alternatives and obtain approval when authority or direction changes |
 
 ## Luna roles
@@ -33,7 +33,7 @@ Implement only the frozen target and allowed files after acceptance, tests, roll
 
 ### Tester/Reviewer
 
-Independently build, test, and inspect the supplied scope and diff. Remain read-only: report exact findings and failures; never repair them during the review. Sol applies the specification-compliance gate before the code-quality gate.
+Independently build, test, and inspect the supplied scope and diff. Remain source-read-only: report exact findings and failures; never repair them during the review. The dispatch must name every permitted ignored build-output root. If the user says "Do not edit" or requires filesystem read-only, inspect without building. Sol applies the specification-compliance gate before the code-quality gate.
 
 ### Sol High
 
