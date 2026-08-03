@@ -41,8 +41,9 @@ provide the same start PTS and duration or fail with a sanitized timeline
 mismatch. The valid range is `[startPtsMs, startPtsMs + durationMs]`, computed
 with checked arithmetic; seek targets outside it are rejected without mutation.
 
-A snapshot computes the current absolute media PTS from the anchor and elapsed
-steady time while playing; paused snapshots keep the frozen anchor. Pause and
+A snapshot is absent before successful initialization. After initialization it
+computes the current absolute media PTS from the anchor and elapsed steady time
+while playing; paused snapshots keep the frozen anchor. Pause and
 resume change the revision but not generation. Seek changes the absolute
 anchor, increments both generation and revision, preserves the prior
 playing/paused state, and wakes all sources.
