@@ -22,6 +22,8 @@ Queues remain bounded and observable. Before changing drop/reject policy, capaci
 
 Preserve repository-external libwebrtc checkout, build, and cache content by default. Before proposing cleanup, inspect its purpose, rebuild cost, ownership, recoverability, and exact scope without exposing machine-specific paths. Delete only with explicit user authorization after those facts are known.
 
+A read-only or "Do not edit" request authorizes zero filesystem mutations, including deletion of generated build output. A request to free disk space is not deletion authorization; in a read-only task, report candidates and evidence only. Never bypass a rejected destructive command with a different deletion mechanism. Conflicting wording must resolve toward preservation and explicit confirmation, especially for repository-external dependencies.
+
 ## Repository hygiene
 
 Exclude build trees, generated media or fixtures, dependency caches, secrets, local configuration, IDE state, and unrelated user files from commits. Inspect Git state before staging. Work only in the owned checkout; another linked worktree is unrelated state unless explicitly placed in scope.
