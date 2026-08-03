@@ -218,14 +218,14 @@ git status --short --branch
 Expected: workflow 7/7, valid skill, portable C++ 6/6, Go race/vet success,
 clean diff check, and only intentional commits relative to `main`.
 
-- [ ] **Step 4: Push, merge, reverify, and clean up**
+- [x] **Step 4: Push, merge, reverify, and clean up**
 
 Push the feature branch and verify its remote SHA. Merge into current `main`
 with `--no-ff`, repeat Step 3, push and verify `origin/main`, remove only this
 plan's owned worktree and local feature branch, and retain the remote feature
 branch as a stage backup.
 
-- [ ] **Step 5: Record integration completion**
+- [x] **Step 5: Record integration completion**
 
 On `main`, mark the remaining plan checkboxes complete, record the merge and
 remote state in `current-stage.md`, commit with

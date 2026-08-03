@@ -60,11 +60,11 @@ roles, exact review/test permissions, cache safeguards, and this cross-session
 handoff. The merged result passed the complete verification listed above. This
 stage changes no product behavior.
 
-The follow-on dynamic-routing stage spans from design commit `ea59d64` through
-the current feature-branch `HEAD`, which is the authoritative implementation,
-review-fix, and handoff boundary. It remains unintegrated until the separate
-Task 4 review and merge boundary and adds no product behavior or new platform
-acceptance.
+The follow-on dynamic-routing stage is delivered on `main` through merge commit
+`ac118c4`. Its final specification and quality gates were approved with no
+remaining findings, and the merged result passed workflow 7/7, the repository
+validator, portable C++ 6/6, and Go race/vet. It adds no product behavior or
+new platform acceptance.
 
 ## Next recommended stage
 
@@ -79,6 +79,9 @@ claimed platform and scope.
 
 ## Git handoff
 
+- The dynamic-routing feature ref and `main` merge were pushed and verified.
+  Its owned worktree and local feature branch were removed; the remote feature
+  branch remains as a stage backup.
 - The workflow feature and merge refs were pushed and verified. The owned
   workflow worktree and local feature branch were removed; the remote feature
   branch remains as a stage backup.

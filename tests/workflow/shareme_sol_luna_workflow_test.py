@@ -107,7 +107,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             self.assertIn(heading, text)
         self.assertRegex(
             text,
-            r"from design commit `ea59d64` through\s+the current feature-branch `HEAD`",
+            r"dynamic-routing stage is delivered on `main` through merge commit\s+`ac118c4`",
         )
         self.assertNotIn("handoff-only", text)
 
