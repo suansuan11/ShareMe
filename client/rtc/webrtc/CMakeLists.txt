@@ -3,6 +3,7 @@ add_library(
   STATIC
   src/audio_device_factory.cpp
   src/loopback_signaling.cpp
+  src/movie_audio_peer.cpp
   src/signaled_peer.cpp
   src/test_pattern_source.cpp
   src/webrtc_probe.cpp

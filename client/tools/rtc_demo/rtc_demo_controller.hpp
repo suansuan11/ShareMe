@@ -2,6 +2,7 @@
 
 #include "qt_signaling_client.hpp"
 #include "playback_state.hpp"
+#include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
 #include <QImage>
@@ -93,7 +94,9 @@ private:
   QPointer<QVideoSink> video_sink_;
   QtSignalingClient signaling_;
   std::unique_ptr<shareme::rtc::SignaledPeer> peer_;
+  std::unique_ptr<shareme::rtc::MovieAudioPeer> movie_peer_;
   std::jthread waiter_;
+  std::jthread movie_waiter_;
   std::atomic_bool video_delivery_pending_{false};
   QTimer playback_state_timer_;
   std::uint64_t playback_sequence_{1};

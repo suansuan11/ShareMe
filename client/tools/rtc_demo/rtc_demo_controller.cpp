@@ -82,20 +82,32 @@ RtcDemoController::RtcDemoController(QUrl server_url,
               startPeer();
               return;
             }
-            if (!peer_)
-              return;
             const auto object = QJsonDocument::fromJson(raw).object();
-            if (type == QStringLiteral("session-description")) {
+            if (type == QStringLiteral("session-description") && peer_) {
               if (!peer_->receive_description(
                       object.value("descriptionType").toString().toStdString(),
                       object.value("sdp").toString().toStdString()))
                 setStatus(QStringLiteral("remote-description-rejected"));
-            } else if (type == QStringLiteral("ice-candidate")) {
+            } else if (type == QStringLiteral("ice-candidate") && peer_) {
               if (!peer_->receive_candidate(
                       object.value("sdpMid").toString().toStdString(),
                       object.value("sdpMLineIndex").toInt(),
                       object.value("candidate").toString().toStdString()))
                 setStatus(QStringLiteral("remote-candidate-rejected"));
+            } else if (type ==
+                           QStringLiteral("movie-audio-session-description") &&
+                       movie_peer_) {
+              if (!movie_peer_->receive_description(
+                      object.value("descriptionType").toString().toStdString(),
+                      object.value("sdp").toString().toStdString()))
+                setStatus(QStringLiteral("movie-audio-description-rejected"));
+            } else if (type == QStringLiteral("movie-audio-ice-candidate") &&
+                       movie_peer_) {
+              if (!movie_peer_->receive_candidate(
+                      object.value("sdpMid").toString().toStdString(),
+                      object.value("sdpMLineIndex").toInt(),
+                      object.value("candidate").toString().toStdString()))
+                setStatus(QStringLiteral("movie-audio-candidate-rejected"));
             }
           });
   connect(&signaling_, &QtSignalingClient::failed, this,
@@ -245,12 +257,6 @@ bool RtcDemoController::createPeer() {
         -> webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> {
       return source;
     };
-    if (movie_audio_) {
-      config.movie_audio_source_factory = [movie_path = movie_path_,
-                                           timeline = movie_timeline_] {
-        return shareme::rtc::MovieAudioSource::create(movie_path, timeline);
-      };
-    }
   }
 #endif
   config.remote_video_frame =
@@ -267,6 +273,47 @@ bool RtcDemoController::createPeer() {
     setStatus(QStringLiteral("peer-creation-failed"));
     return false;
   }
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (movie_audio_ || role_ == shareme::rtc::SignaledRole::viewer) {
+    shareme::rtc::MovieAudioPeerCallbacks movie_callbacks;
+    movie_callbacks.description = [this](std::string type, std::string sdp) {
+      QMetaObject::invokeMethod(
+          &signaling_, [this, type = std::move(type), sdp = std::move(sdp)] {
+            signaling_.relay(QStringLiteral("movie-audio-session-description"),
+                             description_payload(type, sdp));
+          }, Qt::QueuedConnection);
+    };
+    movie_callbacks.candidate =
+        [this](std::string mid, int line, std::string candidate) {
+          QMetaObject::invokeMethod(
+              &signaling_, [this, mid = std::move(mid), line,
+               candidate = std::move(candidate)] {
+                signaling_.relay(QStringLiteral("movie-audio-ice-candidate"),
+                                 candidate_payload(mid, line, candidate));
+              }, Qt::QueuedConnection);
+        };
+    movie_callbacks.failure = [this](std::string category) {
+      QMetaObject::invokeMethod(
+          this, [this, category = std::move(category)] {
+            setStatus(QStringLiteral("movie-audio-error: ") +
+                      QString::fromStdString(category));
+          }, Qt::QueuedConnection);
+    };
+    shareme::rtc::MovieAudioPeerConfig movie_config{.role = role_};
+    if (movie_audio_) {
+      movie_config.source_factory = [movie_path = movie_path_,
+                                     timeline = movie_timeline_] {
+        return shareme::rtc::MovieAudioSource::create(movie_path, timeline);
+      };
+    }
+    movie_peer_ = shareme::rtc::MovieAudioPeer::create(
+        std::move(movie_config), std::move(movie_callbacks));
+    if (!movie_peer_) {
+      setStatus(QStringLiteral("movie-audio-peer-creation-failed"));
+      return false;
+    }
+  }
+#endif
   return true;
 }
 
@@ -277,6 +324,18 @@ void RtcDemoController::startPeer() {
   if (!peer_started_) {
     setStatus(QStringLiteral("peer-start-failed"));
     return;
+  }
+  if (movie_peer_ && movie_peer_->start()) {
+    movie_waiter_ = std::jthread([this] {
+      const auto result = movie_peer_->wait(std::chrono::seconds(15));
+      if (!result.error.empty()) {
+        QMetaObject::invokeMethod(
+            this, [this, error = result.error] {
+              setStatus(QStringLiteral("movie-audio-error: ") +
+                        QString::fromStdString(error));
+            }, Qt::QueuedConnection);
+      }
+    });
   }
   setStatus(QStringLiteral("negotiating"));
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
@@ -303,11 +362,18 @@ void RtcDemoController::stopPeer() noexcept {
   playback_state_timer_.stop();
   if (peer_)
     peer_->cancel_wait();
+  if (movie_peer_)
+    movie_peer_->cancel_wait();
   if (waiter_.joinable())
     waiter_.join();
+  if (movie_waiter_.joinable())
+    movie_waiter_.join();
+  if (movie_peer_)
+    movie_peer_->stop();
   if (peer_)
     peer_->stop();
   peer_.reset();
+  movie_peer_.reset();
 }
 
 void RtcDemoController::publishPlaybackState() {

@@ -19,9 +19,10 @@ tests, and verification evidence before relying on it.
 
 ## Active stage
 
-Host-authoritative movie pause, resume, and seek are delivered on `main`
-through merge commit `48e4d27`. The preserved remote feature branch is
-`origin/codex/host-playback-controls`.
+Movie-audio transport isolation is implemented on
+`codex/movie-audio-isolation` and is ready for integration after automated
+macOS verification. Host-authoritative movie pause, resume, and seek remain the
+merged baseline through `48e4d27`.
 
 Delivered behavior:
 
@@ -32,14 +33,24 @@ Delivered behavior:
 - backward seeks preserve monotonic WebRTC transport timestamps;
 - the host controller publishes timeline state/PTS/generation and exposes
   duration-bounded Pause/Resume/Seek QML controls;
+- primary WebRTC transport owns video, bidirectional voice, and control only;
+- a dedicated WebRTC runtime and PeerConnection carry one stereo movie-audio
+  track with ADM recording disabled;
+- client and server signaling allowlists route dedicated SDP and ICE messages
+  in the same room without changing primary relay types;
 - builds without MovieRTC keep compiling and test a stable unsupported result.
 
-See [Host Playback Controls Verification](../verification/host-playback-controls.md)
+See [Movie Audio Isolation Verification](../verification/movie-audio-isolation.md)
+and [Host Playback Controls Verification](../verification/host-playback-controls.md)
 for exact proof and evidence boundaries.
 
 ## Verification status
 
-- **Verified — macOS movie-call:** full build and CTest passed 38/38.
+- **Verified — macOS movie-call:** full build and CTest passed 39/39; the
+  dedicated peer lifecycle test also passed 20 consecutive runs.
+- **Verified — macOS live signaling:** five consecutive microphone/movie/audio
+  smoke calls passed with stereo 48 kHz delivery and no captured codec
+  collision or AudioSendStream race diagnostic.
 - **Verified — signaling/workflow:** Go `-race`, Go vet, workflow 8/8, and the
   repository skill validator passed.
 - **Verified — cache preservation:** the repository-external Darwin arm64
@@ -54,17 +65,15 @@ for exact proof and evidence boundaries.
 
 ## Next recommended stage
 
-Add receiver playout reports and generation-aware reconciliation before a
+After a manual macOS GUI rerun, add receiver playout reports and generation-aware reconciliation before a
 bounded host hard-resync command. This supplies the missing evidence and buffer
 semantics needed to correct drift without faking synchronization. Keep receiver
 speaker playout as a separate audio-lifecycle stage.
 
 ## Git handoff
 
-- Merge `48e4d27` and its handoff repairs passed the final merged-main gates and
-  were pushed. Remote `main` and `codex/host-playback-controls` refs were
-  explicitly verified.
-- The completed ignored worktree and local feature branch were removed. The
-  repository-external libwebrtc cache and remote feature branch were preserved.
+- The movie-audio isolation branch is not yet merged or pushed. Its focused
+  commits and final verification commit are the current handoff boundary.
+- The repository-external libwebrtc cache was preserved and used read-only.
 - Keep Windows results environment-dependent until that machine reruns the
   affected configuration.

@@ -11,6 +11,7 @@ from pathlib import Path
 class RtcDemoCliTest(unittest.TestCase):
     demo = Path()
     qml = Path()
+    controller_source = Path()
     movie_supported = False
 
     def run_demo(self, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -106,14 +107,21 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("to: Math.max(0, window.controller.hostPlaybackDurationMs)", source)
         self.assertIn("when: !playbackSlider.pressed", source)
 
+    def test_controller_uses_dedicated_movie_audio_relays(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("movie-audio-session-description", source)
+        self.assertIn("movie-audio-ice-candidate", source)
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--demo", type=Path, required=True)
     parser.add_argument("--qml", type=Path, required=True)
+    parser.add_argument("--controller-source", type=Path, required=True)
     parser.add_argument("--movie-supported", action="store_true")
     args, unittest_args = parser.parse_known_args()
     RtcDemoCliTest.demo = args.demo.resolve()
     RtcDemoCliTest.qml = args.qml.resolve()
+    RtcDemoCliTest.controller_source = args.controller_source.resolve()
     RtcDemoCliTest.movie_supported = args.movie_supported
     unittest.main(argv=[sys.argv[0], *unittest_args])
     return 0

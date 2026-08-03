@@ -46,6 +46,15 @@ func TestHealthCreateJoinAndRelay(t *testing.T) {
 	if got := read(t, viewer); got.Type != "session-description" {
 		t.Fatalf("relay type = %s", got.Type)
 	}
+	for sequence, kind := range []string{
+		"movie-audio-session-description",
+		"movie-audio-ice-candidate",
+	} {
+		write(t, host, message(kind, roomID, uint64(sequence+3), map[string]any{"opaque": true}))
+		if got := read(t, viewer); got.Type != kind {
+			t.Fatalf("movie audio relay type = %s, want %s", got.Type, kind)
+		}
+	}
 }
 func message(kind, roomID string, sequence uint64, payload any) protocol.Message {
 	raw, _ := json.Marshal(payload)
