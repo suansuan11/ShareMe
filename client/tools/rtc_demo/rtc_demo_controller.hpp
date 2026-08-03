@@ -70,6 +70,7 @@ private:
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
   std::shared_ptr<shareme::rtc::MovieTimeline> movie_timeline_;
+  webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> movie_video_source_;
   QString status_{QStringLiteral("idle")};
   QString room_id_;
   QPointer<QVideoSink> video_sink_;

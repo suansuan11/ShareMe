@@ -21,6 +21,10 @@ struct PlaybackState {
 [[nodiscard]] QByteArray encode_playback_state(const PlaybackState &state);
 [[nodiscard]] std::optional<PlaybackState>
 decode_playback_state(const QByteArray &message, const QString &expected_room);
+[[nodiscard]] std::optional<PlaybackState> make_movie_playback_state(
+    QString room_id, std::uint64_t sequence,
+    std::optional<std::int64_t> last_media_pts_ms,
+    std::int64_t effective_at_host_time_ms, bool ended);
 
 class PlaybackStateTracker final {
 public:

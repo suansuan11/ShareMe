@@ -12,6 +12,8 @@ control slice:
 - the host creates a reliable ordered `shareme-control-v1` WebRTC data channel;
 - the viewer validates and tracks version-1 `playback-state` snapshots;
 - the receiver QML displays the last accepted host state and media position;
+- state snapshots use the last emitted source media PTS, including non-zero
+  container start offsets; EOF is published once as `paused` at the final PTS;
 - Windows movie paths use native wide-character filesystem conversion.
 
 This is a read-only state channel. Viewer-authoritative pause/seek, playout

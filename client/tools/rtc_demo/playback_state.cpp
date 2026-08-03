@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace shareme::tools {
 namespace {
@@ -98,6 +99,25 @@ std::optional<PlaybackState> decode_playback_state(const QByteArray &message,
                        .effective_at_host_time_ms = *effective_at,
                        .rate = rate.toDouble(),
                        .generation = *generation};
+}
+
+std::optional<PlaybackState> make_movie_playback_state(
+    QString room_id, std::uint64_t sequence,
+    std::optional<std::int64_t> last_media_pts_ms,
+    std::int64_t effective_at_host_time_ms, bool ended) {
+  if (!last_media_pts_ms)
+    return std::nullopt;
+  PlaybackState state{.room_id = std::move(room_id),
+                      .sequence = sequence,
+                      .state = ended ? QStringLiteral("paused")
+                                     : QStringLiteral("playing"),
+                      .media_pts_ms = *last_media_pts_ms,
+                      .effective_at_host_time_ms = effective_at_host_time_ms,
+                      .rate = 1.0,
+                      .generation = 0};
+  if (encode_playback_state(state).isEmpty())
+    return std::nullopt;
+  return state;
 }
 
 bool PlaybackStateTracker::accept(const PlaybackState &state) noexcept {

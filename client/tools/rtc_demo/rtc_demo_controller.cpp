@@ -181,11 +181,13 @@ bool RtcDemoController::createPeer() {
 #if defined(SHAREME_HAS_MOVIE_RTC)
   if (!movie_path_.empty()) {
     movie_timeline_ = std::make_shared<shareme::rtc::MovieTimeline>();
+    movie_video_source_ =
+        shareme::rtc::MovieVideoSource::create(movie_path_, movie_timeline_);
     config.video_mode = shareme::rtc::SignaledVideoMode::injected;
-    config.video_source_factory = [movie_path = movie_path_,
-                                   timeline = movie_timeline_](webrtc::TaskQueueFactory &)
+    config.video_source_factory = [source = movie_video_source_](
+                                      webrtc::TaskQueueFactory &)
         -> webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> {
-      return shareme::rtc::MovieVideoSource::create(movie_path, timeline);
+      return source;
     };
     if (movie_audio_) {
       config.movie_audio_source_factory = [movie_path = movie_path_,
@@ -251,23 +253,27 @@ void RtcDemoController::stopPeer() noexcept {
 }
 
 void RtcDemoController::publishPlaybackState() {
-  if (!peer_ || !movie_timeline_ || room_id_.isEmpty())
-    return;
-  const auto epoch = movie_timeline_->epoch();
-  if (!epoch)
+  if (!peer_ || !movie_video_source_ || room_id_.isEmpty())
     return;
   const auto now = std::chrono::steady_clock::now();
-  const auto position = std::chrono::duration_cast<std::chrono::milliseconds>(now - *epoch).count();
-  const auto effective = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
-  const shareme::tools::PlaybackState state{
-      .room_id = room_id_, .sequence = playback_sequence_,
-      .state = QStringLiteral("playing"), .media_pts_ms = position,
-      .effective_at_host_time_ms = effective, .rate = 1.0, .generation = 0};
+  const auto effective = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             now.time_since_epoch())
+                             .count();
+  const auto ended = movie_video_source_->state() ==
+                     webrtc::MediaSourceInterface::kEnded;
+  const auto state = shareme::tools::make_movie_playback_state(
+      room_id_, playback_sequence_, movie_video_source_->last_pts_ms(),
+      effective, ended);
+  if (!state)
+    return;
   if (!peer_->send_control_message(
-          shareme::tools::encode_playback_state(state).toStdString()))
+          shareme::tools::encode_playback_state(*state).toStdString()))
     return;
   ++playback_sequence_;
-  playback_state_timer_.setInterval(1'000);
+  if (ended)
+    playback_state_timer_.stop();
+  else
+    playback_state_timer_.setInterval(1'000);
 }
 
 void RtcDemoController::receiveControlMessage(std::string message) {

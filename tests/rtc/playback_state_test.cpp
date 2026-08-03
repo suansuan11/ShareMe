@@ -23,6 +23,7 @@ int main() {
   using shareme::tools::PlaybackStateTracker;
   using shareme::tools::decode_playback_state;
   using shareme::tools::encode_playback_state;
+  using shareme::tools::make_movie_playback_state;
 
   const PlaybackState playing{.room_id = QStringLiteral("ABC234"),
                               .sequence = 1,
@@ -97,4 +98,17 @@ int main() {
   REQUIRE(!tracker.accept(stale_generation));
   REQUIRE(tracker.last().has_value());
   REQUIRE(tracker.last()->generation == 5);
+
+  const auto nonzero_pts = make_movie_playback_state(
+      QStringLiteral("ABC234"), 8, std::int64_t{42'750}, 91'000, false);
+  REQUIRE(nonzero_pts.has_value());
+  REQUIRE(nonzero_pts->state == QStringLiteral("playing"));
+  REQUIRE(nonzero_pts->media_pts_ms == 42'750);
+  const auto ended = make_movie_playback_state(
+      QStringLiteral("ABC234"), 9, std::int64_t{44'000}, 92'000, true);
+  REQUIRE(ended.has_value());
+  REQUIRE(ended->state == QStringLiteral("paused"));
+  REQUIRE(ended->media_pts_ms == 44'000);
+  REQUIRE(!make_movie_playback_state(QStringLiteral("ABC234"), 10,
+                                     std::nullopt, 93'000, false));
 }

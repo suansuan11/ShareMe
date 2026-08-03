@@ -133,13 +133,16 @@ SHAREME_ENABLE_WEBRTC
 | macOS ARM64 Qt + WebRTC 双进程真实麦克风通话 | 双端真实麦克风 RTP 与本地音频电平验收通过 |
 | macOS ARM64 FFmpeg + Qt + WebRTC 真实影片视频 | 主播独占片源，观众端收到解码影片帧并通过自动化验收 |
 | macOS ARM64 FFmpeg + Qt + WebRTC 独立影片音频 | 观众端收到 48 kHz 双声道 Opus 解码 PCM，且主播发送端影片音视频 PTS 偏差通过自动化验收 |
+| macOS ARM64 接收端播放状态通道 | 可靠有序数据通道、真实双 Peer 状态收发与 37/37 组合测试通过；GUI 视觉验收受当前捕获环境限制 |
 
 当前已提供本地信令服务和双进程 WebRTC 测试媒体、真实麦克风通话及
 独立影片音视频轨道，运行与验证方式见
 [信令基础验证](docs/verification/signaling-foundation.md)与
-[WebRTC 双进程真实影片音频验证](docs/verification/signaled-movie-audio.md)。
-现有仓库外缓存的 libwebrtc 构建依赖仍用于这些验证并已保留。下一阶段
-进入播放器集成与接收端播放控制；TURN、Windows 进程级音频捕获、持续
+[WebRTC 双进程真实影片音频验证](docs/verification/signaled-movie-audio.md)，
+首个接收端播放状态阶段见
+[播放器/接收端控制验证](docs/verification/player-receiver-control.md)。现有
+仓库外缓存的 libwebrtc 构建依赖仍用于这些验证并已保留。下一阶段进入
+主机权威暂停/跳转与接收端状态协调；TURN、Windows 进程级音频捕获、持续
 性能测量和跨机器公网验收仍需后续完成。已有 Windows 结论仅覆盖上述真机
 构建、媒体回归、硬件桌面采集和本地双进程范围，不代表这些后续项已验证。
 
