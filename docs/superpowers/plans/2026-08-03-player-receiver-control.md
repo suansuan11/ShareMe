@@ -21,5 +21,5 @@ receiver video sink.
       and repository validator.
 - [x] Update verification and current-stage documentation with exact evidence
       and explicit remaining boundaries.
-- [ ] Obtain independent specification and quality reviews, repair findings,
+- [x] Obtain independent specification and quality reviews, repair findings,
       commit, merge to `main`, and push the verified stage.

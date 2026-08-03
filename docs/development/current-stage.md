@@ -74,15 +74,15 @@ remaining findings, and the merged result passed workflow 7/7, the repository
 validator, portable C++ 6/6, and Go race/vet. It adds no product behavior or
 new platform acceptance.
 
-The active product stage adds host movie selection to the Qt RTC demo plus a
-reliable ordered playback-state channel and read-only receiver display. Its
-implementation commit is `92060e5`; final merge/push status must be checked
-against Git before treating it as delivered on `main`.
+The receiver-control product stage is delivered on `main` through merge commit
+`87138a9`. It adds host movie selection to the Qt RTC demo plus a reliable
+ordered playback-state channel and read-only receiver display. Its final
+specification and quality reviews approved with no remaining findings.
 
 ## Next recommended stage
 
-After this slice is merged, the recommended next product stage is
-host-authoritative pause/seek: add controllable movie-source timeline semantics,
+The recommended next product stage is host-authoritative pause/seek: add
+controllable movie-source timeline semantics,
 increment generation on seek, and reconcile the viewer through playback-state
 plus a bounded hard-resync command. Keep receiver speaker playout as a separate
 audio-lifecycle stage.
