@@ -84,10 +84,12 @@ without faking synchronization.
 
 ## Git handoff
 
-- `codex/movie-audio-isolation` has no unique commits relative to `main`; it is
-  fully merged and retained only as a linked historical worktree.
-- `codex/receiver-movie-audio-playout` has been integrated through merge
-  `46710c7`; the linked branch remains local stage evidence.
+- `codex/movie-audio-isolation` and `codex/receiver-movie-audio-playout` are
+  fully merged; their linked worktrees and local branches were removed after
+  merged-main verification.
+- Eleven uncommitted GUI-preview/debug changes found in the older isolation
+  worktree were not suitable for `main` and were preserved in the named local
+  stash `archive: movie-audio GUI and debug WIP before worktree cleanup`.
 - The Luna parallelism refinement is an unmerged, unpushed focused branch with
   separate RED-test, policy, and handoff commits. Keep its runtime dispatch
   evidence environment-dependent until a fresh ShareMe task accepts Luna.
