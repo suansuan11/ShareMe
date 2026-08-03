@@ -9,54 +9,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
-#include <limits>
 #include <thread>
 #include <utility>
 
 #include "rtc_base/time_utils.h"
 
 namespace shareme::rtc {
-namespace {
-
-[[nodiscard]] bool add_elapsed(std::int64_t start_time_ms,
-                               std::int64_t elapsed_ms,
-                               std::int64_t &result) noexcept {
-  if (elapsed_ms < 0 ||
-      start_time_ms > std::numeric_limits<std::int64_t>::max() - elapsed_ms) {
-    return false;
-  }
-  result = start_time_ms + elapsed_ms;
-  return true;
-}
-
-[[nodiscard]] bool calculate_due_at(MovieTimeline::TimePoint epoch,
-                                    std::int64_t pts_ms,
-                                    std::int64_t start_time_ms,
-                                    MovieTimeline::TimePoint &due_at) noexcept {
-  if (pts_ms < start_time_ms)
-    return false;
-
-  const auto delta_ms = static_cast<std::uint64_t>(pts_ms) -
-                        static_cast<std::uint64_t>(start_time_ms);
-  const auto since_epoch = epoch.time_since_epoch();
-  const auto available =
-      since_epoch < MovieTimeline::Clock::duration::zero()
-          ? MovieTimeline::Clock::duration::max()
-          : MovieTimeline::Clock::duration::max() - since_epoch;
-  const auto maximum_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(available).count();
-  if (maximum_ms < 0 ||
-      delta_ms > static_cast<std::uint64_t>(maximum_ms)) {
-    return false;
-  }
-
-  due_at =
-      epoch + std::chrono::milliseconds(static_cast<std::int64_t>(delta_ms));
-  return true;
-}
-
-} // namespace
-
 webrtc::scoped_refptr<MovieAudioSource>
 MovieAudioSource::create(std::filesystem::path movie_path,
                          std::shared_ptr<MovieTimeline> timeline) {
@@ -92,10 +50,22 @@ bool MovieAudioSource::start() {
       return false;
     }
 
-    media_start_time_ms_ = info.start_time_ms;
-    epoch_ = timeline_->start();
+    if (!timeline_->initialize(info.start_time_ms, info.duration_ms)) {
+      session->close();
+      running_.store(false, std::memory_order_release);
+      set_error("movie-timeline-mismatch");
+      return false;
+    }
+    const auto timeline = timeline_->snapshot();
+    if (!timeline) {
+      session->close();
+      running_.store(false, std::memory_order_release);
+      set_error("movie-timeline-mismatch");
+      return false;
+    }
     chunker_ = std::make_unique<media::PcmChunker>();
-    session->play();
+    if (timeline->state == MovieTimelineState::playing)
+      session->play();
     session_ = std::move(session);
     worker_ =
         std::jthread([this](std::stop_token stop_token) { run(stop_token); });
@@ -115,7 +85,6 @@ void MovieAudioSource::stop() noexcept {
   running_.store(false, std::memory_order_release);
   if (worker_.joinable()) {
     worker_.request_stop();
-    pacing_changed_.notify_all();
     worker_.join();
   }
   if (session_)
@@ -153,36 +122,78 @@ void MovieAudioSource::RemoveSink(webrtc::AudioTrackSinkInterface *sink) {
 void MovieAudioSource::run(std::stop_token stop_token) {
   using namespace std::chrono_literals;
   try {
+    auto initial = timeline_->snapshot();
+    if (!initial) {
+      set_error("movie-timeline-mismatch");
+      running_.store(false, std::memory_order_release);
+      return;
+    }
+    auto applied_generation = initial->generation;
+    auto minimum_pts_ms = initial->media_pts_ms;
     while (!stop_token.stop_requested()) {
-      const auto elapsed =
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              MovieTimeline::Clock::now() - epoch_);
-      std::int64_t playhead_ms = 0;
-      if (!add_elapsed(media_start_time_ms_, elapsed.count(), playhead_ms)) {
-        set_error("movie-audio-frame-invalid");
+      const auto timeline = timeline_->snapshot();
+      if (!timeline) {
+        set_error("movie-timeline-mismatch");
         break;
       }
-      session_->set_playhead_ms(playhead_ms);
+      if (timeline->generation != applied_generation) {
+        session_->seek(timeline->media_pts_ms);
+        chunker_ = std::make_unique<media::PcmChunker>();
+        applied_generation = timeline->generation;
+        minimum_pts_ms = timeline->media_pts_ms;
+        has_last_pts_.store(false, std::memory_order_release);
+      }
+      if (timeline->state == MovieTimelineState::paused) {
+        session_->pause();
+        if (timeline->media_pts_ms <
+            timeline->start_pts_ms + timeline->duration_ms) {
+          const auto wait_result = timeline_->wait_until(
+              timeline->media_pts_ms + 1, applied_generation, stop_token);
+          if (wait_result == MovieTimelineWaitResult::stopped)
+            break;
+          continue;
+        }
+      } else {
+        session_->play();
+      }
+      session_->set_playhead_ms(timeline->media_pts_ms);
 
       bool emitted = false;
       bool invalid_frame = false;
+      bool generation_changed = false;
       while (auto frame = session_->pop_audio()) {
+        if (frame->pts_ms < minimum_pts_ms)
+          continue;
         if (!chunker_->push(std::move(*frame))) {
           set_error("movie-audio-frame-invalid");
           invalid_frame = true;
           break;
         }
         while (auto chunk = chunker_->pop()) {
-          if (!emit_chunk(*chunk, stop_token)) {
-            invalid_frame = !stop_token.stop_requested();
+          if (chunk->pts_ms < minimum_pts_ms)
+            continue;
+          const auto wait_result = timeline_->wait_until(
+              chunk->pts_ms, applied_generation, stop_token);
+          if (wait_result == MovieTimelineWaitResult::generation_changed) {
+            generation_changed = true;
+            break;
+          }
+          if (wait_result == MovieTimelineWaitResult::stopped)
+            break;
+          if (!emit_chunk(*chunk)) {
+            invalid_frame = true;
             break;
           }
           emitted = true;
         }
-        if (invalid_frame || stop_token.stop_requested())
+        if (invalid_frame || generation_changed || stop_token.stop_requested())
           break;
       }
       if (invalid_frame)
+        break;
+      if (generation_changed)
+        continue;
+      if (stop_token.stop_requested())
         break;
 
       const auto playback_state = session_->state();
@@ -193,8 +204,7 @@ void MovieAudioSource::run(std::stop_token stop_token) {
       if (playback_state == media::PlaybackState::ended && !emitted)
         break;
 
-      std::unique_lock lock(pacing_mutex_);
-      pacing_changed_.wait_for(lock, stop_token, 2ms, [] { return false; });
+      std::this_thread::sleep_for(2ms);
     }
   } catch (const std::exception &) {
     set_error("movie-audio-decode-failed");
@@ -202,25 +212,12 @@ void MovieAudioSource::run(std::stop_token stop_token) {
   running_.store(false, std::memory_order_release);
 }
 
-bool MovieAudioSource::emit_chunk(const media::PcmChunk &chunk,
-                                  std::stop_token stop_token) {
+bool MovieAudioSource::emit_chunk(const media::PcmChunk &chunk) {
   constexpr std::size_t expected_sample_count = 480U * 2U;
   if (chunk.interleaved_samples.size() != expected_sample_count) {
     set_error("movie-audio-frame-invalid");
     return false;
   }
-
-  MovieTimeline::TimePoint due_at;
-  if (!calculate_due_at(epoch_, chunk.pts_ms, media_start_time_ms_, due_at)) {
-    set_error("movie-audio-frame-invalid");
-    return false;
-  }
-  if (MovieTimeline::Clock::now() < due_at) {
-    std::unique_lock lock(pacing_mutex_);
-    pacing_changed_.wait_until(lock, stop_token, due_at, [] { return false; });
-  }
-  if (stop_token.stop_requested())
-    return false;
 
   if (has_last_pts_.load(std::memory_order_acquire) &&
       chunk.pts_ms <= last_pts_ms_.load(std::memory_order_relaxed)) {

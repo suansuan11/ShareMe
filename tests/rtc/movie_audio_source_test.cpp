@@ -260,6 +260,52 @@ void emits_exact_pcm_chunks(const std::filesystem::path &movie_path) {
               }) == media_pts_ms.end());
 }
 
+void shared_timeline_controls_audio(const std::filesystem::path &movie_path) {
+  using namespace std::chrono_literals;
+  auto timeline = std::make_shared<shareme::rtc::MovieTimeline>();
+  auto source = shareme::rtc::MovieAudioSource::create(movie_path, timeline);
+  CountingPcmSink sink{source.get()};
+  source->AddSink(&sink);
+  REQUIRE(source->start());
+
+  const auto initial_deadline = std::chrono::steady_clock::now() + 1s;
+  while (sink.callback_count() < 10 && source->error().empty() &&
+         std::chrono::steady_clock::now() < initial_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(sink.callback_count() >= 10);
+
+  REQUIRE(timeline->pause());
+  const auto paused_count = sink.callback_count();
+  std::this_thread::sleep_for(150ms);
+  REQUIRE(sink.callback_count() <= paused_count + 1);
+  REQUIRE(timeline->resume());
+  const auto resumed_deadline = std::chrono::steady_clock::now() + 500ms;
+  while (sink.callback_count() <= paused_count + 1 &&
+         std::chrono::steady_clock::now() < resumed_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(sink.callback_count() > paused_count + 1);
+
+  const auto snapshot = timeline->snapshot();
+  REQUIRE(snapshot.has_value());
+  const auto target_pts_ms = snapshot->start_pts_ms + 1'000;
+  REQUIRE(timeline->seek(target_pts_ms));
+  const auto seek_deadline = std::chrono::steady_clock::now() + 1s;
+  while ((!source->last_pts_ms() ||
+          *source->last_pts_ms() < target_pts_ms) &&
+         source->error().empty() &&
+         std::chrono::steady_clock::now() < seek_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(source->last_pts_ms().has_value());
+  REQUIRE(*source->last_pts_ms() >= target_pts_ms);
+  const auto first_post_seek_pts = *source->last_pts_ms();
+  std::this_thread::sleep_for(100ms);
+  REQUIRE(*source->last_pts_ms() >= first_post_seek_pts);
+
+  source->stop();
+  source->RemoveSink(&sink);
+  REQUIRE(source->error().empty());
+}
+
 void audio_only_movie_is_supported(
     const std::filesystem::path &audio_only_path) {
   using namespace std::chrono_literals;
@@ -380,6 +426,7 @@ int main(int argc, char **argv) {
   shared_epoch_is_stable();
   source_is_live_and_disables_voice_processing(movie_path);
   emits_exact_pcm_chunks(movie_path);
+  shared_timeline_controls_audio(movie_path);
   audio_only_movie_is_supported(std::filesystem::path{argv[2]});
   failures_are_sanitized(movie_path.parent_path(),
                          std::filesystem::path{argv[3]});

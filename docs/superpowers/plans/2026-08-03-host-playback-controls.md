@@ -157,7 +157,7 @@ cmake --build --preset build-movie-call-dev --target shareme_movie_video_source_
 ctest --preset test-movie-call-dev -R '^(movie_timeline|movie_video_source)$' --output-on-failure
 ```
 
-- [ ] **Step 5: Commit generation-aware video**
+- [x] **Step 5: Commit generation-aware video**
 
 ```bash
 git add client/rtc/movie/include/shareme/rtc/movie_video_source.hpp client/rtc/movie/src/movie_video_source.cpp tests/rtc/movie_video_source_test.cpp
@@ -175,14 +175,14 @@ git commit -m "feat: control movie video playback"
 - Consumes: Task 1 timeline state/generation and Task 2 semantics.
 - Produces: audio callbacks that pause and seek without affecting voice paths.
 
-- [ ] **Step 1: Write failing audio pause/resume/seek tests**
+- [x] **Step 1: Write failing audio pause/resume/seek tests**
 
 With `CountingPcmSink`, pause after at least ten callbacks and allow at most one
 in-flight callback in 150 ms. Resume and require growth. Seek forward and
 assert `last_pts_ms()` reaches the requested target without a lower subsequent
 PTS. Repeat the shared audio/video offset test after one coordinated seek.
 
-- [ ] **Step 2: Run audio test and verify RED**
+- [x] **Step 2: Run audio test and verify RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_audio_source_test
@@ -191,14 +191,14 @@ ctest --preset test-movie-call-dev -R '^movie_audio_source$' --output-on-failure
 
 Expected: new assertions fail because audio still paces from a fixed epoch.
 
-- [ ] **Step 3: Make audio obey the shared generation**
+- [x] **Step 3: Make audio obey the shared generation**
 
 Mirror Task 2. On generation change call
 `PlaybackSession::seek(snapshot.media_pts_ms)` and replace `chunker_` with a new
 `PcmChunker` before decoding more input. Never pause or restart the native voice
 audio device or voice tracks.
 
-- [ ] **Step 4: Run all movie-source tests GREEN**
+- [x] **Step 4: Run all movie-source tests GREEN**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_timeline_test shareme_movie_video_source_test shareme_movie_audio_source_test
