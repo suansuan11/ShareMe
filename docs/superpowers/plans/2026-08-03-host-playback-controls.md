@@ -324,7 +324,7 @@ git add README.md docs/development/current-stage.md docs/verification/host-playb
 git commit -m "docs: record host playback control verification"
 ```
 
-- [ ] **Step 5: Integrate under existing user authority**
+- [x] **Step 5: Integrate under existing user authority**
 
 Verify a clean feature worktree, push the feature branch, merge into a clean
 `main`, rerun final gates on merged `main`, push `main`, verify both remote refs,

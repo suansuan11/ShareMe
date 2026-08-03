@@ -61,10 +61,10 @@ speaker playout as a separate audio-lifecycle stage.
 
 ## Git handoff
 
-- Feature and merge commits are complete locally. Rerun final gates on merged
-  `main`, push it, and verify both remote refs before cleanup.
-- Preserve the repository-external libwebrtc cache and remote feature branch;
-  remove only the completed ignored worktree and local feature branch after
-  remote verification.
+- Merge `48e4d27` and its handoff repairs passed the final merged-main gates and
+  were pushed. Remote `main` and `codex/host-playback-controls` refs were
+  explicitly verified.
+- The completed ignored worktree and local feature branch were removed. The
+  repository-external libwebrtc cache and remote feature branch were preserved.
 - Keep Windows results environment-dependent until that machine reruns the
   affected configuration.
