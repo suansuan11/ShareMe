@@ -300,6 +300,8 @@ bool RtcDemoController::createPeer() {
           }, Qt::QueuedConnection);
     };
     shareme::rtc::MovieAudioPeerConfig movie_config{.role = role_};
+    movie_config.native_playout =
+        role_ == shareme::rtc::SignaledRole::viewer;
     if (movie_audio_) {
       movie_config.source_factory = [movie_path = movie_path_,
                                      timeline = movie_timeline_] {

@@ -18,6 +18,7 @@
 #include "api/units/time_delta.h"
 #include "audio_device_factory.hpp"
 #include "counting_audio_sink.hpp"
+#include "movie_audio_peer_policy.hpp"
 #include "pc/session_description.h"
 #include "rtc_base/thread.h"
 #include "shareme/rtc/candidate_stager.hpp"
@@ -108,7 +109,7 @@ private:
 
 [[nodiscard]] bool valid_config(const MovieAudioPeerConfig &config) noexcept {
   if (config.role == SignaledRole::host)
-    return static_cast<bool>(config.source_factory);
+    return static_cast<bool>(config.source_factory) && !config.native_playout;
   return config.role == SignaledRole::viewer && !config.source_factory;
 }
 
@@ -123,8 +124,10 @@ public:
   bool initialize() {
     if (!valid_config(config_))
       return false;
-    auto audio = create_audio_device(webrtc::CreateEnvironment(),
-                                     AudioDeviceMode::synthetic);
+    const auto mode =
+        movie_audio_device_mode(config_.role, config_.native_playout);
+    const auto environment = webrtc::CreateEnvironment();
+    auto audio = create_audio_device(environment, mode);
     if (!audio.ok()) {
       fail("audio-device-unavailable");
       return false;
@@ -293,7 +296,7 @@ private:
     }
     peer_ = std::move(created.value());
     peer_->SetAudioRecording(false);
-    peer_->SetAudioPlayout(false);
+    peer_->SetAudioPlayout(config_.native_playout);
     if (config_.role != SignaledRole::host)
       return true;
     local_track_ = runtime_->factory()->CreateAudioTrack("movie-audio", source_.get());
