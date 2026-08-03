@@ -1,4 +1,5 @@
 #include "counting_video_sink.hpp"
+#include "shareme/rtc/movie_timeline.hpp"
 #include "shareme/rtc/movie_video_source.hpp"
 
 #include <chrono>
@@ -88,6 +89,60 @@ void nonzero_pts_is_normalized(const std::filesystem::path &movie_path) {
   REQUIRE(*source->last_pts_ms() >= 5'000);
 }
 
+void shared_timeline_controls_video(const std::filesystem::path &movie_path) {
+  using namespace std::chrono_literals;
+  auto timeline = std::make_shared<shareme::rtc::MovieTimeline>();
+  auto source = shareme::rtc::MovieVideoSource::create(movie_path, timeline);
+  shareme::rtc::CountingVideoSink sink;
+  webrtc::VideoSourceInterface<webrtc::VideoFrame> *video_source = source.get();
+  video_source->AddOrUpdateSink(&sink, webrtc::VideoSinkWants{});
+  REQUIRE(source->start());
+
+  const auto initial_deadline = std::chrono::steady_clock::now() + 2s;
+  while (sink.frame_count() < 5 && source->error().empty() &&
+         std::chrono::steady_clock::now() < initial_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(sink.frame_count() >= 5);
+
+  REQUIRE(timeline->pause());
+  const auto paused_count = sink.frame_count();
+  std::this_thread::sleep_for(150ms);
+  REQUIRE(sink.frame_count() <= paused_count + 1);
+  REQUIRE(timeline->resume());
+  const auto resumed_deadline = std::chrono::steady_clock::now() + 500ms;
+  while (sink.frame_count() <= paused_count + 1 &&
+         std::chrono::steady_clock::now() < resumed_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(sink.frame_count() > paused_count + 1);
+
+  REQUIRE(timeline->seek(6'000));
+  const auto seek_deadline = std::chrono::steady_clock::now() + 1s;
+  while ((!source->last_pts_ms() || *source->last_pts_ms() < 6'000) &&
+         source->error().empty() &&
+         std::chrono::steady_clock::now() < seek_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(source->last_pts_ms().has_value());
+  REQUIRE(*source->last_pts_ms() >= 6'000);
+  const auto first_post_seek_pts = *source->last_pts_ms();
+  std::this_thread::sleep_for(100ms);
+  REQUIRE(*source->last_pts_ms() >= first_post_seek_pts);
+
+  REQUIRE(timeline->seek(5'500));
+  const auto backward_deadline = std::chrono::steady_clock::now() + 1s;
+  while ((!source->last_pts_ms() || *source->last_pts_ms() >= 5'900) &&
+         source->error().empty() &&
+         std::chrono::steady_clock::now() < backward_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(source->last_pts_ms().has_value());
+  REQUIRE(*source->last_pts_ms() >= 5'500);
+  REQUIRE(*source->last_pts_ms() < 5'900);
+  REQUIRE(sink.timestamps_increase());
+
+  source->stop();
+  video_source->RemoveSink(&sink);
+  REQUIRE(source->error().empty());
+}
+
 void stop_interrupts_pts_gap(const std::filesystem::path &movie_path) {
   using namespace std::chrono_literals;
   auto source = shareme::rtc::MovieVideoSource::create(movie_path);
@@ -119,6 +174,7 @@ int main(int argc, char **argv) {
   missing_movie_is_typed_failure(movie_path.parent_path());
   video_less_movie_is_typed_failure(std::filesystem::path{argv[2]});
   nonzero_pts_is_normalized(std::filesystem::path{argv[3]});
+  shared_timeline_controls_video(std::filesystem::path{argv[3]});
   stop_interrupts_pts_gap(std::filesystem::path{argv[4]});
   nonzero_pts_is_normalized(std::filesystem::path{argv[5]});
   return EXIT_SUCCESS;

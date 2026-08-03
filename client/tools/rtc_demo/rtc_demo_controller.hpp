@@ -28,6 +28,12 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(bool viewer READ viewer CONSTANT)
   Q_PROPERTY(QString remotePlaybackState READ remotePlaybackState NOTIFY remotePlaybackChanged)
   Q_PROPERTY(qint64 remotePlaybackPositionMs READ remotePlaybackPositionMs NOTIFY remotePlaybackChanged)
+  Q_PROPERTY(QString hostPlaybackState READ hostPlaybackState NOTIFY hostPlaybackChanged)
+  Q_PROPERTY(qint64 hostPlaybackPositionMs READ hostPlaybackPositionMs NOTIFY hostPlaybackChanged)
+  Q_PROPERTY(qint64 hostPlaybackStartMs READ hostPlaybackStartMs NOTIFY hostPlaybackChanged)
+  Q_PROPERTY(qint64 hostPlaybackDurationMs READ hostPlaybackDurationMs NOTIFY hostPlaybackChanged)
+  Q_PROPERTY(qulonglong hostPlaybackGeneration READ hostPlaybackGeneration NOTIFY hostPlaybackChanged)
+  Q_PROPERTY(bool hostControlsAvailable READ hostControlsAvailable NOTIFY hostPlaybackChanged)
 
 public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
@@ -44,14 +50,24 @@ public:
   [[nodiscard]] bool viewer() const noexcept;
   [[nodiscard]] QString remotePlaybackState() const;
   [[nodiscard]] qint64 remotePlaybackPositionMs() const noexcept;
+  [[nodiscard]] QString hostPlaybackState() const;
+  [[nodiscard]] qint64 hostPlaybackPositionMs() const noexcept;
+  [[nodiscard]] qint64 hostPlaybackStartMs() const noexcept;
+  [[nodiscard]] qint64 hostPlaybackDurationMs() const noexcept;
+  [[nodiscard]] qulonglong hostPlaybackGeneration() const noexcept;
+  [[nodiscard]] bool hostControlsAvailable() const noexcept;
 
   Q_INVOKABLE void setVideoSink(QVideoSink *sink);
   Q_INVOKABLE void start();
+  Q_INVOKABLE void pauseHostPlayback();
+  Q_INVOKABLE void resumeHostPlayback();
+  Q_INVOKABLE void seekHostPlayback(qint64 absolute_pts_ms);
 
 signals:
   void statusChanged();
   void roomIdChanged();
   void remotePlaybackChanged();
+  void hostPlaybackChanged();
 
 private:
   bool createPeer();
@@ -61,6 +77,7 @@ private:
   void setRoomId(QString room_id);
   void deliverRemoteFrame(const webrtc::VideoFrame &frame);
   void publishPlaybackState();
+  void refreshHostPlayback();
   void receiveControlMessage(std::string message);
 
   QUrl server_url_;
@@ -83,6 +100,12 @@ private:
   shareme::tools::PlaybackStateTracker playback_tracker_;
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
+  QString host_playback_state_{QStringLiteral("unavailable")};
+  qint64 host_playback_position_ms_{0};
+  qint64 host_playback_start_ms_{0};
+  qint64 host_playback_duration_ms_{0};
+  qulonglong host_playback_generation_{0};
+  bool host_controls_available_{false};
   bool peer_started_{false};
   bool start_requested_{false};
 };

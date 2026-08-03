@@ -103,18 +103,17 @@ std::optional<PlaybackState> decode_playback_state(const QByteArray &message,
 
 std::optional<PlaybackState> make_movie_playback_state(
     QString room_id, std::uint64_t sequence,
-    std::optional<std::int64_t> last_media_pts_ms,
-    std::int64_t effective_at_host_time_ms, bool ended) {
-  if (!last_media_pts_ms)
-    return std::nullopt;
+    std::int64_t media_pts_ms, std::int64_t effective_at_host_time_ms,
+    MoviePlaybackState playback_state, std::uint64_t generation) {
   PlaybackState state{.room_id = std::move(room_id),
                       .sequence = sequence,
-                      .state = ended ? QStringLiteral("paused")
-                                     : QStringLiteral("playing"),
-                      .media_pts_ms = *last_media_pts_ms,
+                      .state = playback_state == MoviePlaybackState::paused
+                                   ? QStringLiteral("paused")
+                                   : QStringLiteral("playing"),
+                      .media_pts_ms = media_pts_ms,
                       .effective_at_host_time_ms = effective_at_host_time_ms,
                       .rate = 1.0,
-                      .generation = 0};
+                      .generation = generation};
   if (encode_playback_state(state).isEmpty())
     return std::nullopt;
   return state;

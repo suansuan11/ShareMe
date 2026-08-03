@@ -344,6 +344,14 @@ if(TARGET ShareMe::Playback)
     PROPERTIES FIXTURES_SETUP audio_gap_fixture
   )
 
+  add_executable(shareme_movie_timeline_test movie_timeline_test.cpp)
+  target_link_libraries(
+    shareme_movie_timeline_test
+    PRIVATE ShareMe::MovieRTC
+  )
+  shareme_set_project_warnings(shareme_movie_timeline_test)
+  add_test(NAME movie_timeline COMMAND shareme_movie_timeline_test)
+
   add_executable(shareme_movie_video_source_test movie_video_source_test.cpp)
   target_include_directories(
     shareme_movie_video_source_test

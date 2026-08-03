@@ -10,6 +10,8 @@ from pathlib import Path
 
 class RtcDemoCliTest(unittest.TestCase):
     demo = Path()
+    qml = Path()
+    movie_supported = False
 
     def run_demo(self, *arguments: str) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
@@ -82,7 +84,7 @@ class RtcDemoCliTest(unittest.TestCase):
             "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
             "--source", "movie", "--movie", movie, "--movie-audio", "--validate"
         )
-        self.assertEqual(accepted.returncode, 0)
+        self.assertEqual(accepted.returncode, 0 if self.movie_supported else 2)
         missing = self.run_demo(
             "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
             "--source", "movie"
@@ -95,11 +97,24 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertEqual(viewer.returncode, 2)
         self.assertNotIn(movie, viewer.stderr)
 
+    def test_sender_qml_exposes_bounded_host_controls(self):
+        source = self.qml.read_text(encoding="utf-8")
+        self.assertIn("hostControlsAvailable", source)
+        self.assertIn("pauseHostPlayback()", source)
+        self.assertIn("resumeHostPlayback()", source)
+        self.assertIn("seekHostPlayback(", source)
+        self.assertIn("to: Math.max(0, window.controller.hostPlaybackDurationMs)", source)
+        self.assertIn("when: !playbackSlider.pressed", source)
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--demo", type=Path, required=True)
+    parser.add_argument("--qml", type=Path, required=True)
+    parser.add_argument("--movie-supported", action="store_true")
     args, unittest_args = parser.parse_known_args()
     RtcDemoCliTest.demo = args.demo.resolve()
+    RtcDemoCliTest.qml = args.qml.resolve()
+    RtcDemoCliTest.movie_supported = args.movie_supported
     unittest.main(argv=[sys.argv[0], *unittest_args])
     return 0
 

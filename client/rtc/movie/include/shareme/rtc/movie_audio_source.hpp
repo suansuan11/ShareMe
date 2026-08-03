@@ -4,7 +4,6 @@
 #include "shareme/rtc/movie_timeline.hpp"
 
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -56,18 +55,14 @@ public:
 
 private:
   void run(std::stop_token stop_token);
-  bool emit_chunk(const media::PcmChunk &chunk, std::stop_token stop_token);
+  bool emit_chunk(const media::PcmChunk &chunk);
   void set_error(std::string category);
 
   const std::filesystem::path movie_path_;
   const std::shared_ptr<MovieTimeline> timeline_;
   std::unique_ptr<media::PlaybackSession> session_;
   std::unique_ptr<media::PcmChunker> chunker_;
-  MovieTimeline::TimePoint epoch_{};
-  std::int64_t media_start_time_ms_{0};
   std::jthread worker_;
-  std::mutex pacing_mutex_;
-  std::condition_variable_any pacing_changed_;
   std::atomic_bool running_{false};
   std::atomic<std::uint64_t> generated_count_{0};
   std::atomic_bool has_last_pts_{false};
