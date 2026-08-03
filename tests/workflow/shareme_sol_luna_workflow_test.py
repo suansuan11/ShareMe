@@ -10,9 +10,41 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / ".agents/skills/shareme-sol-luna/SKILL.md"
 VALIDATOR = ROOT / "scripts/validate_shareme_skill.py"
+CONFIG = ROOT / ".codex/config.toml"
+LUNA_EXPLORER = ROOT / ".codex/agents/luna_explorer.toml"
+LUNA_IMPLEMENTER = ROOT / ".codex/agents/luna_implementer.toml"
 
 
 class ShareMeSolLunaWorkflowTest(unittest.TestCase):
+    def test_runtime_configuration_is_deterministic_and_bounded(self):
+        self.assertTrue(CONFIG.is_file(), "project Codex configuration is missing")
+        self.assertTrue(LUNA_EXPLORER.is_file(), "Luna explorer configuration is missing")
+        self.assertTrue(LUNA_IMPLEMENTER.is_file(), "Luna implementer configuration is missing")
+        config = CONFIG.read_text(encoding="utf-8")
+        for required in (
+            'model = "gpt-5.6-sol"',
+            'model_reasoning_effort = "medium"',
+            "[agents]",
+            "enabled = true",
+            "max_concurrent_threads_per_session = 1",
+            'default_subagent_model = "gpt-5.6-luna"',
+            'default_subagent_reasoning_effort = "medium"',
+        ):
+            self.assertIn(required, config)
+
+        explorer = LUNA_EXPLORER.read_text(encoding="utf-8")
+        implementer = LUNA_IMPLEMENTER.read_text(encoding="utf-8")
+        for name, agent in (("luna_explorer", explorer), ("luna_implementer", implementer)):
+            with self.subTest(agent=name):
+                self.assertIn(f'name = "{name}"', agent)
+                self.assertRegex(agent, r'description = "[^"\n]+"')
+                self.assertIn('developer_instructions = """', agent)
+                self.assertIn('model = "gpt-5.6-luna"', agent)
+                self.assertIn('model_reasoning_effort = "medium"', agent)
+        self.assertIn('sandbox_mode = "read-only"', explorer)
+        self.assertIn("do not commit", implementer.lower())
+        self.assertRegex(implementer.lower(), r"do not\s+expand scope")
+
     def test_required_files_exist(self):
         required = (
             ROOT / "AGENTS.md",
