@@ -100,6 +100,7 @@ Target capability tier:
 Requested model:
 Requested reasoning effort:
 Selection reason:
+Cost-tier basis:
 Fallback or difference:
 ```
 
@@ -113,14 +114,12 @@ and make no savings claim. Include the exact sentences guarded by Task 1.
 
 ```bash
 python3 -m unittest tests.workflow.shareme_sol_luna_workflow_test -v
-/usr/bin/python3 \
-  /Users/dio/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
-  .agents/skills/shareme-sol-luna
+python3 scripts/validate_shareme_skill.py
 wc -w .agents/skills/shareme-sol-luna/SKILL.md
 git diff --check
 ```
 
-Expected: 5/5 workflow tests pass, `Skill is valid!`, word count is at most
+Expected: 7/7 workflow tests pass, `Skill is valid!`, word count is at most
 500, and the diff check is clean.
 
 - [x] **Step 4: Commit the stable routing policy**
@@ -152,18 +151,18 @@ plan's ignored SDD workspace.
 
 - [x] **Step 2: Independently verify its output**
 
-Sol checks every SHA, path, test count, next-stage statement, and zero-write
-claim against current Git and tracked files. Record routing as verified only if
-the runtime accepted the override and all acceptance facts match. Record
-realized credit saving as unmeasured because per-agent token/credit telemetry
-is unavailable.
+Sol checks every SHA, path, test count, next-stage statement, and Git-visible
+repository change claim against current Git and tracked files. Record routing
+as verified only if the runtime accepted the override and all acceptance facts
+match. Record realized credit saving as unmeasured because per-agent
+token/credit telemetry is unavailable.
 
 - [x] **Step 3: Write the verification document**
 
 Record the dated environment, target/actual requested model, reasoning effort,
-complete task boundary, comparison result, exact repository facts, no-write
-status, and limitations. Historical verification may name the actual model;
-stable skill and role policy must remain model-agnostic.
+complete task boundary, comparison result, exact repository facts,
+Git-visible repository status, and limitations. Historical verification may
+name the actual model; stable skill and role policy must remain model-agnostic.
 
 - [x] **Step 4: Update the current-stage handoff and plan**
 
@@ -207,9 +206,7 @@ and Git scope. Fix all Critical and Important findings and repeat review.
 
 ```bash
 python3 -m unittest tests/workflow/shareme_sol_luna_workflow_test -v
-/usr/bin/python3 \
-  /Users/dio/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
-  .agents/skills/shareme-sol-luna
+python3 scripts/validate_shareme_skill.py
 cmake --preset dev
 cmake --build --preset build-dev
 ctest --preset test-dev --output-on-failure
@@ -218,7 +215,7 @@ git diff --check
 git status --short --branch
 ```
 
-Expected: workflow 5/5, valid skill, portable C++ 6/6, Go race/vet success,
+Expected: workflow 7/7, valid skill, portable C++ 6/6, Go race/vet success,
 clean diff check, and only intentional commits relative to `main`.
 
 - [ ] **Step 4: Push, merge, reverify, and clean up**

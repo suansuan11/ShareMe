@@ -21,6 +21,8 @@ keep high-risk judgment and final acceptance with Sol. Request an explicit
 model and reasoning value when the runtime supports them. If an override is
 unavailable or rejected, inherit the parent, record the fallback, and make no
 savings claim.
+`Cost-tier basis:` records current runtime/account evidence for relative cost
+ordering. If that evidence is absent, cost ordering is unverified.
 Never claim measured credit savings without per-agent usage telemetry.
 Never create duplicate agents merely to save credits.
 
@@ -70,6 +72,7 @@ Target capability tier:
 Requested model:
 Requested reasoning effort:
 Selection reason:
+Cost-tier basis:
 Fallback or difference:
 Goal:
 Allowed scope:
@@ -94,6 +97,10 @@ Commands:
 Tests:
 Risks:
 Open issues:
+Actual model/fallback:
 ```
 
-Sol verifies each command, test claim, and diff before treating the response as evidence.
+Every Luna response states in `Actual model/fallback:` whether the explicit
+request was accepted, rejected, or fell back. Report only the runtime-visible
+outcome; do not imply backend telemetry the agent cannot observe. Sol verifies
+each command, test claim, and diff before treating the response as evidence.
