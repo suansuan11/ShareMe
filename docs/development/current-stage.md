@@ -33,13 +33,23 @@ relying on them; those current sources outrank this summary when they diverge.
   contract test, not product behavior. It adds no new platform acceptance;
   missing platform-specific reruns remain environment-dependent rather than
   silently verified.
+- **Verified — repository workflow:** the workflow contract passed 5/5, the
+  skill validator reported `Skill is valid!`, the portable C++ suite passed
+  6/6, and the signaling server passed `go test -count=1 -race ./...` plus
+  `go vet ./...`. Independent specification and workflow-quality reviews both
+  approved the final contract with no remaining findings.
+- **Verified — preserved dependency cache:** the repository-external Darwin
+  arm64 libwebrtc cache was restored and checked at locked revision
+  `5ad58d70eea10785fab05ba4150e2fe22ecc7f97`, including all required nonempty
+  archives. Its live state must still be rechecked before future cache claims
+  or cleanup decisions.
 
 ## Active stage
 
-Repository automation implementation is active: automatic ShareMe workflow
-discovery, bounded Sol-Luna roles, and this cross-session handoff are being
-delivered on the workflow branch. Acceptance requires the workflow unit test,
-the skill validator, and a clean diff check.
+Repository automation is delivered on the feature branch and ready for
+integration: root `AGENTS.md` activates the repository-owned ShareMe skill,
+bounded Sol-Luna roles, exact review/test permissions, cache safeguards, and
+this cross-session handoff. This stage changes no product behavior.
 
 ## Next recommended stage
 
@@ -54,8 +64,13 @@ claimed platform and scope.
 
 ## Git handoff
 
-- Branch: `codex/shareme-sol-luna-workflow`.
-- Owned worktree: `.worktrees/shareme-sol-luna-workflow`.
-- Keep workflow commits focused and exclude unrelated files.
-- Do not push or merge until the workflow gates pass; push and merge also
-  require user authority under the repository workflow.
+- Workflow integration is authorized after both review gates and complete
+  feature-branch verification pass. Verify the pushed feature and `main` refs,
+  then remove only the owned workflow worktree and local feature branch.
+- Future sessions must rely on the committed root `AGENTS.md`, not an old
+  worktree. New sessions discover it automatically. A session opened before
+  the workflow commit may require reopening the repository or the one-time
+  instruction `重新加载 ShareMe 工作流后继续`; repository files cannot guarantee
+  hot reload in an already-running external session.
+- Keep workflow commits focused and preserve unrelated files and the external
+  libwebrtc cache.

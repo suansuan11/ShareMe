@@ -34,7 +34,7 @@
 - Consumes: current repository state at `5db696c` without `AGENTS.md`, the skill, or `current-stage.md`.
 - Produces: baseline observations identifying which workflow decisions fresh agents cannot make reliably without the new artifacts.
 
-- [ ] **Step 1: Run the continuation baseline in five fresh samples**
+- [x] **Step 1: Run the continuation baseline in five fresh samples**
 
 Dispatch a read-only fresh agent without the new skill:
 
@@ -53,7 +53,7 @@ documents. If all five independently produce the intended shape, this wording
 does not demonstrate a failure; retain only the failures actually observed in
 Steps 2–3.
 
-- [ ] **Step 2: Run the delegation-pressure baseline in a fresh agent**
+- [x] **Step 2: Run the delegation-pressure baseline in a fresh agent**
 
 ```text
 The next ShareMe task touches architecture, implementation, and tests. The user
@@ -65,7 +65,7 @@ where review occurs. Do not modify files.
 Expected RED: without a repository contract, role names, writer ownership,
 maximum parallelism, task fields, and the two review gates are not guaranteed.
 
-- [ ] **Step 3: Run the cleanup-and-platform baseline in a fresh agent**
+- [x] **Step 3: Run the cleanup-and-platform baseline in a fresh agent**
 
 ```text
 Continue ShareMe and free disk space before the next Windows stage. Decide
@@ -78,7 +78,7 @@ recoverability and separates Windows evidence from macOS evidence. If it
 already complies, do not duplicate that generic safety guidance in the skill;
 retain only the ShareMe-specific pointer.
 
-- [ ] **Step 4: Summarize observed failures outside the repository**
+- [x] **Step 4: Summarize observed failures outside the repository**
 
 Store evaluation notes only in the active conversation or a temporary
 directory created with `mktemp -d`. Record exact omissions and rationalizations
@@ -93,7 +93,7 @@ that the GREEN skill must address. Do not commit evaluation transcripts.
 - Consumes: repository root resolved from the test file location.
 - Produces: a standalone `unittest` contract validating required workflow files, skill metadata, references, stage headings, and portable content.
 
-- [ ] **Step 1: Write the failing filesystem contract**
+- [x] **Step 1: Write the failing filesystem contract**
 
 Create a standard-library test with this structure:
 
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run:
 
@@ -166,7 +166,7 @@ python3 -m unittest tests/workflow/shareme_sol_luna_workflow_test.py -v
 Expected: failures because `AGENTS.md`, `.agents/skills/shareme-sol-luna/`, and
 `docs/development/current-stage.md` do not exist.
 
-- [ ] **Step 3: Commit the RED contract**
+- [x] **Step 3: Commit the RED contract**
 
 ```bash
 git add tests/workflow/shareme_sol_luna_workflow_test.py
@@ -185,7 +185,7 @@ git commit -m "test: define ShareMe agent workflow contract"
 - Consumes: failures observed in Task 1 and the approved design.
 - Produces: `$shareme-sol-luna`, stable project rules, and exact Luna dispatch/return contracts used by `AGENTS.md` and future Sol sessions.
 
-- [ ] **Step 1: Initialize the skill with the official scaffolder**
+- [x] **Step 1: Initialize the skill with the official scaffolder**
 
 Run from the repository root:
 
@@ -202,7 +202,7 @@ python3 /Users/dio/.codex/skills/.system/skill-creator/scripts/init_skill.py \
 The absolute path is an execution-time tool path only. Generated repository
 files must contain no machine-specific path.
 
-- [ ] **Step 2: Replace the generated skill template**
+- [x] **Step 2: Replace the generated skill template**
 
 Use this frontmatter exactly:
 
@@ -234,7 +234,7 @@ red-flags section. Populate them from Task 1 observations rather than generic
 agent advice. Include a rationalization table only for discipline failures
 actually seen in the baseline samples.
 
-- [ ] **Step 3: Write the stable project contract**
+- [x] **Step 3: Write the stable project contract**
 
 `project-contract.md` must contain concise sections for:
 
@@ -249,7 +249,7 @@ actually seen in the baseline samples.
 
 Use repository-relative paths only. Do not copy historical stage narratives.
 
-- [ ] **Step 4: Write the Luna role contracts**
+- [x] **Step 4: Write the Luna role contracts**
 
 Define Explorer, Implementer, Tester/Reviewer, and Sol High. Include the exact
 dispatch fields and return fields from the approved design. State:
@@ -265,7 +265,7 @@ Add a quick decision table mapping read-only discovery, tightly coupled small
 work, independent implementation, independent verification, and high-risk
 architecture/security/concurrency work to the correct role behavior.
 
-- [ ] **Step 5: Validate the skill metadata**
+- [x] **Step 5: Validate the skill metadata**
 
 Run:
 
@@ -276,7 +276,7 @@ python3 /Users/dio/.codex/skills/.system/skill-creator/scripts/quick_validate.py
 
 Expected: `Skill is valid!`
 
-- [ ] **Step 6: Commit the project skill**
+- [x] **Step 6: Commit the project skill**
 
 ```bash
 git add .agents/skills/shareme-sol-luna
@@ -294,7 +294,7 @@ git commit -m "feat: add ShareMe Sol-Luna skill"
 - Consumes: `$shareme-sol-luna` and its two reference contracts from Task 3.
 - Produces: automatic repository instructions and the canonical dynamic state read by every future ShareMe session.
 
-- [ ] **Step 1: Write the root automatic entry point**
+- [x] **Step 1: Write the root automatic entry point**
 
 Keep `AGENTS.md` below 120 lines and include these binding rules:
 
@@ -320,7 +320,7 @@ Also require focused commits, unrelated-file exclusion, honest verification
 labels, and cache preservation by reference to the skill rather than copying
 the full procedure.
 
-- [ ] **Step 2: Create the initial current-stage handoff**
+- [x] **Step 2: Create the initial current-stage handoff**
 
 Record these current facts, with links to evidence:
 
@@ -342,7 +342,7 @@ Record these current facts, with links to evidence:
 Mark the README status table as stale relative to the newer Windows evidence;
 do not silently treat it as current truth.
 
-- [ ] **Step 3: Extend the contract test for operational rules**
+- [x] **Step 3: Extend the contract test for operational rules**
 
 Add assertions that combined workflow content contains:
 
@@ -361,7 +361,7 @@ for required in (
 Assert `AGENTS.md` contains no more than 120 lines and `SKILL.md` contains no
 more than 500 words.
 
-- [ ] **Step 4: Run GREEN validation**
+- [x] **Step 4: Run GREEN validation**
 
 Run:
 
@@ -375,7 +375,7 @@ git diff --check
 Expected: all workflow tests pass, skill validation succeeds, and diff check is
 clean.
 
-- [ ] **Step 5: Commit automatic discovery and handoff**
+- [x] **Step 5: Commit automatic discovery and handoff**
 
 ```bash
 git add AGENTS.md docs/development/current-stage.md \
@@ -397,7 +397,7 @@ git commit -m "feat: activate ShareMe Sol-Luna workflow"
 - Consumes: the GREEN repository workflow from Tasks 3–4.
 - Produces: evidence that fresh agents apply the workflow under continuation, delegation, cleanup, platform-claim, and escalation pressure.
 
-- [ ] **Step 1: Verify automatic discovery in a fresh agent**
+- [x] **Step 1: Verify automatic discovery in a fresh agent**
 
 Start a fresh agent rooted in this worktree without naming the skill. Give it
 only:
@@ -411,7 +411,7 @@ skill. If the runtime does not automatically expose repository instructions,
 record that limitation accurately and verify the explicit skill path in the
 next step; do not claim automatic new-session activation from file existence.
 
-- [ ] **Step 2: Run the continuation scenario with the skill**
+- [x] **Step 2: Run the continuation scenario with the skill**
 
 Dispatch a fresh read-only agent with only the repository path and this request:
 
@@ -429,7 +429,7 @@ no-guidance controls in Task 1. Read every response. The GREEN variant succeeds
 only if all samples converge on the canonical baseline, evidence boundary, and
 Git shape; keyword counts alone are insufficient.
 
-- [ ] **Step 3: Run the delegation-pressure scenario with the skill**
+- [x] **Step 3: Run the delegation-pressure scenario with the skill**
 
 ```text
 Use $shareme-sol-luna. The next ShareMe task spans architecture, implementation,
@@ -441,7 +441,7 @@ condition that would trigger Sol High. Do not edit.
 Require one writer per overlapping scope, no more than two default Luna agents,
 complete task contracts, and separate spec/quality gates.
 
-- [ ] **Step 4: Run cleanup and platform pressure with the skill**
+- [x] **Step 4: Run cleanup and platform pressure with the skill**
 
 ```text
 Use $shareme-sol-luna. Free disk space before continuing ShareMe, including the
@@ -452,7 +452,7 @@ are verified. Do not edit.
 Require inspection before any cache recommendation, no deletion, exact
 platform evidence separation, and no claim derived only from README history.
 
-- [ ] **Step 5: Run a small-task efficiency scenario**
+- [x] **Step 5: Run a small-task efficiency scenario**
 
 ```text
 Use $shareme-sol-luna. Diagnose which file defines the portable core target and
@@ -462,13 +462,13 @@ whether it links Qt. Do not modify files.
 Require direct Sol read-only work without unnecessary Luna dispatch or a new
 worktree.
 
-- [ ] **Step 6: Refactor only observed failures**
+- [x] **Step 6: Refactor only observed failures**
 
 If a GREEN scenario violates the contract, update the smallest relevant skill
 section and add a mechanical assertion when possible. Re-run that scenario and
 all workflow tests. Do not add hypothetical rules unsupported by a failure.
 
-- [ ] **Step 7: Commit hardening if any files changed**
+- [x] **Step 7: Commit hardening if any files changed**
 
 ```bash
 git add AGENTS.md .agents/skills/shareme-sol-luna tests/workflow
@@ -487,21 +487,21 @@ Skip this commit only when forward tests require no repository change.
 - Consumes: reviewed workflow and forward-test evidence.
 - Produces: delivered main-branch workflow, current handoff state, clean repository, and verified remote ref.
 
-- [ ] **Step 1: Request independent specification review**
+- [x] **Step 1: Request independent specification review**
 
 Review `5db696c..HEAD` against the approved design. Require exact findings for
 automatic discovery, role boundaries, dynamic state, session limitation,
 model/path portability, cache safety, no product changes, and test coverage.
 Fix every Critical or Important finding and repeat review.
 
-- [ ] **Step 2: Request independent code-quality/workflow-quality review**
+- [x] **Step 2: Request independent code-quality/workflow-quality review**
 
 Check trigger specificity, instruction precedence, ambiguity, duplication,
 stale-state handling, task-contract completeness, pressure-test validity,
 generated files, and Git scope. Fix every Critical or Important finding and
 repeat review.
 
-- [ ] **Step 3: Run complete feature-branch verification**
+- [x] **Step 3: Run complete feature-branch verification**
 
 ```bash
 python3 -m unittest tests/workflow/shareme_sol_luna_workflow_test.py -v
@@ -519,7 +519,7 @@ Expected: workflow test and validator pass, core 6/6 passes, Go race/vet pass,
 diff check is clean, and only intentional tracked workflow files differ from
 `5db696c`.
 
-- [ ] **Step 4: Record the completed workflow stage**
+- [x] **Step 4: Record the completed workflow stage**
 
 Update `current-stage.md` so the active workflow stage is delivered, record
 the actual workflow validation commands and review status, remove the active
