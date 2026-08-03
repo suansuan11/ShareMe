@@ -273,7 +273,7 @@ cmake --build --preset build-movie-call-dev --target shareme_rtc_demo shareme_pl
 ctest --preset test-movie-call-dev -R '^(playback_state|rtc_demo_cli_contract)$' --output-on-failure
 ```
 
-- [ ] **Step 6: Commit host control integration**
+- [x] **Step 6: Commit host control integration**
 
 ```bash
 git add client/tools/rtc_demo/playback_state.* client/tools/rtc_demo/rtc_demo_controller.* client/tools/rtc_demo/qml/Main.qml tests/rtc/playback_state_test.cpp tests/scripts/rtc_demo_cli_test.py
@@ -292,7 +292,7 @@ git commit -m "feat: add host movie playback controls"
 - Consumes: final code/tests from Tasks 1-4.
 - Produces: exact platform evidence, limitations, commits, and next-stage handoff.
 
-- [ ] **Step 1: Run complete macOS verification**
+- [x] **Step 1: Run complete macOS verification**
 
 ```bash
 cmake --build --preset build-movie-call-dev
@@ -305,13 +305,13 @@ python3 scripts/validate_shareme_skill.py
 
 Record exact counts. Do not convert macOS evidence into Windows verification.
 
-- [ ] **Step 2: Review concurrency, lifetime, and Git scope**
+- [x] **Step 2: Review concurrency, lifetime, and Git scope**
 
 Inspect timeline lock ordering, stop interruption, generation discard, audio
 chunk reset, Qt ownership, protocol sequence, and unrelated/generated files.
 Repair every Critical or Important finding and repeat affected tests.
 
-- [ ] **Step 3: Update stage documents**
+- [x] **Step 3: Update stage documents**
 
 Record verified host controls, partial GUI evidence, environment-dependent
 Windows reruns, and unimplemented hard resync/speaker playout. Correct the
