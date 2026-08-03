@@ -6,8 +6,9 @@ relying on them; those current sources outrank this summary when they diverge.
 
 ## Delivered baseline
 
-- The delivered product baseline is commit `5db696c` (`feat: implement Windows
-  desktop sharing`). The current desktop source and tests live under
+- The delivered product baseline now includes receiver-control implementation
+  commit `92060e5` (`feat: add receiver playback state channel`) on the active
+  feature branch. The existing desktop source and tests live under
   [`client/rtc/desktop`](../../client/rtc/desktop/) and
   [`tests/rtc`](../../tests/rtc/).
 - Windows Desktop Duplication hardware capture and the local two-process path
@@ -25,10 +26,9 @@ relying on them; those current sources outrank this summary when they diverge.
 - **Verified — macOS baseline:** this workflow worktree inherits the recorded
   portable-core 6/6 result plus Go race tests and `go vet ./...` from the
   [main delivery verification](../verification/signaled-movie-audio.md#main-delivery-verification).
-- **Stale — README status table:** the
-  [README verification table](../../README.md#验证状态) predates the newer
-  Windows evidence above. In particular, its Windows Qt/FFmpeg and libwebrtc
-  rows are stale and must not be treated as current truth.
+- **Reconciled — README status table:** the active stage updates the
+  [README verification table](../../README.md#验证状态) to reflect the newer
+  Windows evidence and keeps the remaining gaps explicit.
 - This repository-automation stage changes workflow documents and their
   contract test, not product behavior. It adds no new platform acceptance;
   missing platform-specific reruns remain environment-dependent rather than
@@ -51,6 +51,14 @@ relying on them; those current sources outrank this summary when they diverge.
   telemetry were unavailable. The final-review repair passed the workflow
   contract 7/7; both the repository validator and the installed validator
   reported `Skill is valid!` on macOS.
+- **Verified — receiver control automation:** the macOS movie-call build and
+  complete CTest suite passed 37/37, including real two-peer data-channel
+  delivery and playback-state validation. Go race/vet, workflow 7/7, and the
+  skill validator also passed. See
+  [Player / Receiver Control Verification](../verification/player-receiver-control.md).
+- **Partial — local GUI process acceptance:** host and viewer joined the same
+  room and remained healthy, but visual capture was unavailable. Do not claim
+  that this run visually observed the remote frame or QML state label.
 
 ## Active stage
 
@@ -66,11 +74,18 @@ remaining findings, and the merged result passed workflow 7/7, the repository
 validator, portable C++ 6/6, and Go race/vet. It adds no product behavior or
 new platform acceptance.
 
+The active product stage adds host movie selection to the Qt RTC demo plus a
+reliable ordered playback-state channel and read-only receiver display. Its
+implementation commit is `92060e5`; final merge/push status must be checked
+against Git before treating it as delivered on `main`.
+
 ## Next recommended stage
 
-After the workflow is delivered, first reconcile the stale README verification
-table with the newer Windows evidence. Then resume player integration and
-receiver playback control as the next product stage.
+After this slice is merged, the recommended next product stage is
+host-authoritative pause/seek: add controllable movie-source timeline semantics,
+increment generation on seek, and reconcile the viewer through playback-state
+plus a bounded hard-resync command. Keep receiver speaker playout as a separate
+audio-lifecycle stage.
 
 Windows process-loopback audio, TURN operation, measured performance, and
 multi-machine acceptance remain explicit follow-ups. Keep each labeled

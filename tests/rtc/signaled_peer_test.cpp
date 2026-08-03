@@ -266,10 +266,78 @@ int main() {
   REQUIRE(shareme::rtc::valid_remote_candidate(
       "0", 0, "candidate:1 1 udp 1 127.0.0.1 9 typ host"));
   REQUIRE(!shareme::rtc::valid_remote_candidate("", -1, ""));
+  REQUIRE(shareme::rtc::valid_control_message("{\"type\":\"playback-state\"}"));
+  REQUIRE(!shareme::rtc::valid_control_message(""));
+  REQUIRE(!shareme::rtc::valid_control_message(std::string(64 * 1024 + 1, 'x')));
+  REQUIRE(shareme::rtc::valid_control_channel("shareme-control-v1", true,
+                                              true));
+  REQUIRE(!shareme::rtc::valid_control_channel("shareme-control-v1", true,
+                                               false));
+  REQUIRE(!shareme::rtc::valid_control_channel("shareme-control-v1", false,
+                                               true));
+  REQUIRE(!shareme::rtc::valid_control_channel("other", true, true));
+
+  std::unique_ptr<shareme::rtc::SignaledPeer> control_host;
+  std::unique_ptr<shareme::rtc::SignaledPeer> control_viewer;
+  std::promise<std::string> control_message_promise;
+  auto control_message_future = control_message_promise.get_future();
+  shareme::rtc::SignaledPeerCallbacks host_control_callbacks;
+  host_control_callbacks.description = [&](std::string type, std::string sdp) {
+    REQUIRE(control_viewer->receive_description(std::move(type),
+                                                std::move(sdp)));
+  };
+  host_control_callbacks.candidate =
+      [&](std::string mid, int line, std::string candidate) {
+        REQUIRE(control_viewer->receive_candidate(
+            std::move(mid), line, std::move(candidate)));
+      };
+  shareme::rtc::SignaledPeerCallbacks viewer_control_callbacks;
+  viewer_control_callbacks.description =
+      [&](std::string type, std::string sdp) {
+        REQUIRE(control_host->receive_description(std::move(type),
+                                                  std::move(sdp)));
+      };
+  viewer_control_callbacks.candidate =
+      [&](std::string mid, int line, std::string candidate) {
+        REQUIRE(control_host->receive_candidate(
+            std::move(mid), line, std::move(candidate)));
+      };
+  control_viewer = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::viewer,
+       .control_message = [&](std::string message) {
+         control_message_promise.set_value(std::move(message));
+       }},
+      std::move(viewer_control_callbacks));
+  control_host = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::host}, std::move(host_control_callbacks));
+  REQUIRE(control_viewer != nullptr);
+  REQUIRE(control_host != nullptr);
+  REQUIRE(control_viewer->start());
+  REQUIRE(control_host->start());
+  const std::string control_payload{"{\"type\":\"playback-state\"}"};
+  bool control_sent = false;
+  for (int attempt = 0; attempt < 250 && !control_sent; ++attempt) {
+    control_sent = control_host->send_control_message(control_payload);
+    if (!control_sent)
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  REQUIRE(control_sent);
+  REQUIRE(control_message_future.wait_for(std::chrono::seconds(2)) ==
+          std::future_status::ready);
+  REQUIRE(control_message_future.get() == control_payload);
+  control_host->stop();
+  control_viewer->stop();
+
+  auto viewer_only = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::viewer}, {});
+  REQUIRE(viewer_only != nullptr);
+  REQUIRE(!viewer_only->send_control_message("{}"));
+  viewer_only->stop();
   auto peer = shareme::rtc::SignaledPeer::create(
       {.role = SignaledRole::host, .audio_mode = SignaledAudioMode::synthetic},
       {});
   REQUIRE(peer != nullptr);
+  REQUIRE(!peer->send_control_message("{}"));
   REQUIRE(peer->start());
   auto wait_result = std::async(
       std::launch::async, [&] { return peer->wait(std::chrono::seconds(15)); });

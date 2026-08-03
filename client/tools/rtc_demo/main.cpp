@@ -8,6 +8,7 @@
 #include <QVariant>
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 
 namespace {
@@ -15,6 +16,14 @@ namespace {
   std::cout.flush();
   std::cerr.flush();
   std::_Exit(code);
+}
+
+[[nodiscard]] std::filesystem::path local_path(const QString &path) {
+#ifdef _WIN32
+  return std::filesystem::path{path.toStdWString()};
+#else
+  return std::filesystem::path{path.toStdString()};
+#endif
 }
 } // namespace
 
@@ -39,13 +48,23 @@ int main(int argc, char **argv) {
                                  QStringLiteral("Room ID for viewer"),
                                  QStringLiteral("room"));
   QCommandLineOption source_option(QStringList{QStringLiteral("source")},
-                                   QStringLiteral("test or desktop"),
+                                   QStringLiteral("test, desktop, or movie"),
                                    QStringLiteral("source"),
                                    QStringLiteral("test"));
+  QCommandLineOption movie_option(QStringList{QStringLiteral("movie")},
+                                  QStringLiteral("Movie path for a movie host"),
+                                  QStringLiteral("path"));
+  QCommandLineOption movie_audio_option(QStringList{QStringLiteral("movie-audio")},
+                                        QStringLiteral("Send independent movie audio"));
+  QCommandLineOption validate_option(QStringList{QStringLiteral("validate")},
+                                     QStringLiteral("Validate configuration and exit"));
   parser.addOption(server_option);
   parser.addOption(role_option);
   parser.addOption(room_option);
   parser.addOption(source_option);
+  parser.addOption(movie_option);
+  parser.addOption(movie_audio_option);
+  parser.addOption(validate_option);
   if (!parser.parse(app.arguments())) {
     std::cerr << parser.errorText().toStdString() << std::endl;
     exit_cli(2);
@@ -62,12 +81,15 @@ int main(int argc, char **argv) {
        role_text != QStringLiteral("viewer")) ||
       (role_text == QStringLiteral("viewer") &&
        !parser.isSet(room_option)) ||
-      (source_text != QStringLiteral("test") &&
-       source_text != QStringLiteral("desktop")) ||
+      (source_text != QStringLiteral("test") && source_text != QStringLiteral("desktop") &&
+       source_text != QStringLiteral("movie")) ||
       (role_text == QStringLiteral("viewer") &&
-       source_text != QStringLiteral("test"))) {
+       source_text != QStringLiteral("test")) ||
+      (source_text == QStringLiteral("movie") && !parser.isSet(movie_option)) ||
+      (source_text != QStringLiteral("movie") && parser.isSet(movie_option)) ||
+      (parser.isSet(movie_audio_option) && source_text != QStringLiteral("movie"))) {
     std::cerr << "required: --server URL --role host|viewer "
-                 "[--room ROOM] [--source test|desktop]"
+                 "[--room ROOM] [--source test|desktop|movie] [--movie PATH] [--movie-audio]"
               << std::endl;
     exit_cli(2);
   }
@@ -77,13 +99,23 @@ int main(int argc, char **argv) {
     exit_cli(2);
   }
 #endif
+#if !defined(SHAREME_HAS_MOVIE_RTC)
+  if (source_text == QStringLiteral("movie")) {
+    std::cerr << "movie source requires an FFmpeg-enabled build" << std::endl;
+    exit_cli(2);
+  }
+#endif
+  if (parser.isSet(validate_option))
+    exit_cli(0);
 
   const auto role = role_text == QStringLiteral("host")
                         ? shareme::rtc::SignaledRole::host
                         : shareme::rtc::SignaledRole::viewer;
   RtcDemoController controller(QUrl(parser.value(server_option)), role,
                                parser.value(room_option),
-                               source_text == QStringLiteral("desktop"));
+                               source_text == QStringLiteral("desktop"),
+                               local_path(parser.value(movie_option)),
+                               parser.isSet(movie_audio_option));
   QQmlApplicationEngine engine;
   engine.setInitialProperties(
       {{QStringLiteral("controller"), QVariant::fromValue(&controller)}});

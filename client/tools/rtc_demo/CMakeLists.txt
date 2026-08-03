@@ -1,5 +1,5 @@
-set(shareme_rtc_demo_sources main.cpp rtc_demo_controller.cpp
-                             rtc_demo_controller.hpp)
+set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
+                             rtc_demo_controller.cpp rtc_demo_controller.hpp)
 if(WIN32)
   list(APPEND shareme_rtc_demo_sources app.manifest)
 endif()
@@ -35,6 +35,11 @@ target_link_libraries(
     Qt6::QuickControls2
     Qt6::Multimedia
 )
+
+if(TARGET ShareMe::MovieRTC)
+  target_link_libraries(shareme_rtc_demo PRIVATE ShareMe::MovieRTC)
+  target_compile_definitions(shareme_rtc_demo PRIVATE SHAREME_HAS_MOVIE_RTC=1)
+endif()
 
 if(TARGET ShareMe::DesktopRTC)
   target_link_libraries(shareme_rtc_demo PRIVATE ShareMe::DesktopRTC)
