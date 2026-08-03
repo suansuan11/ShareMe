@@ -62,6 +62,8 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             "Every role named for dispatch needs its own fully instantiated contract",
             "Source-read-only test execution may write only explicitly allowed ignored build output",
             '"Do not edit" overrides source-read-only test execution',
+            "Independent review | Filesystem-read-only Tester/Reviewer; no writes",
+            "Independent test execution | Source-read-only Tester/Reviewer; builds only with explicit ignored build-output scope",
             "verified",
             "environment-dependent",
             "libwebrtc",
