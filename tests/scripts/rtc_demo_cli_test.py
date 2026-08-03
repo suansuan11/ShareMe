@@ -112,6 +112,11 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("movie-audio-session-description", source)
         self.assertIn("movie-audio-ice-candidate", source)
 
+    def test_controller_enables_native_movie_playout_for_viewers(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("movie_config.native_playout =", source)
+        self.assertIn("role_ == shareme::rtc::SignaledRole::viewer", source)
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--demo", type=Path, required=True)

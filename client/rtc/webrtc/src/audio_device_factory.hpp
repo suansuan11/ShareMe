@@ -13,6 +13,7 @@ namespace shareme::rtc {
 enum class AudioDeviceMode {
   synthetic,
   microphone,
+  playout,
 };
 
 enum class AudioSourceKind {
@@ -28,6 +29,7 @@ enum class AudioProcessingPolicy {
 
 enum class RemotePlayoutPolicy {
   discard,
+  native,
 };
 
 enum class AudioDeviceError {

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "api/ref_counted_base.h"
+#include "movie_audio_peer_policy.hpp"
 #include "shareme/rtc/local_audio_source.hpp"
 
 namespace {
@@ -112,6 +113,11 @@ int main() {
               MovieAudioPeerConfig{.role = SignaledRole::viewer,
                                    .source_factory = fake_factory},
               {}) == nullptr);
+  REQUIRE(MovieAudioPeer::create(
+              MovieAudioPeerConfig{.role = SignaledRole::host,
+                                   .source_factory = fake_factory,
+                                   .native_playout = true},
+              {}) == nullptr);
 
   std::unique_ptr<MovieAudioPeer> host;
   std::unique_ptr<MovieAudioPeer> viewer;
@@ -171,4 +177,13 @@ int main() {
   viewer->stop();
   viewer->stop();
   REQUIRE(fake_state->stop_count.load() == 1);
+
+  REQUIRE(shareme::rtc::movie_audio_device_mode(
+              SignaledRole::viewer, true) ==
+          shareme::rtc::AudioDeviceMode::playout);
+  REQUIRE(shareme::rtc::movie_audio_device_mode(
+              SignaledRole::viewer, false) ==
+          shareme::rtc::AudioDeviceMode::synthetic);
+  REQUIRE(shareme::rtc::movie_audio_device_mode(SignaledRole::host, false) ==
+          shareme::rtc::AudioDeviceMode::synthetic);
 }

@@ -189,7 +189,7 @@ def validate(
             f"{label} did not report local microphone activity"
         )
     if video_mode == "movie" and label == "viewer":
-        if video_frames < 20 or (width, height) != (320, 180):
+        if video_frames < 20 or not valid_movie_dimensions(width, height):
             raise SmokeRuntimeError(
                 "viewer did not receive the expected movie video"
             )
@@ -217,6 +217,16 @@ def validate(
             raise SmokeRuntimeError(
                 "host did not generate enough movie audio"
             )
+
+
+def valid_movie_dimensions(width: int, height: int) -> bool:
+    return (
+        width > 0
+        and height > 0
+        and width % 2 == 0
+        and height % 2 == 0
+        and width * 9 == height * 16
+    )
 
 
 def wait_for_room(

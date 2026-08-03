@@ -84,8 +84,15 @@ AudioSourceKind source_kind(AudioDeviceMode mode) noexcept {
     return AudioSourceKind::synthetic;
   case AudioDeviceMode::microphone:
     return AudioSourceKind::microphone;
+  case AudioDeviceMode::playout:
+    return AudioSourceKind::movie;
   }
   return AudioSourceKind::synthetic;
+}
+
+RemotePlayoutPolicy remote_playout_policy(AudioDeviceMode mode) noexcept {
+  return mode == AudioDeviceMode::playout ? RemotePlayoutPolicy::native
+                                          : RemotePlayoutPolicy::discard;
 }
 
 AudioDeviceResult failure(AudioDeviceMode mode, AudioDeviceError error,
@@ -94,7 +101,7 @@ AudioDeviceResult failure(AudioDeviceMode mode, AudioDeviceError error,
       .device = nullptr,
       .mode = mode,
       .processing = audio_processing_policy(source_kind(mode)),
-      .remote_playout = RemotePlayoutPolicy::discard,
+      .remote_playout = remote_playout_policy(mode),
       .error = error,
       .message = std::move(message),
   };
@@ -144,6 +151,32 @@ AudioDeviceResult initialize_recording_device(
     };
   }
 
+  if (mode == AudioDeviceMode::playout && !native_initializer) {
+    const auto playout_devices = device->PlayoutDevices();
+    if (playout_devices <= 0) {
+      return terminate_on_failure(
+          AudioDeviceError::dependency_unavailable,
+          "no native speaker playout device is available");
+    }
+    native_initializer = [](webrtc::AudioDeviceModule &native_device) {
+#if defined(WEBRTC_WIN)
+      const auto selection_result = native_device.SetPlayoutDevice(
+          webrtc::AudioDeviceModule::kDefaultDevice);
+#else
+      const auto selection_result =
+          native_device.SetPlayoutDevice(static_cast<std::uint16_t>(0));
+#endif
+      if (selection_result != 0 || native_device.InitSpeaker() != 0 ||
+          native_device.SetStereoPlayout(true) != 0 ||
+          native_device.InitPlayout() != 0) {
+        return NativeAudioInitializationResult::failure(
+            AudioDeviceError::initialization_failed,
+            "native speaker playout initialization failed");
+      }
+      return NativeAudioInitializationResult::success();
+    };
+  }
+
   if (mode == AudioDeviceMode::microphone) {
     NativeAudioInitializationResult initialization;
     try {
@@ -166,6 +199,28 @@ AudioDeviceResult initialize_recording_device(
           AudioDeviceError::initialization_failed,
           "native initializer returned success without recording readiness");
     }
+  } else if (mode == AudioDeviceMode::playout) {
+    NativeAudioInitializationResult initialization;
+    try {
+      initialization = native_initializer(*device);
+    } catch (const std::exception &) {
+      return terminate_on_failure(
+          AudioDeviceError::initialization_failed,
+          "native speaker initializer raised an exception");
+    } catch (...) {
+      return terminate_on_failure(
+          AudioDeviceError::initialization_failed,
+          "native speaker initializer raised an exception");
+    }
+    if (!initialization.ok()) {
+      return terminate_on_failure(initialization.error,
+                                  std::move(initialization.message));
+    }
+    if (!device->PlayoutIsInitialized() || device->RecordingIsInitialized()) {
+      return terminate_on_failure(
+          AudioDeviceError::initialization_failed,
+          "native initializer returned invalid speaker playout readiness");
+    }
   } else if (device->InitRecording() != 0) {
     return terminate_on_failure(AudioDeviceError::initialization_failed,
                                 "synthetic recording initialization failed");
@@ -175,7 +230,7 @@ AudioDeviceResult initialize_recording_device(
       .device = std::move(device),
       .mode = mode,
       .processing = audio_processing_policy(source_kind(mode)),
-      .remote_playout = RemotePlayoutPolicy::discard,
+      .remote_playout = remote_playout_policy(mode),
       .error = AudioDeviceError::none,
       .message = {},
   };
@@ -271,7 +326,7 @@ create_audio_device(const webrtc::Environment &environment,
     return initialize_recording_device(std::move(device), mode);
   }
 
-  if (permission_preflight) {
+  if (mode == AudioDeviceMode::microphone && permission_preflight) {
     MicrophonePermissionStatus permission_status;
     try {
       permission_status = permission_preflight();

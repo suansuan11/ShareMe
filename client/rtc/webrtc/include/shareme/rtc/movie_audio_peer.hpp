@@ -13,6 +13,7 @@ namespace shareme::rtc {
 struct MovieAudioPeerConfig {
   SignaledRole role{SignaledRole::host};
   LocalAudioSourceFactory source_factory;
+  bool native_playout{};
 };
 
 struct MovieAudioPeerResult {
