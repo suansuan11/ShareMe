@@ -24,8 +24,7 @@ tests, and verification evidence before relying on it.
 ## Active stage
 
 Movie-audio transport isolation is merged on `main` through `2d806a5`.
-Receiver native movie-audio playout is implemented on
-`codex/receiver-movie-audio-playout` and is undergoing final stage verification.
+Receiver native movie-audio playout is merged on `main` through `46710c7`.
 Host-authoritative movie pause, resume, and seek remain the merged baseline
 through `48e4d27`.
 
@@ -87,7 +86,8 @@ without faking synchronization.
 
 - `codex/movie-audio-isolation` has no unique commits relative to `main`; it is
   fully merged and retained only as a linked historical worktree.
-- `codex/receiver-movie-audio-playout` is the current unmerged stage branch.
+- `codex/receiver-movie-audio-playout` has been integrated through merge
+  `46710c7`; the linked branch remains local stage evidence.
 - The Luna parallelism refinement is an unmerged, unpushed focused branch with
   separate RED-test, policy, and handoff commits. Keep its runtime dispatch
   evidence environment-dependent until a fresh ShareMe task accepts Luna.
