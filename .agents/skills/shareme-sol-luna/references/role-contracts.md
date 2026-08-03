@@ -11,6 +11,32 @@ Implementers for one overlapping scope: 1
 
 Parallel work is limited to independent read-only discovery or independent verification. Keep implementation sequential even when scopes appear independent.
 
+## Dynamic model routing
+
+Before every Luna dispatch, Sol inspects the model choices exposed by the current
+runtime and selects the least expensive adequate capability tier. Skip
+delegation when coordination cost exceeds its benefit. Use low-cost routing for
+bounded exploration, routine tests, and narrowly specified implementation;
+keep high-risk judgment and final acceptance with Sol. Request an explicit
+model and reasoning value when the runtime supports them. If an override is
+unavailable or rejected, inherit the parent, record the fallback, and make no
+savings claim. Never claim measured credit savings without per-agent usage telemetry. Never create duplicate agents merely to save credits.
+
+Record this live dispatch metadata; stable policy never pins model slugs or
+prices:
+
+```text
+Target capability tier:
+Requested model:
+Requested reasoning effort:
+Selection reason:
+Fallback or difference:
+```
+
+Use balanced reasoning for ordinary Luna work; raise it only for a bounded task
+that needs deeper edge-case analysis. Routing does not broaden filesystem, Git,
+cache, or product authority.
+
 ## Decision table
 
 | Work shape | Role behavior |
