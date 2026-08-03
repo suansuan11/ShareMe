@@ -9,7 +9,11 @@ tests, and verification evidence before relying on it.
 - The simplified repository workflow is merged on `main` through `834c917`.
   This corrects the previous stale claim that the workflow branch was awaiting
   authorization. Root `AGENTS.md`, the ShareMe skill, Sol/Luna role files, and
-  the one-child configuration are active for new trusted ShareMe tasks.
+  the two-child configuration are active for new trusted ShareMe tasks.
+- The two-Luna policy refinement is delivered on
+  `codex/shareme-luna-parallelism`: the project cap is two independent Luna
+  tasks, Luna/medium role configuration is unchanged, and one writer remains
+  mandatory for every implementation scope.
 - The deterministic ShareMe workflow stage is delivered on
   `codex/shareme-workflow-simplify` and integrated by that merge. The remote
   branch remains historical backup evidence, not pending work.
@@ -53,6 +57,11 @@ for exact proof and evidence boundaries.
   collision or AudioSendStream race diagnostic.
 - **Verified — signaling/workflow:** Go `-race`, Go vet, workflow 8/8, and the
   repository skill validator passed.
+- **Verified — Luna parallelism policy:** static workflow tests confirm the
+  two-task cap, independent read-only parallel work, and one-writer invariant.
+  Actual Luna dispatch remains **Environment-dependent**: a runtime that
+  rejects Luna must not silently substitute Terra or be treated as a successful
+  Luna configuration check.
 - **Verified — cache preservation:** the repository-external Darwin arm64
   libwebrtc cache was used read-only; it was not cleaned, rewritten, or staged.
 - **Partial — GUI:** QML compiled and control bindings have an automated
@@ -74,6 +83,9 @@ speaker playout as a separate audio-lifecycle stage.
 
 - The movie-audio isolation branch is not yet merged or pushed. Its focused
   commits and final verification commit are the current handoff boundary.
+- The Luna parallelism refinement is an unmerged, unpushed focused branch with
+  separate RED-test, policy, and handoff commits. Keep its runtime dispatch
+  evidence environment-dependent until a fresh ShareMe task accepts Luna.
 - The repository-external libwebrtc cache was preserved and used read-only.
 - Keep Windows results environment-dependent until that machine reruns the
   affected configuration.
