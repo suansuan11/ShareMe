@@ -10,6 +10,9 @@ tests, and verification evidence before relying on it.
   This corrects the previous stale claim that the workflow branch was awaiting
   authorization. Root `AGENTS.md`, the ShareMe skill, Sol/Luna role files, and
   the one-child configuration are active for new trusted ShareMe tasks.
+- The deterministic ShareMe workflow stage is delivered on
+  `codex/shareme-workflow-simplify` and integrated by that merge. The remote
+  branch remains historical backup evidence, not pending work.
 - Windows movie/microphone regression and Desktop Duplication evidence remain
   recorded in their linked verification documents; this macOS stage does not
   replace or extend those Windows claims.
@@ -39,9 +42,8 @@ for exact proof and evidence boundaries.
 - **Verified — macOS movie-call:** full build and CTest passed 38/38.
 - **Verified — signaling/workflow:** Go `-race`, Go vet, workflow 8/8, and the
   repository skill validator passed.
-- **Verified — cache preservation:**
-  `/Users/dio/Library/Caches/ShareMe/webrtc` was used read-only; it was not
-  cleaned, rewritten, or staged.
+- **Verified — cache preservation:** the repository-external Darwin arm64
+  libwebrtc cache was used read-only; it was not cleaned, rewritten, or staged.
 - **Partial — GUI:** QML compiled and control bindings have an automated
   contract, but no human visual acceptance is claimed for this run.
 - **Environment-dependent — Windows:** rerun native movie-call build/tests and
