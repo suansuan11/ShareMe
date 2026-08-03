@@ -30,7 +30,7 @@
 - Consumes: the combined content of `AGENTS.md`, `SKILL.md`, `current-stage.md`, and skill references.
 - Produces: contract assertions that fail until stable dynamic routing and honest credit-reporting rules exist.
 
-- [ ] **Step 1: Add required routing phrases**
+- [x] **Step 1: Add required routing phrases**
 
 Extend `test_workflow_is_portable_and_complete` with these exact required
 strings:
@@ -53,7 +53,7 @@ self.assertNotRegex(combined, r"gpt-[0-9]")
 self.assertFalse((ROOT / ".codex/config.toml").exists())
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -65,7 +65,7 @@ python3 -m unittest \
 Expected: failure on the first missing routing phrase, proving inherited-model
 behavior is not yet protected by the repository contract.
 
-- [ ] **Step 3: Commit the RED contract**
+- [x] **Step 3: Commit the RED contract**
 
 ```bash
 git add tests/workflow/shareme_sol_luna_workflow_test.py
@@ -83,7 +83,7 @@ git commit -m "test: define dynamic Luna routing contract"
 - Consumes: Task 1's exact routing assertions and the approved design.
 - Produces: a model-agnostic runtime selection procedure plus mandatory live dispatch metadata.
 
-- [ ] **Step 1: Add the skill-level routing step**
+- [x] **Step 1: Add the skill-level routing step**
 
 Before every Luna dispatch, require Sol to inspect the model choices exposed by
 the current runtime, select the least expensive adequate capability tier, and
@@ -91,7 +91,7 @@ read the role contract. State that delegation is skipped when coordination
 cost exceeds its benefit. Refactor existing wording so `SKILL.md` remains at
 or below 500 words.
 
-- [ ] **Step 2: Add the role-contract routing section**
+- [x] **Step 2: Add the role-contract routing section**
 
 Add a `Dynamic model routing` section that requires:
 
@@ -109,7 +109,7 @@ Sol. Require an explicit model and reasoning value when supported. If an
 override is unavailable or rejected, inherit the parent, record the fallback,
 and make no savings claim. Include the exact sentences guarded by Task 1.
 
-- [ ] **Step 3: Run GREEN validation**
+- [x] **Step 3: Run GREEN validation**
 
 ```bash
 python3 -m unittest tests.workflow.shareme_sol_luna_workflow_test -v
@@ -123,7 +123,7 @@ git diff --check
 Expected: 5/5 workflow tests pass, `Skill is valid!`, word count is at most
 500, and the diff check is clean.
 
-- [ ] **Step 4: Commit the stable routing policy**
+- [x] **Step 4: Commit the stable routing policy**
 
 ```bash
 git add .agents/skills/shareme-sol-luna/SKILL.md \
@@ -142,7 +142,7 @@ git commit -m "feat: route Luna work by runtime capability"
 - Consumes: the stable policy from Task 2 and a fresh runtime with explicit model override support.
 - Produces: dated routing/quality evidence, an honest credit-measurement label, and a future-session handoff.
 
-- [ ] **Step 1: Dispatch one fresh low-cost Luna Explorer**
+- [x] **Step 1: Dispatch one fresh low-cost Luna Explorer**
 
 Use the complete role contract and explicitly select the current lower-cost
 adequate model plus balanced reasoning. The task must be filesystem-read-only:
@@ -150,7 +150,7 @@ verify `HEAD`, `origin/main`, Windows evidence, stale README statements, and
 the canonical next stage. Save the full prompt and response only in this
 plan's ignored SDD workspace.
 
-- [ ] **Step 2: Independently verify its output**
+- [x] **Step 2: Independently verify its output**
 
 Sol checks every SHA, path, test count, next-stage statement, and zero-write
 claim against current Git and tracked files. Record routing as verified only if
@@ -158,20 +158,20 @@ the runtime accepted the override and all acceptance facts match. Record
 realized credit saving as unmeasured because per-agent token/credit telemetry
 is unavailable.
 
-- [ ] **Step 3: Write the verification document**
+- [x] **Step 3: Write the verification document**
 
 Record the dated environment, target/actual requested model, reasoning effort,
 complete task boundary, comparison result, exact repository facts, no-write
 status, and limitations. Historical verification may name the actual model;
 stable skill and role policy must remain model-agnostic.
 
-- [ ] **Step 4: Update the current-stage handoff and plan**
+- [x] **Step 4: Update the current-stage handoff and plan**
 
 Mark dynamic Luna routing delivered on the feature branch, link the verification
 document, retain README reconciliation as the immediate next stage, and check
 only plan actions already completed.
 
-- [ ] **Step 5: Commit verification and handoff**
+- [x] **Step 5: Commit verification and handoff**
 
 ```bash
 git add docs/verification/shareme-dynamic-luna-routing.md \

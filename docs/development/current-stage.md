@@ -43,6 +43,12 @@ relying on them; those current sources outrank this summary when they diverge.
   `5ad58d70eea10785fab05ba4150e2fe22ecc7f97`, including all required nonempty
   archives. Its live state must still be rechecked before future cache claims
   or cleanup decisions.
+- **Verified — dynamic Luna routing:** the feature branch records one fresh,
+  filesystem-read-only lower-cost-model audit whose explicit override and
+  response quality Sol independently verified. See
+  [Dynamic Luna Model Routing Verification](../verification/shareme-dynamic-luna-routing.md).
+  Realized credit savings are unmeasured because per-agent token and credit
+  telemetry were unavailable.
 
 ## Active stage
 
@@ -51,6 +57,11 @@ root `AGENTS.md` activates the repository-owned ShareMe skill, bounded Sol-Luna
 roles, exact review/test permissions, cache safeguards, and this cross-session
 handoff. The merged result passed the complete verification listed above. This
 stage changes no product behavior.
+
+The follow-on dynamic-routing policy and its dated audit are delivered on the
+feature branch at `52c3daa` plus the verification/handoff commit. They remain
+unintegrated until the separate Task 4 review and merge boundary; they add no
+product behavior or new platform acceptance.
 
 ## Next recommended stage
 
