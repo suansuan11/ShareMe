@@ -127,18 +127,6 @@ MovieTimeline::wait_until(std::int64_t target_pts_ms,
   return MovieTimelineWaitResult::stopped;
 }
 
-MovieTimeline::TimePoint MovieTimeline::start() {
-  std::lock_guard lock(mutex_);
-  if (!legacy_epoch_)
-    legacy_epoch_ = Clock::now();
-  return *legacy_epoch_;
-}
-
-std::optional<MovieTimeline::TimePoint> MovieTimeline::epoch() const {
-  std::lock_guard lock(mutex_);
-  return legacy_epoch_;
-}
-
 std::int64_t MovieTimeline::current_pts_locked(TimePoint now) const noexcept {
   if (state_ == MovieTimelineState::paused || now <= anchor_time_)
     return anchor_pts_ms_;

@@ -36,17 +36,11 @@ public:
   wait_until(std::int64_t target_pts_ms, std::uint64_t generation,
              std::stop_token stop_token) const;
 
-  // Compatibility for the current fixed-epoch sources. Removed when both
-  // sources migrate to the controllable timeline.
-  [[nodiscard]] TimePoint start();
-  [[nodiscard]] std::optional<TimePoint> epoch() const;
-
 private:
   [[nodiscard]] std::int64_t current_pts_locked(TimePoint now) const noexcept;
 
   mutable std::mutex mutex_;
   mutable std::condition_variable_any changed_;
-  std::optional<TimePoint> legacy_epoch_;
   bool initialized_{false};
   MovieTimelineState state_{MovieTimelineState::paused};
   std::int64_t start_pts_ms_{};

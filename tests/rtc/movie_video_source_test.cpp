@@ -127,6 +127,17 @@ void shared_timeline_controls_video(const std::filesystem::path &movie_path) {
   std::this_thread::sleep_for(100ms);
   REQUIRE(*source->last_pts_ms() >= first_post_seek_pts);
 
+  REQUIRE(timeline->seek(5'500));
+  const auto backward_deadline = std::chrono::steady_clock::now() + 1s;
+  while ((!source->last_pts_ms() || *source->last_pts_ms() >= 5'900) &&
+         source->error().empty() &&
+         std::chrono::steady_clock::now() < backward_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(source->last_pts_ms().has_value());
+  REQUIRE(*source->last_pts_ms() >= 5'500);
+  REQUIRE(*source->last_pts_ms() < 5'900);
+  REQUIRE(sink.timestamps_increase());
+
   source->stop();
   video_source->RemoveSink(&sink);
   REQUIRE(source->error().empty());

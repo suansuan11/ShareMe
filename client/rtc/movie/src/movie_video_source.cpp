@@ -251,18 +251,18 @@ bool MovieVideoSource::emit_frame(const media::VideoFrame &frame) {
   }
 
   const auto rtp_timestamp = static_cast<std::uint32_t>(
-      static_cast<std::uint64_t>(std::max<std::int64_t>(0, frame.pts_ms)) *
-      90U);
+      static_cast<std::uint64_t>(std::max<std::int64_t>(0, timestamp_us)) *
+      90U / 1'000U);
   const auto video_frame = webrtc::VideoFrame::Builder()
                                .set_video_frame_buffer(output)
                                .set_timestamp_us(timestamp_us)
                                .set_rtp_timestamp(rtp_timestamp)
                                .set_rotation(webrtc::kVideoRotation_0)
                                .build();
-  OnFrame(video_frame);
   last_timestamp_us_.store(timestamp_us, std::memory_order_relaxed);
   last_pts_ms_.store(frame.pts_ms, std::memory_order_relaxed);
   has_last_pts_.store(true, std::memory_order_release);
+  OnFrame(video_frame);
   generated_count_.fetch_add(1, std::memory_order_relaxed);
   return true;
 }

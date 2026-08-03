@@ -128,13 +128,16 @@ private:
 class TimedVideoSink final
     : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
 public:
+  explicit TimedVideoSink(const shareme::rtc::MovieVideoSource *source)
+      : source_(source) {}
+
   void OnFrame(const webrtc::VideoFrame &frame) override {
     {
       std::lock_guard lock(mutex_);
       if (!first_callback_at_)
         first_callback_at_ = std::chrono::steady_clock::now();
       timed_samples_.push_back(TimedMediaSample{
-          static_cast<std::int64_t>(frame.rtp_timestamp() / 90U),
+          source_->last_pts_ms().value_or(0),
           std::chrono::steady_clock::now()});
     }
     sink_.OnFrame(frame);
@@ -156,6 +159,7 @@ public:
   }
 
 private:
+  const shareme::rtc::MovieVideoSource *source_;
   shareme::rtc::CountingVideoSink sink_;
   mutable std::mutex mutex_;
   std::optional<std::chrono::steady_clock::time_point> first_callback_at_;
@@ -189,16 +193,6 @@ void require_overlapping_tracks_are_synchronized(
     ++matched_video_frames;
   }
   REQUIRE(matched_video_frames >= 20);
-}
-
-void shared_epoch_is_stable() {
-  auto timeline = std::make_shared<shareme::rtc::MovieTimeline>();
-  const auto first = timeline->start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  const auto second = timeline->start();
-  REQUIRE(first == second);
-  REQUIRE(timeline->epoch().has_value());
-  REQUIRE(*timeline->epoch() == first);
 }
 
 void source_is_live_and_disables_voice_processing(
@@ -301,6 +295,18 @@ void shared_timeline_controls_audio(const std::filesystem::path &movie_path) {
   std::this_thread::sleep_for(100ms);
   REQUIRE(*source->last_pts_ms() >= first_post_seek_pts);
 
+  REQUIRE(timeline->seek(snapshot->start_pts_ms + 500));
+  const auto backward_deadline = std::chrono::steady_clock::now() + 1s;
+  while ((!source->last_pts_ms() ||
+          *source->last_pts_ms() >= snapshot->start_pts_ms + 900) &&
+         source->error().empty() &&
+         std::chrono::steady_clock::now() < backward_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(source->last_pts_ms().has_value());
+  REQUIRE(*source->last_pts_ms() >= snapshot->start_pts_ms + 500);
+  REQUIRE(*source->last_pts_ms() < snapshot->start_pts_ms + 900);
+  REQUIRE(sink.timestamps_monotonic());
+
   source->stop();
   source->RemoveSink(&sink);
   REQUIRE(source->error().empty());
@@ -375,7 +381,7 @@ void shared_timeline_preserves_track_offset(
   auto video =
       shareme::rtc::MovieVideoSource::create(staggered_path, timeline);
   CountingPcmSink audio_sink{audio.get()};
-  TimedVideoSink video_sink;
+  TimedVideoSink video_sink{video.get()};
   audio->AddSink(&audio_sink);
   webrtc::VideoSourceInterface<webrtc::VideoFrame> *video_interface =
       video.get();
@@ -423,7 +429,6 @@ void shared_timeline_preserves_track_offset(
 int main(int argc, char **argv) {
   REQUIRE(argc == 7);
   const std::filesystem::path movie_path{argv[1]};
-  shared_epoch_is_stable();
   source_is_live_and_disables_voice_processing(movie_path);
   emits_exact_pcm_chunks(movie_path);
   shared_timeline_controls_audio(movie_path);
