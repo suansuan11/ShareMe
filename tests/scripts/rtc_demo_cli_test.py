@@ -30,8 +30,10 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("--role", result.stdout)
         self.assertIn("--room", result.stdout)
         self.assertIn("--source", result.stdout)
-        self.assertIn("test or desktop", result.stdout)
+        self.assertIn("test, desktop, or movie", result.stdout)
         self.assertIn("host or viewer", result.stdout)
+        self.assertIn("--movie", result.stdout)
+        self.assertIn("--movie-audio", result.stdout)
 
     def test_missing_required_options_is_usage_error(self):
         self.assertEqual(self.run_demo().returncode, 2)
@@ -68,11 +70,30 @@ class RtcDemoCliTest(unittest.TestCase):
             "--role",
             "viewer",
             "--room",
-            "ROOM1",
+            "ABC234",
             "--source",
             "desktop",
         )
         self.assertEqual(viewer.returncode, 2)
+
+    def test_movie_source_contract_and_path_redaction(self):
+        movie = "/private/super-secret-movie.mp4"
+        accepted = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "movie", "--movie", movie, "--movie-audio", "--validate"
+        )
+        self.assertEqual(accepted.returncode, 0)
+        missing = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "movie"
+        )
+        self.assertEqual(missing.returncode, 2)
+        viewer = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "viewer",
+            "--room", "ABC234", "--source", "movie", "--movie", movie
+        )
+        self.assertEqual(viewer.returncode, 2)
+        self.assertNotIn(movie, viewer.stderr)
 
 def main() -> int:
     parser = argparse.ArgumentParser()

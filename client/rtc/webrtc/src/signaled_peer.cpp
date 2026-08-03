@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "api/environment/environment_factory.h"
+#include "api/data_channel_interface.h"
 #include "api/jsep.h"
 #include "api/media_stream_interface.h"
 #include "api/peer_connection_interface.h"
@@ -32,6 +33,8 @@
 
 namespace shareme::rtc {
 namespace {
+constexpr std::string_view kControlChannelLabel{"shareme-control-v1"};
+constexpr std::size_t kMaximumControlMessageBytes = 64 * 1024;
 struct PendingCandidate {
   std::string mid;
   int line{};
@@ -165,6 +168,13 @@ bool valid_remote_candidate(std::string_view mid, int line,
                             std::string_view candidate) noexcept {
   return !mid.empty() && line >= 0 && !candidate.empty();
 }
+bool valid_control_message(std::string_view message) noexcept {
+  return !message.empty() && message.size() <= kMaximumControlMessageBytes;
+}
+bool valid_control_channel(std::string_view label, bool ordered,
+                           bool reliable) noexcept {
+  return label == kControlChannelLabel && ordered && reliable;
+}
 bool is_expected_voice_rtp_track(SignaledRole role, bool outbound,
                                  std::string_view track_identifier) noexcept {
   const auto local =
@@ -290,6 +300,19 @@ public:
         });
     return true;
   }
+  bool send_control_message(std::string message) {
+    if (role_ != SignaledRole::host || !valid_control_message(message) ||
+        !runtime_ || !runtime_->signaling_thread() ||
+        !runtime_->signaling_thread()->RunningForTest())
+      return false;
+    return runtime_->signaling_thread()->BlockingCall(
+        [this, message = std::move(message)] {
+          if (!control_channel_ || control_channel_->state() !=
+                                       webrtc::DataChannelInterface::kOpen)
+            return false;
+          return control_channel_->Send(webrtc::DataBuffer(message));
+        });
+  }
   SignaledPeerResult wait(std::chrono::milliseconds timeout) {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
     std::optional<std::chrono::steady_clock::time_point> media_ready;
@@ -373,6 +396,10 @@ public:
           remote_video_->RemoveSink(&sink_);
         if (remote_movie_audio_)
           remote_movie_audio_->RemoveSink(&movie_audio_sink_);
+        if (control_channel_ && control_observer_)
+          control_channel_->UnregisterObserver();
+        control_observer_.reset();
+        control_channel_ = nullptr;
         peer_ = nullptr;
         remote_video_ = nullptr;
         remote_audio_ = nullptr;
@@ -391,13 +418,34 @@ public:
   ~Impl() { stop(); }
 
 private:
+  class ControlObserver final : public webrtc::DataChannelObserver {
+  public:
+    explicit ControlObserver(Impl &owner) : owner_(owner) {}
+    void OnStateChange() override {}
+    void OnMessage(const webrtc::DataBuffer &buffer) override {
+      if (!owner_.callbacks_active_->load(std::memory_order_acquire) ||
+          buffer.binary || buffer.data.empty() ||
+          buffer.data.size() > kMaximumControlMessageBytes)
+        return;
+      const auto message = std::string(
+          reinterpret_cast<const char *>(buffer.data.data()), buffer.data.size());
+      if (owner_.config_.control_message)
+        owner_.config_.control_message(message);
+    }
+    void OnBufferedAmountChange(std::uint64_t) override {}
+
+  private:
+    Impl &owner_;
+  };
   class PeerObserver final : public webrtc::PeerConnectionObserver {
   public:
     explicit PeerObserver(Impl &owner) : owner_(owner) {}
     void OnSignalingChange(
         webrtc::PeerConnectionInterface::SignalingState) override {}
     void OnDataChannel(
-        webrtc::scoped_refptr<webrtc::DataChannelInterface>) override {}
+        webrtc::scoped_refptr<webrtc::DataChannelInterface> channel) override {
+      owner_.on_data_channel(std::move(channel));
+    }
     void OnIceGatheringChange(
         webrtc::PeerConnectionInterface::IceGatheringState) override {}
     void OnIceCandidate(const webrtc::IceCandidate *value) override {
@@ -478,7 +526,34 @@ private:
         return false;
       }
     }
+    if (role_ == SignaledRole::host) {
+      webrtc::DataChannelInit init;
+      init.ordered = true;
+      auto created = peer_->CreateDataChannelOrError(
+          std::string(kControlChannelLabel), &init);
+      if (!created.ok()) {
+        fail("control-channel-creation-failed");
+        return false;
+      }
+      attach_control_channel(std::move(created.value()));
+    }
     return true;
+  }
+  void on_data_channel(
+      webrtc::scoped_refptr<webrtc::DataChannelInterface> channel) {
+    if (role_ != SignaledRole::viewer || !channel ||
+        !valid_control_channel(channel->label(), channel->ordered(),
+                               channel->reliable()))
+      return;
+    attach_control_channel(std::move(channel));
+  }
+  void attach_control_channel(
+      webrtc::scoped_refptr<webrtc::DataChannelInterface> channel) {
+    if (!channel || control_channel_)
+      return;
+    control_channel_ = std::move(channel);
+    control_observer_ = std::make_unique<ControlObserver>(*this);
+    control_channel_->RegisterObserver(control_observer_.get());
   }
   void create_offer() { create_description(true); }
   void create_answer() { create_description(false); }
@@ -753,6 +828,8 @@ private:
   webrtc::scoped_refptr<webrtc::AudioSourceInterface> audio_source_;
   webrtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track_,
       remote_audio_, movie_audio_track_, remote_movie_audio_;
+  webrtc::scoped_refptr<webrtc::DataChannelInterface> control_channel_;
+  std::unique_ptr<ControlObserver> control_observer_;
   CandidateStager<PendingCandidate, 64> candidates_;
   bool remote_set_{};
   bool movie_audio_sink_attached_{};
@@ -791,6 +868,9 @@ bool SignaledPeer::receive_description(std::string type, std::string sdp) {
 bool SignaledPeer::receive_candidate(std::string mid, int line,
                                      std::string candidate) {
   return impl_->receive_candidate(std::move(mid), line, std::move(candidate));
+}
+bool SignaledPeer::send_control_message(std::string message) {
+  return impl_->send_control_message(std::move(message));
 }
 SignaledPeerResult SignaledPeer::wait(std::chrono::milliseconds timeout) {
   return impl_->wait(timeout);

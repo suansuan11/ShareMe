@@ -115,6 +115,22 @@ target_link_libraries(shareme_signaled_peer_test PRIVATE ShareMe::WebRTC)
 shareme_set_project_warnings(shareme_signaled_peer_test)
 add_test(NAME signaled_peer COMMAND shareme_signaled_peer_test)
 
+if(TARGET ShareMe::QtSignaling)
+  add_executable(
+    shareme_playback_state_test
+    playback_state_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/playback_state.cpp"
+  )
+  target_include_directories(
+    shareme_playback_state_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_playback_state_test PRIVATE cxx_std_20)
+  target_link_libraries(shareme_playback_state_test PRIVATE Qt6::Core)
+  shareme_set_project_warnings(shareme_playback_state_test)
+  add_test(NAME playback_state COMMAND shareme_playback_state_test)
+endif()
+
 if(WIN32)
   add_executable(
     shareme_desktop_frame_converter_test

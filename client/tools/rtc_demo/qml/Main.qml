@@ -45,6 +45,14 @@ ApplicationWindow {
             color: "#c7ccd8"
         }
 
+        Label {
+            Layout.fillWidth: true
+            visible: window.controller.viewer
+            text: "Host playback: " + window.controller.remotePlaybackState
+                  + " · " + window.controller.remotePlaybackPositionMs + " ms"
+            color: "#8bd5ff"
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true

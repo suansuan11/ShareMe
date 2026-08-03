@@ -27,6 +27,7 @@ using LocalAudioSourceFactory =
     std::function<webrtc::scoped_refptr<LocalAudioSource>()>;
 using RemoteVideoFrameCallback =
     std::function<void(const webrtc::VideoFrame &frame)>;
+using ControlMessageCallback = std::function<void(std::string message)>;
 
 struct SignaledPeerConfig {
   SignaledRole role{SignaledRole::host};
@@ -35,6 +36,7 @@ struct SignaledPeerConfig {
   LocalVideoSourceFactory video_source_factory;
   LocalAudioSourceFactory movie_audio_source_factory;
   RemoteVideoFrameCallback remote_video_frame;
+  ControlMessageCallback control_message;
 };
 
 struct SignaledAudioPolicy {
@@ -84,6 +86,9 @@ is_expected_voice_rtp_track(SignaledRole role, bool outbound,
 [[nodiscard]] bool is_expected_inbound_voice_rtp_track(
     SignaledRole role, std::string_view track_identifier,
     std::string_view stats_mid, std::string_view expected_voice_mid) noexcept;
+[[nodiscard]] bool valid_control_message(std::string_view message) noexcept;
+[[nodiscard]] bool valid_control_channel(std::string_view label, bool ordered,
+                                         bool reliable) noexcept;
 
 class SignaledPeer final {
 public:
@@ -98,6 +103,7 @@ public:
   [[nodiscard]] bool receive_description(std::string type, std::string sdp);
   [[nodiscard]] bool receive_candidate(std::string mid, int line,
                                        std::string candidate);
+  [[nodiscard]] bool send_control_message(std::string message);
   [[nodiscard]] SignaledPeerResult wait(std::chrono::milliseconds timeout);
   void cancel_wait() noexcept;
   void stop() noexcept;

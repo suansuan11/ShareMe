@@ -9,13 +9,13 @@ receiver video sink.
 
 ## Tasks
 
-- [ ] Add failing playback-state codec/tracker tests.
-- [ ] Implement the codec/tracker and register its QtCore test target.
-- [ ] Add failing `SignaledPeer` control-channel policy/API tests.
-- [ ] Implement reliable ordered channel creation, receive callbacks, send
+- [x] Add failing playback-state codec/tracker tests.
+- [x] Implement the codec/tracker and register its QtCore test target.
+- [x] Add failing `SignaledPeer` control-channel policy/API tests.
+- [x] Implement reliable ordered channel creation, receive callbacks, send
       validation, and teardown-safe observer ownership.
-- [ ] Extend RTC demo CLI tests for movie source combinations and redaction.
-- [ ] Wire movie sources, periodic host state publication, viewer state
+- [x] Extend RTC demo CLI tests for movie source combinations and redaction.
+- [x] Wire movie sources, periodic host state publication, viewer state
       tracking, and read-only QML status into `shareme_rtc_demo`.
 - [ ] Run focused tests, full build/CTest, Go race/vet, skill workflow tests,
       and repository validator.
