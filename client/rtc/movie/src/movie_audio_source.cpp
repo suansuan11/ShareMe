@@ -63,6 +63,8 @@ bool MovieAudioSource::start() {
       set_error("movie-timeline-mismatch");
       return false;
     }
+    if (timeline->media_pts_ms != info.start_time_ms)
+      session->seek(timeline->media_pts_ms);
     chunker_ = std::make_unique<media::PcmChunker>();
     if (timeline->state == MovieTimelineState::playing)
       session->play();

@@ -75,6 +75,8 @@ bool MovieVideoSource::start() {
       set_error("movie-timeline-mismatch");
       return false;
     }
+    if (timeline->media_pts_ms != info.start_time_ms)
+      session->seek(timeline->media_pts_ms);
     if (timeline->state == MovieTimelineState::playing)
       session->play();
     session_ = std::move(session);

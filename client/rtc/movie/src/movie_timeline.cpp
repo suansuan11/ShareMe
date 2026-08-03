@@ -92,7 +92,7 @@ MovieTimeline::wait_until(std::int64_t target_pts_ms,
       return MovieTimelineWaitResult::generation_changed;
     const auto now = Clock::now();
     const auto current = current_pts_locked(now);
-    if (target_pts_ms <= current)
+    if (target_pts_ms <= current || current == end_pts_ms_)
       return MovieTimelineWaitResult::due;
 
     const auto revision = revision_;
