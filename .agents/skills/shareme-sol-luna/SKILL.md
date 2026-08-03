@@ -12,11 +12,13 @@ description: Use when working in the ShareMe repository on implementation, diagn
    about architecture, platform, media, Git, cache, or verification.
 2. Define one verifiable stage with acceptance evidence. Preserve unrelated
    worktrees and user changes.
-3. Sol works directly by default. Use at most one active Luna only for a
-   bounded task that materially improves focus or elapsed time; read
-   [role-contracts.md](references/role-contracts.md) before dispatching.
+3. Sol works directly by default. Use at most two independent Luna agents only
+   for bounded work that materially improves focus or elapsed time. Parallel
+   work must be independent read-only exploration, testing, or log analysis;
+   read [role-contracts.md](references/role-contracts.md) before dispatching.
 4. Use TDD for behavior changes and an ignored worktree for substantive stages.
-   One writer owns an overlapping implementation scope.
+   One writer owns an overlapping implementation scope; dependent review or
+   testing starts after its write phase.
 5. Run focused tests, affected suites, `git diff --check`, and platform
    acceptance proportional to the claim. Label results verified, partial,
    environment-dependent, or unimplemented.

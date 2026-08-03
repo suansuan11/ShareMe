@@ -1,8 +1,10 @@
 # ShareMe Sol-Luna Roles
 
 Sol owns requirements, risk, integration, verification, Git, and the final
-claim. Sol works directly by default. Use at most one active Luna for an
-independent, bounded task; delegation is not a credit-saving claim.
+claim. Sol works directly by default. Use at most two independent Luna agents
+for bounded work; delegation is not a credit-saving claim. Parallel tasks are
+limited to independent read-only exploration, testing, or log analysis and
+cannot depend on uncommitted writes.
 
 The project configuration defines these roles:
 
@@ -15,7 +17,8 @@ The project configuration defines these roles:
 
 Architecture, security, deletion, migrations, concurrency, and final
 acceptance remain with Sol. Routine testing and review remain with Sol unless
-their output is independently large or noisy.
+their output is independently large or noisy. Do not start a second writer;
+dependent review or testing waits for the implementer's write phase.
 
 ## Short dispatch request
 
