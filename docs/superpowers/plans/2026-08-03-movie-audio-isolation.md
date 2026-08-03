@@ -98,7 +98,7 @@ cmake --build --preset build-movie-call-dev --target shareme_movie_audio_peer_te
 ctest --preset test-movie-call-dev -R '^movie_audio_peer$' --repeat until-fail:20 --output-on-failure
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add client/rtc/webrtc tests/rtc
@@ -116,14 +116,14 @@ git commit -m "feat: isolate movie audio peer connection"
 - Consumes: Task 1 `MovieAudioPeer` as the replacement owner.
 - Produces: a primary `SignaledPeer` that owns only video, voice, and control.
 
-- [ ] **Step 1: Replace the old positive stereo-munging test with a failing isolation test**
+- [x] **Step 1: Replace the old positive stereo-munging test with a failing isolation test**
 
 Remove the assertion that primary voice and movie m-lines intentionally use
 different PT 111 parameters. Require `SignaledPeerConfig` to have no
 `movie_audio_source_factory`, primary offers to contain no `movie-audio` track,
 and existing bidirectional voice/video/control tests to remain unchanged.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_signaled_peer_test
@@ -131,14 +131,14 @@ cmake --build --preset build-movie-call-dev --target shareme_signaled_peer_test
 
 Expected: compilation fails while the old config field and ownership remain.
 
-- [ ] **Step 3: Delete primary movie-audio ownership**
+- [x] **Step 3: Delete primary movie-audio ownership**
 
 Remove the config field, source/track/sink members, delayed enabling, stereo SDP
 mutation, movie-audio result population, and movie-audio-specific wait checks.
 Do not modify voice track options, video callbacks, DataChannel behavior,
 candidate staging, or primary shutdown serialization.
 
-- [ ] **Step 4: Run primary and dedicated peer tests**
+- [x] **Step 4: Run primary and dedicated peer tests**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_signaled_peer_test shareme_movie_audio_peer_test

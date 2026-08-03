@@ -24,40 +24,10 @@ void require(bool condition, const char *expression, int line) {
   }
 }
 
-struct FakeAudioState {
-  std::atomic_bool started{false};
-  std::atomic<int> stop_count{0};
-  bool start_succeeds{true};
-  std::string error;
-};
+template <typename T>
+concept HasMovieAudioFactory = requires { &T::movie_audio_source_factory; };
 
-class FakeMovieAudioSource final : private webrtc::RefCountedBase,
-                                   public shareme::rtc::LocalAudioSource {
-public:
-  explicit FakeMovieAudioSource(std::shared_ptr<FakeAudioState> state)
-      : state_(std::move(state)) {}
-
-  bool start() override {
-    state_->started.store(true);
-    return state_->start_succeeds;
-  }
-  void stop() noexcept override { state_->stop_count.fetch_add(1); }
-  std::uint64_t generated_count() const noexcept override { return 123; }
-  std::optional<std::int64_t> last_pts_ms() const noexcept override {
-    return 1'000;
-  }
-  std::string error() const override { return state_->error; }
-  void AddSink(webrtc::AudioTrackSinkInterface *) override {}
-  void RemoveSink(webrtc::AudioTrackSinkInterface *) override {}
-  void AddRef() const override { webrtc::RefCountedBase::AddRef(); }
-  webrtc::RefCountReleaseStatus Release() const override {
-    return webrtc::RefCountedBase::Release();
-  }
-
-private:
-  ~FakeMovieAudioSource() override = default;
-  std::shared_ptr<FakeAudioState> state_;
-};
+static_assert(!HasMovieAudioFactory<shareme::rtc::SignaledPeerConfig>);
 } // namespace
 #define REQUIRE(expression) require((expression), #expression, __LINE__)
 int main() {
@@ -107,31 +77,6 @@ int main() {
       {.role = SignaledRole::host,
        .audio_mode = SignaledAudioMode::synthetic,
        .video_mode = SignaledVideoMode::injected}));
-  shareme::rtc::LocalAudioSourceFactory movie_audio_factory = [] {
-    return webrtc::scoped_refptr<shareme::rtc::LocalAudioSource>(
-        new FakeMovieAudioSource(std::make_shared<FakeAudioState>()));
-  };
-  REQUIRE(shareme::rtc::valid_signaled_peer_config(
-      {.role = SignaledRole::host,
-       .movie_audio_source_factory = movie_audio_factory}));
-  REQUIRE(!shareme::rtc::valid_signaled_peer_config(
-      {.role = SignaledRole::viewer,
-       .movie_audio_source_factory = movie_audio_factory}));
-  std::string missing_movie_audio_error;
-  shareme::rtc::SignaledPeerCallbacks missing_movie_audio_callbacks;
-  missing_movie_audio_callbacks.failure = [&](std::string category) {
-    missing_movie_audio_error = std::move(category);
-  };
-  auto missing_movie_audio_peer = shareme::rtc::SignaledPeer::create(
-      {.role = SignaledRole::host,
-       .movie_audio_source_factory =
-           [] {
-             return webrtc::scoped_refptr<shareme::rtc::LocalAudioSource>{};
-           }},
-      std::move(missing_movie_audio_callbacks));
-  REQUIRE(missing_movie_audio_peer == nullptr);
-  REQUIRE(missing_movie_audio_error == "movie-audio-source-unavailable");
-
   shareme::rtc::CountingAudioSink audio_sink;
   std::vector<std::int16_t> samples(480 * 2);
   samples[0] = -12;
@@ -349,98 +294,4 @@ int main() {
   peer->stop();
   peer.reset();
 
-  auto fake_state = std::make_shared<FakeAudioState>();
-  std::promise<std::string> movie_offer_promise;
-  auto movie_offer_future = movie_offer_promise.get_future();
-  shareme::rtc::SignaledPeerCallbacks movie_callbacks;
-  movie_callbacks.description = [&](std::string type, std::string description) {
-    if (type == "offer")
-      movie_offer_promise.set_value(std::move(description));
-  };
-  auto movie_peer = shareme::rtc::SignaledPeer::create(
-      {.role = SignaledRole::host,
-       .movie_audio_source_factory =
-           [fake_state] {
-             return webrtc::scoped_refptr<shareme::rtc::LocalAudioSource>(
-                 new FakeMovieAudioSource(fake_state));
-           }},
-      std::move(movie_callbacks));
-  REQUIRE(movie_peer != nullptr);
-  REQUIRE(movie_peer->start());
-  REQUIRE(fake_state->started.load());
-  REQUIRE(movie_offer_future.wait_for(std::chrono::seconds(5)) ==
-          std::future_status::ready);
-  const auto movie_offer = movie_offer_future.get();
-  const auto host_voice_id = movie_offer.find("host-voice");
-  const auto movie_audio_id = movie_offer.find("movie-audio");
-  REQUIRE(host_voice_id != std::string::npos);
-  REQUIRE(movie_audio_id != std::string::npos);
-  REQUIRE(host_voice_id != movie_audio_id);
-  REQUIRE(movie_offer.find("a=msid:shareme-test host-voice") !=
-          std::string::npos);
-  REQUIRE(movie_offer.find("a=msid:shareme-test movie-audio") !=
-          std::string::npos);
-  const auto audio_section = [&](std::size_t track_position) {
-    const auto start = movie_offer.rfind("m=audio", track_position);
-    const auto end = movie_offer.find("\r\nm=", track_position);
-    REQUIRE(start != std::string::npos);
-    return movie_offer.substr(
-        start, end == std::string::npos ? std::string::npos : end - start);
-  };
-  const auto voice_section = audio_section(host_voice_id);
-  const auto movie_section = audio_section(movie_audio_id);
-  REQUIRE(voice_section.find("stereo=1") == std::string::npos);
-  REQUIRE(movie_section.find("stereo=1") != std::string::npos);
-  REQUIRE(movie_section.find("sprop-stereo=1") != std::string::npos);
-
-  std::promise<std::string> missing_track_answer_promise;
-  auto missing_track_answer_future = missing_track_answer_promise.get_future();
-  shareme::rtc::SignaledPeerCallbacks missing_track_callbacks;
-  missing_track_callbacks.description =
-      [&missing_track_answer_promise](std::string type, std::string) {
-        if (type == "answer")
-          missing_track_answer_promise.set_value(std::move(type));
-      };
-  auto missing_track_peer = shareme::rtc::SignaledPeer::create(
-      {.role = SignaledRole::viewer}, std::move(missing_track_callbacks));
-  REQUIRE(missing_track_peer != nullptr);
-  REQUIRE(missing_track_peer->start());
-  REQUIRE(missing_track_peer->receive_description("offer", movie_offer));
-  REQUIRE(missing_track_answer_future.wait_for(std::chrono::seconds(5)) ==
-          std::future_status::ready);
-  const auto missing_track_result =
-      missing_track_peer->wait(std::chrono::milliseconds(100));
-  REQUIRE(missing_track_result.error == "movie-audio-unavailable");
-  missing_track_peer->stop();
-
-  movie_peer->cancel_wait();
-  const auto movie_result = movie_peer->wait(std::chrono::seconds(1));
-  REQUIRE(movie_result.movie_audio_chunks_generated == 123);
-  movie_peer->stop();
-  REQUIRE(fake_state->stop_count.load() == 1);
-  movie_peer.reset();
-
-  auto failing_state = std::make_shared<FakeAudioState>();
-  failing_state->start_succeeds = false;
-  failing_state->error = "/private/movie.mov: decoder exploded";
-  std::string sanitized_start_error;
-  shareme::rtc::SignaledPeerCallbacks failing_callbacks;
-  failing_callbacks.failure = [&](std::string category) {
-    sanitized_start_error = std::move(category);
-  };
-  auto failing_movie_peer = shareme::rtc::SignaledPeer::create(
-      {.role = SignaledRole::host,
-       .movie_audio_source_factory =
-           [failing_state] {
-             return webrtc::scoped_refptr<shareme::rtc::LocalAudioSource>(
-                 new FakeMovieAudioSource(failing_state));
-           }},
-      std::move(failing_callbacks));
-  REQUIRE(failing_movie_peer != nullptr);
-  REQUIRE(!failing_movie_peer->start());
-  REQUIRE(failing_state->stop_count.load() == 1);
-  REQUIRE(sanitized_start_error == "movie-audio-source-unavailable");
-  REQUIRE(sanitized_start_error.find("movie.mov") == std::string::npos);
-  failing_movie_peer->stop();
-  REQUIRE(failing_state->stop_count.load() == 1);
 }
