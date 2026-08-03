@@ -33,6 +33,10 @@ add_test(
 set_tests_properties(signaled_call_smoke_contract PROPERTIES TIMEOUT 10)
 
 if(TARGET shareme_rtc_demo)
+  set(shareme_rtc_demo_test_arguments)
+  if(TARGET ShareMe::MovieRTC)
+    list(APPEND shareme_rtc_demo_test_arguments --movie-supported)
+  endif()
   add_test(
     NAME rtc_demo_cli_contract
     COMMAND
@@ -42,6 +46,7 @@ if(TARGET shareme_rtc_demo)
       "$<TARGET_FILE:shareme_rtc_demo>"
       --qml
       "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qml/Main.qml"
+      ${shareme_rtc_demo_test_arguments}
   )
   set_tests_properties(
     rtc_demo_cli_contract
