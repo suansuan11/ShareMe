@@ -31,7 +31,7 @@
 - Produces: `MovieTimelineState`, `MovieTimelineSnapshot`, `MovieTimelineWaitResult`.
 - Produces: `initialize(start_pts_ms, duration_ms)`, `std::optional<MovieTimelineSnapshot> snapshot()`, `pause()`, `resume()`, `seek(target_pts_ms)`, and `wait_until(target_pts_ms, generation, stop_token)`.
 
-- [ ] **Step 1: Write failing timeline state tests**
+- [x] **Step 1: Write failing timeline state tests**
 
 Add a dedicated test executable whose assertions require this public shape:
 
@@ -61,7 +61,7 @@ Also assert duplicate initialization matches, mismatched start/duration fails,
 seek while paused preserves pause, and a `std::jthread` waiting on a future PTS
 returns `stopped` promptly when its stop token is requested.
 
-- [ ] **Step 2: Run the new test and verify RED**
+- [x] **Step 2: Run the new test and verify RED**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_timeline_test
@@ -69,7 +69,7 @@ cmake --build --preset build-movie-call-dev --target shareme_movie_timeline_test
 
 Expected: compilation fails because the new timeline types and control methods do not exist.
 
-- [ ] **Step 3: Implement the timeline state machine**
+- [x] **Step 3: Implement the timeline state machine**
 
 Define the public data contract:
 
@@ -91,7 +91,7 @@ addition. Every mutating method wakes waiters. `wait_until` loops after
 pause/resume revisions, returns `generation_changed` on a seek, and uses the
 caller stop token for shutdown.
 
-- [ ] **Step 4: Run timeline test GREEN and refactor**
+- [x] **Step 4: Run timeline test GREEN and refactor**
 
 ```bash
 cmake --build --preset build-movie-call-dev --target shareme_movie_timeline_test
