@@ -17,9 +17,9 @@ receiver video sink.
 - [x] Extend RTC demo CLI tests for movie source combinations and redaction.
 - [x] Wire movie sources, periodic host state publication, viewer state
       tracking, and read-only QML status into `shareme_rtc_demo`.
-- [ ] Run focused tests, full build/CTest, Go race/vet, skill workflow tests,
+- [x] Run focused tests, full build/CTest, Go race/vet, skill workflow tests,
       and repository validator.
-- [ ] Update verification and current-stage documentation with exact evidence
+- [x] Update verification and current-stage documentation with exact evidence
       and explicit remaining boundaries.
 - [ ] Obtain independent specification and quality reviews, repair findings,
       commit, merge to `main`, and push the verified stage.
