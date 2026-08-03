@@ -14,7 +14,9 @@ requirements.
 - A filesystem-read-only A/B check dispatched the same repository audit once
   with inherited settings and once with an explicit lower-cost model override.
   Both outputs correctly identified the Git baseline, Windows evidence, stale
-  README state, and next development stage without mutations.
+  README state, and next development stage without new Git-visible repository
+  changes. Ignored and external filesystem writes were not independently
+  observed.
 - The runtime accepted the explicit override. Exact per-agent token and credit
   totals were not exposed, so the experiment proves routing and adequate output
   quality, not the realized credit saving for that individual task.
@@ -54,22 +56,29 @@ Target capability tier:
 Requested model:
 Requested reasoning effort:
 Selection reason:
+Cost-tier basis:
 Fallback or difference:
 ```
+
+Every response also records `Actual model/fallback:` with the runtime-visible
+accepted, rejected, or inherited outcome.
 
 The model value is recorded in the live task contract, not in stable tracked
 policy. Selection follows these rules:
 
 1. Work directly when delegation would cost more coordination than it saves.
-2. Route bounded exploration, read-heavy scanning, routine test execution, and
-   narrowly specified implementation to the lowest-cost available model that
-   has sufficient coding and tool capability.
+2. When current runtime/account cost-tier evidence exists, route bounded
+   exploration, read-heavy scanning, routine test execution, and narrowly
+   specified implementation to the lowest-cost available model with sufficient
+   coding and tool capability. Without that evidence, select by capability only
+   and make no expected or realized cost-saving claim.
 3. Use balanced reasoning for ordinary Luna work and raise it only when the
    bounded task requires deeper edge-case analysis.
 4. Keep ambiguous architecture, security, deletion, concurrency, lifetime,
    consistency, integration decisions, and final acceptance with Sol.
 5. If the preferred model is unavailable or the override is rejected, inherit
-   the parent model, record the difference, and make no savings claim.
+   the parent model, record the requested difference and actual return outcome,
+   and make no savings claim.
 6. Never create duplicate agents merely to save credits. Parallel agents remain
    limited to independent work that materially improves latency or confidence.
 
@@ -107,7 +116,8 @@ because they can erase the expected benefit.
 2. Make the minimum policy changes and pass the workflow test and skill
    validator.
 3. Run a fresh lower-cost-model Luna audit using the complete role contract.
-4. Sol independently checks its facts, zero-write behavior, and Git status.
+4. Sol independently checks its facts and Git-visible repository status, while
+   reporting ignored and external filesystem observation limits.
 5. Run independent specification and quality reviews.
 6. Run the affected repository suites, `git diff --check`, and clean-status
    checks before integration.

@@ -60,10 +60,12 @@ roles, exact review/test permissions, cache safeguards, and this cross-session
 handoff. The merged result passed the complete verification listed above. This
 stage changes no product behavior.
 
-The follow-on dynamic-routing stage is the exact feature-branch commit sequence
-`ea59d64`, `7383f69`, `5fdf609`, `400e784`, `52c3daa`, `26256fc`, and final-review
-fix `40a5854`. It remains unintegrated until the separate Task 4 review and
-merge boundary; it adds no product behavior or new platform acceptance.
+The follow-on dynamic-routing implementation and review-fix content spans
+commits `ea59d64` through `40a5854`; subsequent handoff-only commits record the
+review state without pretending to enumerate their own SHA. The current branch
+HEAD remains the source of truth. The stage is unintegrated until the separate
+Task 4 review and merge boundary and adds no product behavior or new platform
+acceptance.
 
 ## Next recommended stage
 

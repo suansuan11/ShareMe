@@ -23,6 +23,7 @@ unavailable or rejected, inherit the parent, record the fallback, and make no
 savings claim.
 `Cost-tier basis:` records current runtime/account evidence for relative cost
 ordering. If that evidence is absent, cost ordering is unverified.
+Without a cost-tier basis, select by capability only and make no expected or realized cost-saving claim.
 Never claim measured credit savings without per-agent usage telemetry.
 Never create duplicate agents merely to save credits.
 

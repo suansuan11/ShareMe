@@ -121,6 +121,10 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         dynamic_text = "\n".join(path.read_text(encoding="utf-8") for path in dynamic_documents)
         self.assertNotRegex(dynamic_text, r"/Users/[^/]+/")
         self.assertNotRegex(dynamic_text, r"[A-Za-z]:\\Users\\")
+        self.assertIn("Cost-tier basis:", dynamic_text)
+        self.assertIn("Actual model/fallback:", dynamic_text)
+        self.assertNotIn("without mutations", dynamic_text)
+        self.assertNotIn("zero-write behavior", dynamic_text)
 
         for required in (
             "Default active Luna count: <= 2",
@@ -145,6 +149,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             "Actual model/fallback:",
             "Never claim measured credit savings without per-agent usage telemetry",
             "Never create duplicate agents merely to save credits",
+            "Without a cost-tier basis, select by capability only and make no expected or realized cost-saving claim",
             "verified",
             "environment-dependent",
             "libwebrtc",
