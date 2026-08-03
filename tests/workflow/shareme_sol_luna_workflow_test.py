@@ -26,7 +26,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             'model_reasoning_effort = "medium"',
             "[agents]",
             "enabled = true",
-            "max_concurrent_threads_per_session = 1",
+            "max_concurrent_threads_per_session = 2",
             'default_subagent_model = "gpt-5.6-luna"',
             'default_subagent_reasoning_effort = "medium"',
         ):
@@ -156,7 +156,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
         for required in (
             "Sol works directly by default",
-            "at most one active Luna",
+            "at most two independent Luna",
             "luna_explorer",
             "luna_implementer",
             "one writer",
@@ -183,9 +183,11 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Sol works directly by default", role_contract)
-        self.assertIn("at most one active Luna", role_contract)
+        self.assertIn("at most two independent Luna", role_contract)
         self.assertIn("luna_explorer", role_contract)
         self.assertIn("luna_implementer", role_contract)
+        self.assertIn("independent read-only", role_contract)
+        self.assertIn("one writer", role_contract)
         self.assertIn("Target:", role_contract)
         self.assertIn("Return summary:", role_contract)
         self.assertNotIn("Target capability tier:", role_contract)
