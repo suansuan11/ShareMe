@@ -14,7 +14,7 @@ Own one verifiable stage from current evidence through review, tests, and a focu
 1. Read `AGENTS.md`, `docs/development/current-stage.md`, relevant current code, tests, plans, verification evidence, and Git state. Verify freshness in the owned checkout; treat other worktrees as unrelated user state.
 2. Classify the request as answer, diagnosis, change, review, risky operation, or continuation. Read [project-contract.md](references/project-contract.md) whenever a claim touches architecture, platform, media, Git, cache, or verification boundaries.
 3. Define a verifiable stage with acceptance evidence. Do not stop after exploration or an internal subtask.
-4. Choose direct Sol work or one bounded Luna role. Read [role-contracts.md](references/role-contracts.md) before every dispatch.
+4. Before every Luna dispatch: Inspect the model choices exposed by the current runtime; select the least expensive adequate capability tier; read [role-contracts.md](references/role-contracts.md). Skip delegation when coordination cost exceeds benefit; otherwise choose one bounded Luna role.
 5. Use TDD for behavior changes. Use an ignored feature worktree for a substantive stage.
 6. Before integration, apply the specification-compliance gate, then the code-quality gate. Fix Critical and Important findings.
 7. Run focused tests, affected suites, `git diff --check`, and platform acceptance proportional to the claim. Label outcomes verified, partial, environment-dependent, or unimplemented.
@@ -24,7 +24,7 @@ Own one verifiable stage from current evidence through review, tests, and a focu
 
 | Situation | Action |
 |---|---|
-| Small, sequential, tightly coupled work | Sol works directly |
+| Small, tightly coupled work | Sol works directly |
 | Bounded read-only discovery | Luna Explorer; at most two independent readers |
 | Independent bounded implementation | One Luna Implementer; no parallel implementation |
 | Independent review | Filesystem-read-only Tester/Reviewer; no writes |
