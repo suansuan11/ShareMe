@@ -64,6 +64,14 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             '"Do not edit" overrides source-read-only test execution',
             "Independent review | Filesystem-read-only Tester/Reviewer; no writes",
             "Independent test execution | Source-read-only Tester/Reviewer; builds only with explicit ignored build-output scope",
+            "Inspect the model choices exposed by the current runtime",
+            "Target capability tier:",
+            "Requested model:",
+            "Requested reasoning effort:",
+            "Selection reason:",
+            "Fallback or difference:",
+            "Never claim measured credit savings without per-agent usage telemetry",
+            "Never create duplicate agents merely to save credits",
             "verified",
             "environment-dependent",
             "libwebrtc",
@@ -71,6 +79,8 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             self.assertIn(required, combined)
         self.assertNotRegex(combined, r"/Users/[^/]+/")
         self.assertNotRegex(combined, r"[A-Za-z]:\\Users\\")
+        self.assertNotRegex(combined, r"gpt-[0-9]")
+        self.assertFalse((ROOT / ".codex/config.toml").exists())
         self.assertNotRegex(combined, r"\b(?:TODO|TBD|FIXME)\b")
         self.assertLessEqual(len((ROOT / "AGENTS.md").read_text(encoding="utf-8").splitlines()), 120)
         self.assertLessEqual(len(re.findall(r"\S+", SKILL.read_text(encoding="utf-8"))), 500)
