@@ -85,6 +85,30 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         self.assertLessEqual(len((ROOT / "AGENTS.md").read_text(encoding="utf-8").splitlines()), 120)
         self.assertLessEqual(len(re.findall(r"\S+", SKILL.read_text(encoding="utf-8"))), 500)
 
+        role_contract = (SKILL.parent / "references/role-contracts.md").read_text(encoding="utf-8")
+        template_match = re.search(
+            r"## Exact dispatch contract.*?```text\n(.*?)\n```", role_contract, re.DOTALL
+        )
+        self.assertIsNotNone(template_match)
+        dispatch_template = template_match.group(1)
+        for required in (
+            "Role:",
+            "Goal:",
+            "Allowed scope:",
+            "Forbidden scope:",
+            "Context and evidence:",
+            "Acceptance:",
+            "Commands/tests:",
+            "Rollback:",
+            "Return format:",
+            "Target capability tier:",
+            "Requested model:",
+            "Requested reasoning effort:",
+            "Selection reason:",
+            "Fallback or difference:",
+        ):
+            self.assertIn(required, dispatch_template)
+
 
 if __name__ == "__main__":
     unittest.main()
