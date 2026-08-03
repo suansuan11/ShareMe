@@ -46,9 +46,20 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
     def test_workflow_is_portable_and_complete(self):
         files = [ROOT / "AGENTS.md", SKILL, *SKILL.parent.joinpath("references").glob("*.md")]
         combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
+        for required in (
+            "Default active Luna count: <= 2",
+            "Hard maximum: 3",
+            "Concurrent writers in overlapping scope: 0",
+            "verified",
+            "environment-dependent",
+            "libwebrtc",
+        ):
+            self.assertIn(required, combined)
         self.assertNotRegex(combined, r"/Users/[^/]+/")
         self.assertNotRegex(combined, r"[A-Za-z]:\\Users\\")
         self.assertNotRegex(combined, r"\b(?:TODO|TBD|FIXME)\b")
+        self.assertLessEqual(len((ROOT / "AGENTS.md").read_text(encoding="utf-8").splitlines()), 120)
+        self.assertLessEqual(len(re.findall(r"\S+", SKILL.read_text(encoding="utf-8"))), 500)
 
 
 if __name__ == "__main__":
