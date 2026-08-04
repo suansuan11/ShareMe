@@ -123,6 +123,9 @@ void shared_timeline_controls_video(const std::filesystem::path &movie_path) {
     std::this_thread::sleep_for(5ms);
   REQUIRE(source->last_pts_ms().has_value());
   REQUIRE(*source->last_pts_ms() >= 6'000);
+  REQUIRE(source->last_frame_sample().has_value());
+  REQUIRE(source->last_frame_sample()->generation == 1);
+  REQUIRE(source->last_frame_sample()->media_pts_ms >= 6'000);
   const auto first_post_seek_pts = *source->last_pts_ms();
   std::this_thread::sleep_for(100ms);
   REQUIRE(*source->last_pts_ms() >= first_post_seek_pts);
@@ -136,6 +139,10 @@ void shared_timeline_controls_video(const std::filesystem::path &movie_path) {
   REQUIRE(source->last_pts_ms().has_value());
   REQUIRE(*source->last_pts_ms() >= 5'500);
   REQUIRE(*source->last_pts_ms() < 5'900);
+  REQUIRE(source->last_frame_sample().has_value());
+  REQUIRE(source->last_frame_sample()->generation == 2);
+  REQUIRE(source->last_frame_sample()->media_pts_ms >= 5'500);
+  REQUIRE(source->last_frame_sample()->media_pts_ms < 5'900);
   REQUIRE(sink.timestamps_increase());
 
   source->stop();

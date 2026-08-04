@@ -118,6 +118,12 @@ std::optional<std::int64_t> MovieVideoSource::last_pts_ms() const noexcept {
   return last_pts_ms_.load(std::memory_order_relaxed);
 }
 
+std::optional<MovieVideoFrameSample>
+MovieVideoSource::last_frame_sample() const noexcept {
+  std::lock_guard lock(sample_mutex_);
+  return last_frame_sample_;
+}
+
 std::string MovieVideoSource::error() const {
   std::lock_guard lock(error_mutex_);
   return error_;
@@ -184,7 +190,7 @@ void MovieVideoSource::run(std::stop_token stop_token) {
           generation_changed = true;
           break;
         }
-        emitted = emit_frame(*frame) || emitted;
+        emitted = emit_frame(*frame, applied_generation) || emitted;
       }
       if (generation_changed)
         continue;
@@ -206,7 +212,8 @@ void MovieVideoSource::run(std::stop_token stop_token) {
   running_.store(false, std::memory_order_release);
 }
 
-bool MovieVideoSource::emit_frame(const media::VideoFrame &frame) {
+bool MovieVideoSource::emit_frame(const media::VideoFrame &frame,
+                                  std::uint64_t generation) {
   if (frame.width <= 0 || frame.height <= 0 || frame.stride < frame.width * 4 ||
       frame.rgba.size() < static_cast<std::size_t>(frame.stride) *
                               static_cast<std::size_t>(frame.height)) {
@@ -264,6 +271,13 @@ bool MovieVideoSource::emit_frame(const media::VideoFrame &frame) {
   last_timestamp_us_.store(timestamp_us, std::memory_order_relaxed);
   last_pts_ms_.store(frame.pts_ms, std::memory_order_relaxed);
   has_last_pts_.store(true, std::memory_order_release);
+  {
+    std::lock_guard lock(sample_mutex_);
+    last_frame_sample_ = MovieVideoFrameSample{
+        .media_pts_ms = frame.pts_ms,
+        .rtp_timestamp = rtp_timestamp,
+        .generation = generation};
+  }
   OnFrame(video_frame);
   generated_count_.fetch_add(1, std::memory_order_relaxed);
   return true;
