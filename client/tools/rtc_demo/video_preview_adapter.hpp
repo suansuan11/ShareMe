@@ -33,6 +33,7 @@ struct VideoPreviewCounters {
   std::uint64_t coalesced{0};
   std::uint64_t fallback_copies{0};
   std::uint64_t mapping_failures{0};
+  std::uint64_t max_pending_depth{0};
 };
 
 class VideoPreviewAdapter final {

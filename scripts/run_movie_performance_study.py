@@ -36,6 +36,9 @@ from run_signaled_call_smoke import (  # noqa: E402
 
 REQUIRED_RUNS = 3
 SCENARIO_SECONDS = 180
+MEASUREMENT_START_SECONDS = 30
+MEASUREMENT_END_SECONDS = 150
+MEASUREMENT_SAMPLE_SECONDS = MEASUREMENT_END_SECONDS - MEASUREMENT_START_SECONDS
 ROOM_PATTERN = re.compile(r"^ROOM ([A-Z2-7]{6})$")
 ALLOWED_KEYS = {
     "version", "role", "cpu_percent", "rss_bytes", "decoded", "offered",
@@ -43,6 +46,7 @@ ALLOWED_KEYS = {
     "conversion_failures", "width", "height", "cadence_num", "cadence_den",
     "pixel_aspect_num", "pixel_aspect_den", "color_range", "color_space",
     "codec", "profile", "path", "state", "candidate", "fallback_copies",
+    "max_pending",
 }
 ENUMS = {
     "role": {"host", "viewer"},
@@ -54,7 +58,7 @@ ENUMS = {
 INTEGER_KEYS = {
     "version", "rss_bytes", "decoded", "offered", "encoded", "received",
     "callback", "submitted", "coalesced", "dropped", "conversion_failures",
-    "fallback_copies",
+    "fallback_copies", "max_pending",
     "width", "height", "cadence_num", "cadence_den", "pixel_aspect_num",
     "pixel_aspect_den",
 }
@@ -172,17 +176,84 @@ def _nearest_rank(values: list[float], percentile: int) -> float:
     return ordered[min(rank, len(ordered)) - 1]
 
 
-def summarize_performance_artifact(path: Path) -> dict:
+def _artifact_records(path: Path) -> list[dict]:
     try:
-        records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        return [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError("invalid-performance-artifact") from error
+
+
+def _artifact_demo_identity(path: Path) -> str:
+    records = _artifact_records(path)
+    runs = [record for record in records if record.get("kind") == "run"]
+    identity = runs[-1].get("demo_sha256") if runs else None
+    if not isinstance(identity, str) or not re.fullmatch(r"[0-9a-f]{64}", identity):
+        raise ValueError("missing-demo-identity")
+    return identity
+
+
+def _measurement_process_samples(
+    records: list[dict], role: str
+) -> list[dict]:
+    samples = [
+        record for record in records
+        if record.get("kind") == "process"
+        and record.get("role") == role
+        and record.get("phase") == "measurement"
+    ]
+    expected_elapsed = list(range(MEASUREMENT_START_SECONDS, MEASUREMENT_END_SECONDS))
+    if [record.get("elapsed_seconds") for record in samples] != expected_elapsed:
+        raise ValueError(f"measurement samples missing or non-contiguous: {role}")
+    for sample in samples:
+        cpu = sample.get("cpu_percent")
+        rss = sample.get("rss_bytes")
+        if (
+            not isinstance(cpu, (int, float))
+            or not math.isfinite(cpu)
+            or cpu < 0
+            or not isinstance(rss, int)
+            or rss <= 0
+        ):
+            raise ValueError(f"invalid measurement samples: {role}")
+    return samples
+
+
+def _measurement_counter_samples(
+    records: list[dict], role: str
+) -> list[dict]:
+    samples = [
+        record for record in records
+        if record.get("kind") == "counter"
+        and record.get("role") == role
+        and record.get("phase") == "measurement"
+    ]
+    expected_elapsed = list(range(MEASUREMENT_START_SECONDS, MEASUREMENT_END_SECONDS))
+    if [record.get("elapsed_seconds") for record in samples] != expected_elapsed:
+        raise ValueError(
+            f"measurement counter samples missing or non-contiguous: {role}"
+        )
+    if "max_pending" not in samples[-1]:
+        raise ValueError(f"backlog depth missing: {role}")
+    return samples
+
+
+def summarize_performance_artifact(path: Path) -> dict:
+    records = _artifact_records(path)
     summaries = [record for record in records if record.get("kind") == "summary"]
-    if not summaries or summaries[-1].get("complete") is not True:
+    if (
+        not summaries
+        or summaries[-1].get("complete") is not True
+        or summaries[-1].get("failure") is not None
+    ):
         raise ValueError("incomplete-performance-artifact")
+    demo_sha256 = _artifact_demo_identity(path)
     result = {
         "artifact": path.name,
         "sha256": _sha256_file(path),
+        "demo_sha256": demo_sha256,
         "complete": True,
         "failure": summaries[-1].get("failure"),
         "platform": summaries[-1].get("platform", "unknown"),
@@ -190,15 +261,14 @@ def summarize_performance_artifact(path: Path) -> dict:
         "roles": {},
     }
     for role in ("host", "viewer"):
-        counters = [record for record in records
-                    if record.get("kind") == "counter" and record.get("role") == role]
-        processes = [record for record in records
-                     if record.get("kind") == "process" and record.get("role") == role]
+        processes = _measurement_process_samples(records, role)
+        counters = _measurement_counter_samples(records, role)
         cpu = [float(record["cpu_percent"]) for record in processes]
         rss = [float(record["rss_bytes"]) for record in processes]
-        last = counters[-1] if counters else {}
+        last = counters[-1]
         result["roles"][role] = {
             "counterSamples": len(counters),
+            "processSamples": len(processes),
             "decoded": int(last.get("decoded", 0)),
             "received": int(last.get("received", 0)),
             "submitted": int(last.get("submitted", 0)),
@@ -217,6 +287,7 @@ def summarize_performance_artifact(path: Path) -> dict:
             "codec": last.get("codec", "unknown"),
             "profile": last.get("profile", "unknown"),
             "path": last.get("path", "unknown"),
+            "maxPending": int(last["max_pending"]),
             "cpuAverage": sum(cpu) / len(cpu) if cpu else 0.0,
             "cpuP95": _nearest_rank(cpu, 95),
             "rssP95": _nearest_rank(rss, 95),
@@ -245,6 +316,10 @@ def _sha256_file(path: Path) -> str:
 def aggregate_performance_runs(
     baseline_paths: list[Path], candidate_paths: list[Path]
 ) -> dict:
+    baseline_identities = {_artifact_demo_identity(path) for path in baseline_paths}
+    candidate_identities = {_artifact_demo_identity(path) for path in candidate_paths}
+    if baseline_identities & candidate_identities:
+        raise ValueError("baseline and candidate demo identities match")
     baseline = [summarize_performance_artifact(path) for path in baseline_paths]
     candidate = [summarize_performance_artifact(path) for path in candidate_paths]
     if len(baseline) != REQUIRED_RUNS or len(candidate) != REQUIRED_RUNS:
@@ -267,41 +342,66 @@ def aggregate_performance_runs(
     candidate_median_rss = statistics.median(
         run["combinedRssP95"] for run in candidate
     )
-    baseline_host = baseline[1]["roles"]["host"]
-    candidate_host = candidate[1]["roles"]["host"]
-    exact_dimensions = (
-        candidate_host["width"] == baseline_host["width"]
-        and candidate_host["height"] == baseline_host["height"]
-    )
-    exact_metadata = all(
-        candidate_host[key] == baseline_host[key]
-        for key in (
-            "cadenceNum", "cadenceDen", "pixelAspectNum", "pixelAspectDen",
-            "colorRange", "colorSpace", "codec", "profile",
-        )
-    )
-    baseline_submitted = sum(
-        run["roles"]["host"]["submitted"] for run in baseline
-    )
-    candidate_submitted = sum(
-        run["roles"]["host"]["submitted"] for run in candidate
-    )
-    baseline_drops = sum(
-        run["roles"]["host"]["dropped"] + run["roles"]["host"]["coalesced"]
-        for run in baseline
-    )
-    candidate_drops = sum(
-        run["roles"]["host"]["dropped"] + run["roles"]["host"]["coalesced"]
-        for run in candidate
-    )
+    run_role_comparisons = []
+    cadence_ratios = []
+    additional_drops = []
+    backlog_bounds = []
+    exact_dimensions = []
+    exact_metadata = []
+    for index, (baseline_run, candidate_run) in enumerate(
+        zip(baseline, candidate), start=1
+    ):
+        role_comparisons = {}
+        for role in ("host", "viewer"):
+            baseline_role = baseline_run["roles"][role]
+            candidate_role = candidate_run["roles"][role]
+            role_dimensions = (
+                baseline_role["width"] > 0
+                and baseline_role["height"] > 0
+                and candidate_role["width"] == baseline_role["width"]
+                and candidate_role["height"] == baseline_role["height"]
+            )
+            metadata_keys = (
+                "cadenceNum", "cadenceDen", "pixelAspectNum", "pixelAspectDen",
+                "colorRange", "colorSpace", "codec", "profile",
+            )
+            role_metadata = all(
+                candidate_role[key] == baseline_role[key]
+                for key in metadata_keys
+            )
+            baseline_submitted = baseline_role["submitted"]
+            candidate_submitted = candidate_role["submitted"]
+            role_cadence = (
+                candidate_submitted / baseline_submitted
+                if baseline_submitted else 0.0
+            )
+            role_additional_drops = max(
+                0,
+                candidate_role["dropped"] + candidate_role["coalesced"]
+                - baseline_role["dropped"] - baseline_role["coalesced"],
+            )
+            role_backlog = candidate_role["maxPending"] <= 1
+            role_comparisons[role] = {
+                "exact_dimensions": role_dimensions,
+                "exact_metadata": role_metadata,
+                "cadence_ratio": role_cadence,
+                "additional_drops": role_additional_drops,
+                "one_frame_backlog_bound": role_backlog,
+            }
+            exact_dimensions.append(role_dimensions)
+            exact_metadata.append(role_metadata)
+            cadence_ratios.append(role_cadence)
+            additional_drops.append(role_additional_drops)
+            backlog_bounds.append(role_backlog)
+        run_role_comparisons.append({"run": index, "roles": role_comparisons})
     report = {
         "baselineRuns": baseline,
         "candidateRuns": candidate,
-        "exact_dimensions": exact_dimensions,
-        "exact_metadata": exact_metadata,
-        "cadence_ratio": candidate_submitted / baseline_submitted
-        if baseline_submitted else 0.0,
-        "additional_drops": max(0, candidate_drops - baseline_drops),
+        "run_role_comparisons": run_role_comparisons,
+        "exact_dimensions": all(exact_dimensions),
+        "exact_metadata": all(exact_metadata),
+        "cadence_ratio": min(cadence_ratios, default=0.0),
+        "additional_drops": max(additional_drops, default=1),
         "combined_average_cpu_reduction": (
             1.0 - candidate_median_cpu / baseline_median_cpu
             if baseline_median_cpu else 0.0
@@ -314,9 +414,7 @@ def aggregate_performance_runs(
         "psnr_db": None,
         "ssim": None,
         "paused_cpu_reduction": None,
-        "one_frame_backlog_bound": all(
-            run["roles"]["host"]["coalesced"] <= 1 for run in candidate
-        ),
+        "one_frame_backlog_bound": all(backlog_bounds),
     }
     report["gatePassed"] = gates_pass(report)
     return report
@@ -382,9 +480,9 @@ class OutputReader:
 
 
 def scenario_phase(elapsed_seconds: int) -> str:
-    if elapsed_seconds < 30:
+    if elapsed_seconds < MEASUREMENT_START_SECONDS:
         return "warmup"
-    if elapsed_seconds < 150:
+    if elapsed_seconds < MEASUREMENT_END_SECONDS:
         return "measurement"
     return "finalization"
 
@@ -401,20 +499,39 @@ def _start_demo(command: list[str], environment: dict[str, str]):
     return process, OutputReader(process)
 
 
+def parse_process_metrics(stdout: str, returncode: int) -> tuple[float, int]:
+    if returncode != 0:
+        raise ValueError("process metrics command failed")
+    fields = stdout.split()
+    if len(fields) < 2:
+        raise ValueError("process metrics sample missing")
+    try:
+        cpu = float(fields[0])
+        rss = int(fields[1]) * 1024
+    except (TypeError, ValueError) as error:
+        raise ValueError("process metrics sample invalid") from error
+    if not math.isfinite(cpu) or cpu < 0 or rss <= 0:
+        raise ValueError("process metrics sample invalid")
+    return cpu, rss
+
+
 def _read_process_metrics(process: subprocess.Popen[str]) -> tuple[float, int]:
-    if process.poll() is not None or sys.platform == "win32":
-        return 0.0, 0
+    if process.poll() is not None:
+        raise PerformanceStudyError("process-exited-before-metrics")
+    if sys.platform == "win32":
+        raise PerformanceStudyError("process-metrics-unsupported-win32")
     try:
         result = subprocess.run(
             ["ps", "-o", "%cpu=", "-o", "rss=", "-p", str(process.pid)],
             check=False, capture_output=True, text=True, timeout=1,
         )
-        fields = result.stdout.split()
-        if len(fields) >= 2:
-            return float(fields[0]), int(fields[1]) * 1024
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        pass
-    return 0.0, 0
+        return parse_process_metrics(result.stdout, result.returncode)
+    except subprocess.TimeoutExpired as error:
+        raise PerformanceStudyError("process-metrics-command-timeout") from error
+    except OSError as error:
+        raise PerformanceStudyError("process-metrics-command-failed") from error
+    except ValueError as error:
+        raise PerformanceStudyError("process-metrics-sample-invalid") from error
 
 
 def _drain_counter_events(
@@ -460,6 +577,7 @@ def run_real_session(
     movie: Path,
     output_path: Path,
     video_acceleration: str,
+    demo_sha256: str,
     duration_seconds: int = SCENARIO_SECONDS,
     environment: dict[str, str] | None = None,
 ) -> dict:
@@ -475,7 +593,7 @@ def run_real_session(
     with output_path.open("x", encoding="utf-8") as output:
         _write_jsonl_line(output, {
             "kind": "run", "version": 1, "mode": video_acceleration,
-            "duration_seconds": duration_seconds,
+            "duration_seconds": duration_seconds, "demo_sha256": demo_sha256,
         })
         try:
             host, host_reader = _start_demo(
@@ -543,6 +661,7 @@ def run_study(args: argparse.Namespace) -> dict:
         raise PerformanceStudyError("demo-not-found")
     if not args.movie.is_file():
         raise PerformanceStudyError("movie-not-found")
+    demo_sha256 = _sha256_file(args.demo)
     root = prepare_output_root(args.output_root, args.output_parent)
     from urllib.parse import urlparse
 
@@ -563,6 +682,7 @@ def run_study(args: argparse.Namespace) -> dict:
             reports.append(run_real_session(
                 args.demo, args.server_url, args.movie,
                 root / f"run-{index:02d}.jsonl", args.video_acceleration,
+                demo_sha256,
                 args.duration_seconds,
             ))
     finally:

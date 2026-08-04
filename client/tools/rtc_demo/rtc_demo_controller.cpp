@@ -563,6 +563,9 @@ void RtcDemoController::emitPerformanceCounters() {
       performance_conversion_failures_.load(std::memory_order_relaxed);
   const auto fallback_copies =
       performance_fallback_copies_.load(std::memory_order_relaxed);
+  const auto max_pending = video_preview_adapter_
+                               ? video_preview_adapter_->counters().max_pending_depth
+                               : 0;
   int width = 0;
   int height = 0;
   int cadence_num = 0;
@@ -577,6 +580,10 @@ void RtcDemoController::emitPerformanceCounters() {
   std::string path = video_acceleration_.toStdString();
   if (path != "software")
     path = "auto";
+  if (!movie_video_source_) {
+    width = performance_frame_width_.load(std::memory_order_relaxed);
+    height = performance_frame_height_.load(std::memory_order_relaxed);
+  }
   if (movie_video_source_) {
     decoded = movie_video_source_->generated_count();
     dropped = movie_video_source_->dropped_count();
@@ -620,6 +627,7 @@ void RtcDemoController::emitPerformanceCounters() {
             << " dropped=" << dropped
             << " conversion_failures=" << conversion_failures
             << " fallback_copies=" << fallback_copies
+            << " max_pending=" << max_pending
             << " width=" << width << " height=" << height
             << " cadence_num=" << cadence_num
             << " cadence_den=" << cadence_den
@@ -1007,6 +1015,10 @@ void RtcDemoController::setRoomId(QString room_id) {
 
 void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
   performance_callback_count_.fetch_add(1, std::memory_order_relaxed);
+  if (const auto buffer = frame.video_frame_buffer()) {
+    performance_frame_width_.store(buffer->width(), std::memory_order_relaxed);
+    performance_frame_height_.store(buffer->height(), std::memory_order_relaxed);
+  }
   if (!video_preview_adapter_)
     return;
   const auto result = video_preview_adapter_->submit(frame);

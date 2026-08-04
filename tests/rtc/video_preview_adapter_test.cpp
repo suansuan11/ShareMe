@@ -48,6 +48,7 @@ void submits_planar_frame_and_keeps_one_in_flight(QGuiApplication& app) {
   app.processEvents();
   REQUIRE(adapter.counters().submissions == 1);
   REQUIRE(adapter.counters().coalesced == 1);
+  REQUIRE(adapter.counters().max_pending_depth == 1);
   REQUIRE(sink.videoFrame().isValid());
   REQUIRE(sink.videoFrame().startTime() == 42);
   REQUIRE(sink.videoFrame().pixelFormat() ==

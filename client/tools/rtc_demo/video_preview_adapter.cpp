@@ -108,6 +108,7 @@ struct VideoPreviewAdapter::State {
   std::atomic<std::uint64_t> coalesced{0};
   std::atomic<std::uint64_t> fallback_copies{0};
   std::atomic<std::uint64_t> mapping_failures{0};
+  std::atomic<std::uint64_t> max_pending_depth{0};
 };
 
 VideoPreviewAdapter::VideoPreviewAdapter(QObject* queue_target)
@@ -138,6 +139,7 @@ VideoPreviewResult VideoPreviewAdapter::submit(const webrtc::VideoFrame& source)
     result.path = PreviewPath::coalesced;
     return result;
   }
+  state_->max_pending_depth.store(1, std::memory_order_relaxed);
 
   const auto source_buffer = source.video_frame_buffer();
   const auto i420 = source_buffer ? source_buffer->ToI420() : nullptr;
@@ -186,6 +188,8 @@ VideoPreviewCounters VideoPreviewAdapter::counters() const noexcept {
           state_->fallback_copies.load(std::memory_order_relaxed),
       .mapping_failures =
           state_->mapping_failures.load(std::memory_order_relaxed),
+      .max_pending_depth =
+          state_->max_pending_depth.load(std::memory_order_relaxed),
   };
 }
 

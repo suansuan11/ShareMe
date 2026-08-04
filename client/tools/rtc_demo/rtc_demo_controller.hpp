@@ -181,6 +181,8 @@ private:
   std::atomic<std::uint64_t> performance_sink_submissions_{0};
   std::atomic<std::uint64_t> performance_conversion_failures_{0};
   std::atomic<std::uint64_t> performance_fallback_copies_{0};
+  std::atomic<int> performance_frame_width_{0};
+  std::atomic<int> performance_frame_height_{0};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};

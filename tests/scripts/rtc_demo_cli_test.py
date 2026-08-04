@@ -206,6 +206,11 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("config.remote_video_frame", source)
         self.assertIn("if (role_ == shareme::rtc::SignaledRole::viewer)", source)
 
+    def test_controller_records_remote_dimensions_for_performance_counters(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("performance_frame_width_.store", source)
+        self.assertIn("performance_frame_height_.store", source)
+
     def test_controller_reports_rendered_playout_by_generation(self):
         source = self.controller_source.read_text(encoding="utf-8")
         qml = self.qml.read_text(encoding="utf-8")
