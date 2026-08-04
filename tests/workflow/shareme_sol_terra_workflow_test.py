@@ -8,18 +8,18 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILL = ROOT / ".agents/skills/shareme-sol-luna/SKILL.md"
+SKILL = ROOT / ".agents/skills/shareme-sol-terra/SKILL.md"
 VALIDATOR = ROOT / "scripts/validate_shareme_skill.py"
 CONFIG = ROOT / ".codex/config.toml"
-LUNA_EXPLORER = ROOT / ".codex/agents/luna_explorer.toml"
-LUNA_IMPLEMENTER = ROOT / ".codex/agents/luna_implementer.toml"
+TERRA_EXPLORER = ROOT / ".codex/agents/terra_explorer.toml"
+TERRA_IMPLEMENTER = ROOT / ".codex/agents/terra_implementer.toml"
 
 
-class ShareMeSolLunaWorkflowTest(unittest.TestCase):
+class ShareMeSolTerraWorkflowTest(unittest.TestCase):
     def test_runtime_configuration_is_deterministic_and_bounded(self):
         self.assertTrue(CONFIG.is_file(), "project Codex configuration is missing")
-        self.assertTrue(LUNA_EXPLORER.is_file(), "Luna explorer configuration is missing")
-        self.assertTrue(LUNA_IMPLEMENTER.is_file(), "Luna implementer configuration is missing")
+        self.assertTrue(TERRA_EXPLORER.is_file(), "Terra explorer configuration is missing")
+        self.assertTrue(TERRA_IMPLEMENTER.is_file(), "Terra implementer configuration is missing")
         config = CONFIG.read_text(encoding="utf-8")
         for required in (
             'model = "gpt-5.6-sol"',
@@ -27,19 +27,19 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             "[agents]",
             "enabled = true",
             "max_concurrent_threads_per_session = 2",
-            'default_subagent_model = "gpt-5.6-luna"',
+            'default_subagent_model = "gpt-5.6-terra"',
             'default_subagent_reasoning_effort = "medium"',
         ):
             self.assertIn(required, config)
 
-        explorer = LUNA_EXPLORER.read_text(encoding="utf-8")
-        implementer = LUNA_IMPLEMENTER.read_text(encoding="utf-8")
-        for name, agent in (("luna_explorer", explorer), ("luna_implementer", implementer)):
+        explorer = TERRA_EXPLORER.read_text(encoding="utf-8")
+        implementer = TERRA_IMPLEMENTER.read_text(encoding="utf-8")
+        for name, agent in (("terra_explorer", explorer), ("terra_implementer", implementer)):
             with self.subTest(agent=name):
                 self.assertIn(f'name = "{name}"', agent)
                 self.assertRegex(agent, r'description = "[^"\n]+"')
                 self.assertIn('developer_instructions = """', agent)
-                self.assertIn('model = "gpt-5.6-luna"', agent)
+                self.assertIn('model = "gpt-5.6-terra"', agent)
                 self.assertIn('model_reasoning_effort = "medium"', agent)
         self.assertIn('sandbox_mode = "read-only"', explorer)
         self.assertIn("do not commit", implementer.lower())
@@ -49,19 +49,19 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         required = (
             ROOT / "AGENTS.md",
             SKILL,
-            ROOT / ".agents/skills/shareme-sol-luna/agents/openai.yaml",
-            ROOT / ".agents/skills/shareme-sol-luna/references/project-contract.md",
-            ROOT / ".agents/skills/shareme-sol-luna/references/role-contracts.md",
+            ROOT / ".agents/skills/shareme-sol-terra/agents/openai.yaml",
+            ROOT / ".agents/skills/shareme-sol-terra/references/project-contract.md",
+            ROOT / ".agents/skills/shareme-sol-terra/references/role-contracts.md",
             CONFIG,
-            LUNA_EXPLORER,
-            LUNA_IMPLEMENTER,
+            TERRA_EXPLORER,
+            TERRA_IMPLEMENTER,
             ROOT / "docs/development/current-stage.md",
         )
         self.assertEqual([], [str(path.relative_to(ROOT)) for path in required if not path.is_file()])
 
     def test_skill_frontmatter_and_trigger(self):
         text = SKILL.read_text(encoding="utf-8")
-        self.assertRegex(text, r"(?s)\A---\nname: shareme-sol-luna\ndescription: Use when[^\n]+\n---")
+        self.assertRegex(text, r"(?s)\A---\nname: shareme-sol-terra\ndescription: Use when[^\n]+\n---")
         for trigger in ("ShareMe", "继续开发", "implementation", "diagnosis", "review"):
             self.assertIn(trigger, text)
 
@@ -81,8 +81,8 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         mutations = {
             "invalid skill name": (
                 "SKILL.md",
-                "name: shareme-sol-luna",
-                "name: ShareMe-Sol-Luna",
+                "name: shareme-sol-terra",
+                "name: ShareMe-Sol-Terra",
             ),
             "invalid skill description": (
                 "SKILL.md",
@@ -91,7 +91,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             ),
             "stale display name": (
                 "agents/openai.yaml",
-                'display_name: "ShareMe Sol-Luna"',
+                'display_name: "ShareMe Sol-Terra"',
                 'display_name: "Stale ShareMe Skill"',
             ),
             "stale short description": (
@@ -101,13 +101,13 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             ),
             "stale default prompt": (
                 "agents/openai.yaml",
-                "Use $shareme-sol-luna to continue ShareMe through the next verified stage.",
+                "Use $shareme-sol-terra to continue ShareMe through the next verified stage.",
                 "Use ShareMe without the skill trigger.",
             ),
         }
         for label, (relative_path, old, new) in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as temp_dir:
-                candidate = Path(temp_dir) / "shareme-sol-luna"
+                candidate = Path(temp_dir) / "shareme-sol-terra"
                 shutil.copytree(SKILL.parent, candidate)
                 target = candidate / relative_path
                 text = target.read_text(encoding="utf-8")
@@ -125,7 +125,7 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
 
     def test_agents_points_to_skill_and_stage(self):
         text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn(".agents/skills/shareme-sol-luna/SKILL.md", text)
+        self.assertIn(".agents/skills/shareme-sol-terra/SKILL.md", text)
         self.assertIn("docs/development/current-stage.md", text)
         self.assertIn("one writer owns", text)
 
@@ -156,9 +156,9 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
         combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
         for required in (
             "Sol works directly by default",
-            "at most two independent Luna",
-            "luna_explorer",
-            "luna_implementer",
+            "at most two independent Terra",
+            "terra_explorer",
+            "terra_implementer",
             "one writer",
             "Unmeasured",
             'A user-level filesystem-read-only or "Do not edit" request authorizes zero filesystem mutations',
@@ -183,9 +183,9 @@ class ShareMeSolLunaWorkflowTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("Sol works directly by default", role_contract)
-        self.assertIn("at most two independent Luna", role_contract)
-        self.assertIn("luna_explorer", role_contract)
-        self.assertIn("luna_implementer", role_contract)
+        self.assertIn("at most two independent Terra", role_contract)
+        self.assertIn("terra_explorer", role_contract)
+        self.assertIn("terra_implementer", role_contract)
         self.assertIn("independent read-only", role_contract)
         self.assertIn("one writer", role_contract)
         self.assertIn("Target:", role_contract)
