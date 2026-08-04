@@ -25,6 +25,7 @@
 #include <memory>
 #include <filesystem>
 #include <optional>
+#include <string>
 #include <thread>
 
 namespace shareme::rtc {
@@ -113,6 +114,7 @@ private:
   void runDriftScenario();
   void failDriftScenario(const QString& category);
   void recordDriftError(std::string category, bool notify_viewer = true);
+  void emitDriftDiagnostics();
 
   QUrl server_url_;
   shareme::rtc::SignaledRole role_;
@@ -158,6 +160,16 @@ private:
   bool drift_scenario_started_{false};
   bool drift_scenario_failed_{false};
   std::size_t drift_report_messages_{0};
+  std::size_t drift_report_receive_attempts_{0};
+  std::size_t drift_report_decode_successes_{0};
+  std::size_t drift_sink_submissions_{0};
+  std::size_t drift_report_encode_attempts_{0};
+  std::size_t drift_report_encode_successes_{0};
+  std::size_t drift_report_send_attempts_{0};
+  std::size_t drift_report_send_successes_{0};
+  std::chrono::steady_clock::time_point last_drift_diagnostic_at_{};
+  std::string selected_candidate_type_;
+  bool drift_diagnostics_enabled_{false};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};

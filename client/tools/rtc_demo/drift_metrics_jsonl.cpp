@@ -124,6 +124,13 @@ QJsonObject action_count_object(const std::array<std::size_t, 4>& counts) {
 }
 
 QJsonObject summary_object(const shareme::core::DriftSummary& summary) {
+  QJsonArray pause_intervals;
+  for (const auto& interval : summary.pause_intervals) {
+    pause_intervals.append(QJsonObject{
+        {"startCaptureTimeMs", interval.start_capture_time_ms},
+        {"endCaptureTimeMs", interval.end_capture_time_ms},
+    });
+  }
   QJsonArray recoveries;
   for (const auto& recovery : summary.recoveries) {
     recoveries.append(QJsonObject{
@@ -160,6 +167,7 @@ QJsonObject summary_object(const shareme::core::DriftSummary& summary) {
       {"reportGapCount", unsigned_value(summary.report_gap_count)},
       {"largestReportGapMs", summary.largest_report_gap_ms},
       {"hardResyncCandidateEpisodes", unsigned_value(summary.hard_resync_candidate_episodes)},
+      {"pauseIntervals", pause_intervals},
       {"recoveries", recoveries},
       {"errors", errors},
   };

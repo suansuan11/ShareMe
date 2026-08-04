@@ -31,6 +31,14 @@ from run_signaled_call_smoke import (  # noqa: E402
 ROOM_PATTERN = re.compile(r"^ROOM ([A-Z2-7]{6})$")
 COMPLETE_RESULT = "RESULT drift-study-v1 status=complete"
 FAILED_RESULT = re.compile(r"^RESULT drift-study-v1 status=failed(?: |$)")
+DRIFT_COUNTERS = re.compile(
+    r"^DRIFT_COUNTERS role=viewer"
+    r" sink_submissions=(\d+)"
+    r" report_encode_attempts=(\d+)"
+    r" report_encode_successes=(\d+)"
+    r" report_send_attempts=(\d+)"
+    r" report_send_successes=(\d+)$"
+)
 PAUSE_PHASE = "paused"
 STEADY_PHASES = {
     "steady",
@@ -162,13 +170,39 @@ def parse_result_counters(output: str) -> dict[str, int]:
     for line in output.splitlines():
         if not line.startswith(COMPLETE_RESULT):
             continue
-        values = dict(re.findall(r"(accepted_samples|rejected_samples|received_reports)=(\d+)", line))
+        values = dict(re.findall(
+            r"(accepted_samples|rejected_samples|received_reports|"
+            r"report_receive_attempts|report_decode_successes)=(\d+)",
+            line,
+        ))
         return {
             "acceptedSamples": int(values.get("accepted_samples", 0)),
             "rejectedSamples": int(values.get("rejected_samples", 0)),
             "receivedReports": int(values.get("received_reports", 0)),
+            "reportReceiveAttempts": int(
+                values.get("report_receive_attempts", 0)
+            ),
+            "reportDecodeSuccesses": int(
+                values.get("report_decode_successes", 0)
+            ),
         }
     return {}
+
+
+def parse_viewer_counters(output: str) -> dict[str, int]:
+    counters: dict[str, int] = {}
+    for line in output.splitlines():
+        match = DRIFT_COUNTERS.fullmatch(line.strip())
+        if not match:
+            continue
+        counters = {
+            "sinkSubmissions": int(match.group(1)),
+            "reportEncodeAttempts": int(match.group(2)),
+            "reportEncodeSuccesses": int(match.group(3)),
+            "reportSendAttempts": int(match.group(4)),
+            "reportSendSuccesses": int(match.group(5)),
+        }
+    return counters
 
 
 def is_complete_artifact(path: Path) -> bool:
@@ -190,7 +224,24 @@ def nearest_rank(values: list[int], percentile: int) -> int:
     return ordered[min(rank, len(ordered)) - 1]
 
 
-def recompute_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
+def pause_overlap_ms(
+    start_ms: int, end_ms: int, pause_intervals: list[dict[str, Any]]
+) -> int:
+    overlap = 0
+    for interval in pause_intervals:
+        interval_start = int(interval["startCaptureTimeMs"])
+        interval_end = int(interval["endCaptureTimeMs"])
+        overlap_start = max(start_ms, interval_start)
+        overlap_end = min(end_ms, interval_end)
+        if overlap_end > overlap_start:
+            overlap += overlap_end - overlap_start
+    return overlap
+
+
+def recompute_summary(
+    samples: list[dict[str, Any]],
+    pause_intervals: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
     deltas = [int(sample["deltaMs"]) for sample in samples]
     absolute = [abs(value) for value in deltas]
     phases: dict[str, int] = {}
@@ -198,6 +249,7 @@ def recompute_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     generation_regressions = 0
     largest_gap = 0
     report_gap_count = 0
+    pause_intervals = pause_intervals or []
     previous: Optional[dict[str, Any]] = None
     for sample in samples:
         phase = str(sample.get("phase", "unknown"))
@@ -209,8 +261,16 @@ def recompute_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
                 sequence_regressions += 1
             if int(sample["generation"]) < int(previous["generation"]):
                 generation_regressions += 1
-            gap = int(sample["captureTimeMs"]) - int(previous["captureTimeMs"])
-            if gap > 250 and phase != PAUSE_PHASE and previous.get("phase") != PAUSE_PHASE:
+            previous_capture = int(previous["captureTimeMs"])
+            capture_time = int(sample["captureTimeMs"])
+            gap = capture_time - previous_capture
+            if phase != PAUSE_PHASE and previous.get("phase") != PAUSE_PHASE:
+                gap -= pause_overlap_ms(
+                    previous_capture, capture_time, pause_intervals
+                )
+            else:
+                gap = 0
+            if gap > 250:
                 report_gap_count += 1
                 largest_gap = max(largest_gap, gap)
         previous = sample
@@ -255,7 +315,7 @@ def summarize_artifact(path: Path) -> dict[str, Any]:
     samples, recorded = read_artifact(path)
     if recorded.get("complete") is not True:
         raise DriftStudyError("incomplete-artifact")
-    recomputed = recompute_summary(samples)
+    recomputed = recompute_summary(samples, recorded.get("pauseIntervals", []))
     for key in (
         "acceptedSamples", "absoluteP50Ms", "absoluteP95Ms", "absoluteP99Ms",
         "absoluteMaxMs", "signedMinMs", "signedMaxMs", "reportGapCount",
@@ -309,6 +369,44 @@ def _wait_for_event(reader: OutputReader, timeout: float) -> Optional[str]:
         raise DriftStudyError("process-timeout") from error
 
 
+def wait_for_host_event_or_viewer(
+    reader: OutputReader, viewer: Any, deadline: float
+) -> Optional[str]:
+    while True:
+        if not viewer_is_alive(viewer):
+            raise DriftStudyError("viewer-exited-before-host-event")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DriftStudyError("process-timeout")
+        try:
+            return reader.events.get(timeout=min(0.25, remaining))
+        except queue.Empty:
+            continue
+
+
+def wait_for_host_exit_or_viewer(
+    host: Any, viewer: Any, timeout: float
+) -> None:
+    deadline = time.monotonic() + timeout
+    while host.poll() is None:
+        if not viewer_is_alive(viewer):
+            raise DriftStudyError("viewer-exited-after-result")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DriftStudyError("host-exit-timeout")
+        time.sleep(min(0.1, remaining))
+    if not viewer_is_alive(viewer):
+        raise DriftStudyError("viewer-exited-after-result")
+
+
+def raise_run_error(error: BaseException, output_path: Path) -> None:
+    if output_path.exists():
+        raise DriftStudyError(
+            f"{error}; partial-artifact={output_path.name}"
+        ) from error
+    raise error
+
+
 def _start_demo(command: list[str], environment: dict[str, str]) -> tuple[Any, OutputReader]:
     try:
         process = start_managed_process(
@@ -338,6 +436,7 @@ def run_one(
     env = os.environ.copy()
     if environment:
         env.update(environment)
+    env["SHAREME_DRIFT_DIAGNOSTICS"] = "1"
     host = viewer = None
     host_reader = viewer_reader = None
     try:
@@ -359,9 +458,7 @@ def run_one(
         result_lines: list[str] = []
         deadline = time.monotonic() + timeout_seconds
         while True:
-            if not viewer_is_alive(viewer):
-                raise DriftStudyError("viewer-exited-before-result")
-            event = _wait_for_event(host_reader, deadline - time.monotonic())
+            event = wait_for_host_event_or_viewer(host_reader, viewer, deadline)
             if event is None:
                 raise DriftStudyError("host-exited-without-result")
             result_lines.append(event)
@@ -372,18 +469,15 @@ def run_one(
             if not viewer_is_alive(viewer):
                 raise DriftStudyError("viewer-exited-before-result")
             raise DriftStudyError("measurement-failed")
-        host.wait(timeout=10)
-        if not viewer_is_alive(viewer):
-            raise DriftStudyError("viewer-exited-after-result")
+        wait_for_host_exit_or_viewer(host, viewer, timeout=10)
         if not is_complete_artifact(output_path):
             raise DriftStudyError("incomplete-artifact")
         report = summarize_artifact(output_path)
         report.update(parse_result_counters(output))
+        report.update(parse_viewer_counters("".join(viewer_reader.lines)))
         return report
-    except (DriftStudyError, OSError, TimeoutError):
-        if output_path.exists():
-            return {"artifact": output_path.name, "complete": False}
-        raise
+    except (DriftStudyError, OSError, TimeoutError) as error:
+        raise_run_error(error, output_path)
     finally:
         for process in (viewer, host):
             if process is not None and process.poll() is None:

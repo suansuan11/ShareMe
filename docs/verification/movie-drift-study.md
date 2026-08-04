@@ -42,12 +42,23 @@ the same SHA-256 because the same empty-summary result was reproduced:
 | `build/drift-study-diagnostic/run-01.jsonl` | 677 | `baf158fffe7838e15c1925f1c97458f1fb9a6c79140a9c1cfa1029eed020087c` | offscreen diagnosis |
 | `build/drift-study-native/run-01.jsonl` | 677 | `baf158fffe7838e15c1925f1c97458f1fb9a6c79140a9c1cfa1029eed020087c` | native Cocoa diagnosis |
 
+After the measurement-chain fixes, one additional macOS native diagnostic was
+run with the same movie and the same 300-second scenario. Its finalized JSONL
+was 689 bytes with SHA-256
+`c5c4077da60a5d6d7b0d5b2d322d1cca1d1741bc5ba13d3473ab4fcb320f9df0`. The
+viewer recorded 4,224 Qt sink submissions, but zero report encode attempts,
+zero report sends, and the host recorded zero report receive attempts and zero
+accepted samples. This isolates the current failure to the viewer reportability
+preconditions after sink submission and before report encoding; it is not a
+zero-drift result.
+
 The repeated `received_reports=0` result locates the failure at or before a
-valid `PlayoutReport` arriving at the host. The current sanitized host-side
-counter cannot distinguish a viewer sink callback failure from a viewer
-DataChannel send failure, so neither is claimed as the sole root cause. This
-is application-layer evidence only; it does not verify display scanout,
-acoustic A/V synchronization, or a physical screen presentation.
+valid `PlayoutReport` arriving at the host. The runner now records separate
+viewer sink-submission, report encode/send, and host receive/decode counters;
+the prior artifacts predate those counters and therefore do not identify a
+single lower-layer cause. This is application-layer evidence only; it does not
+verify display scanout, acoustic A/V synchronization, or a physical screen
+presentation.
 
 ## Measurement gate
 
@@ -72,7 +83,7 @@ is not reinterpreted as a successful zero-drift result.
 - **Verified:** portable drift aggregation, sanitized JSONL schema and atomic
   finalize tests; deterministic five-minute scheduler and bounded seek tests;
   fixed host-only CLI contract; runner unit contracts; macOS build and CTest
-  44/44; Go race tests and vet; Sol–Terra workflow 8/8; skill validator; and
+  45/45; Go race tests and vet; Sol–Terra workflow 8/8; skill validator; and
   `git diff --check`.
 - **Partial:** macOS real-media session lifecycle and scenario completion. The
   supplied movie opened sufficiently for the scripted host scenario to reach

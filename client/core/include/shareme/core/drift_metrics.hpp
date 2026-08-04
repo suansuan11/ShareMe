@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,11 @@ struct DriftRecovery {
   std::int64_t duration_ms = 0;
 };
 
+struct DriftPauseInterval {
+  std::int64_t start_capture_time_ms = 0;
+  std::int64_t end_capture_time_ms = 0;
+};
+
 struct DriftSummary {
   bool complete = false;
   std::size_t accepted_samples = 0;
@@ -67,6 +73,7 @@ struct DriftSummary {
   std::size_t report_gap_count = 0;
   std::int64_t largest_report_gap_ms = 0;
   std::size_t hard_resync_candidate_episodes = 0;
+  std::vector<DriftPauseInterval> pause_intervals;
   std::vector<DriftRecovery> recoveries;
   std::vector<std::string> errors;
 };
@@ -74,6 +81,8 @@ struct DriftSummary {
 class DriftAggregator {
 public:
   [[nodiscard]] bool accept(DriftSample sample);
+  void record_phase_boundary(DriftPhase phase,
+                             std::int64_t capture_time_ms) noexcept;
   void record_rejection() noexcept;
   void record_error(std::string category);
   void complete_run() noexcept;
@@ -123,6 +132,8 @@ private:
   std::size_t report_gap_count_ = 0;
   std::int64_t largest_report_gap_ms_ = 0;
   std::size_t hard_resync_candidate_episodes_ = 0;
+  std::vector<DriftPauseInterval> pause_intervals_;
+  std::optional<std::int64_t> pause_start_capture_time_ms_;
   std::vector<DriftRecovery> recoveries_;
   std::vector<std::string> errors_;
   RecoveryState recovery_{};

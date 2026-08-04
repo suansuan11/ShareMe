@@ -125,6 +125,25 @@ void rejects_regressions_counts_generation_changes_and_excludes_pause_gap() {
   REQUIRE(summary.report_gap_count == 1);
 }
 
+void excludes_pause_gap_when_viewer_sends_no_paused_samples() {
+  shareme::core::DriftAggregator aggregator;
+  REQUIRE(aggregator.accept(sample(89'750, 0, 0, 1, 0)));
+  aggregator.record_phase_boundary(shareme::core::DriftPhase::paused, 90'000);
+  aggregator.record_phase_boundary(shareme::core::DriftPhase::post_resume,
+                                  95'000);
+  REQUIRE(aggregator.accept(sample(95'000, 1, 1, 1, 0,
+                                  shareme::core::DriftPhase::post_resume)));
+  REQUIRE(aggregator.accept(sample(97'750, 2, 2, 1, 0,
+                                  shareme::core::DriftPhase::post_resume)));
+
+  const auto summary = aggregator.summary();
+  REQUIRE(summary.report_gap_count == 1);
+  REQUIRE(summary.largest_report_gap_ms == 2'750);
+  REQUIRE(summary.pause_intervals.size() == 1);
+  REQUIRE(summary.pause_intervals.front().start_capture_time_ms == 90'000);
+  REQUIRE(summary.pause_intervals.front().end_capture_time_ms == 95'000);
+}
+
 void recovers_only_after_three_consecutive_current_generation_samples() {
   shareme::core::DriftAggregator aggregator;
   REQUIRE(aggregator.accept(sample(1'000, 0, 0, 1, 250,
@@ -192,6 +211,7 @@ int main() {
   reports_empty_and_complete_runs_deterministically();
   aggregates_signed_values_actions_phases_and_percentiles();
   rejects_regressions_counts_generation_changes_and_excludes_pause_gap();
+  excludes_pause_gap_when_viewer_sends_no_paused_samples();
   recovers_only_after_three_consecutive_current_generation_samples();
   computes_overflow_safe_absolute_value_and_nearest_rank_percentiles();
   counts_samples_rejected_by_an_external_capture_bound();

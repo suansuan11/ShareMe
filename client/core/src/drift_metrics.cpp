@@ -43,6 +43,19 @@ std::uint64_t nearest_rank(
   return sorted_values[std::min(rank, sorted_values.size()) - 1];
 }
 
+std::int64_t pause_overlap_ms(
+    std::int64_t start_ms, std::int64_t end_ms,
+    const std::vector<DriftPauseInterval>& intervals) noexcept {
+  std::int64_t overlap_ms = 0;
+  for (const auto& interval : intervals) {
+    const auto overlap_start = std::max(start_ms, interval.start_capture_time_ms);
+    const auto overlap_end = std::min(end_ms, interval.end_capture_time_ms);
+    if (overlap_end > overlap_start)
+      overlap_ms += overlap_end - overlap_start;
+  }
+  return overlap_ms;
+}
+
 }  // namespace
 
 bool DriftAggregator::accept(DriftSample sample) {
@@ -79,10 +92,15 @@ bool DriftAggregator::accept(DriftSample sample) {
     }
 
     const auto gap_ms = sample.capture_time_ms - last_capture_time_ms_;
-    if (gap_ms > 250 && sample.phase != DriftPhase::paused &&
-        last_phase_ != DriftPhase::paused) {
+    auto measured_gap_ms =
+        gap_ms - pause_overlap_ms(last_capture_time_ms_, sample.capture_time_ms,
+                                  pause_intervals_);
+    if (sample.phase == DriftPhase::paused || last_phase_ == DriftPhase::paused)
+      measured_gap_ms = 0;
+    if (measured_gap_ms > 250) {
       ++report_gap_count_;
-      largest_report_gap_ms_ = std::max(largest_report_gap_ms_, gap_ms);
+      largest_report_gap_ms_ =
+          std::max(largest_report_gap_ms_, measured_gap_ms);
     }
     signed_min_ms_ = std::min(signed_min_ms_, sample.delta_ms);
     signed_max_ms_ = std::max(signed_max_ms_, sample.delta_ms);
@@ -125,6 +143,24 @@ bool DriftAggregator::accept(DriftSample sample) {
 
 void DriftAggregator::record_rejection() noexcept { ++rejected_samples_; }
 
+void DriftAggregator::record_phase_boundary(
+    DriftPhase phase, std::int64_t capture_time_ms) noexcept {
+  if (complete_)
+    return;
+  if (phase == DriftPhase::paused) {
+    if (!pause_start_capture_time_ms_ ||
+        capture_time_ms > *pause_start_capture_time_ms_)
+      pause_start_capture_time_ms_ = capture_time_ms;
+    return;
+  }
+  if (phase == DriftPhase::post_resume && pause_start_capture_time_ms_ &&
+      capture_time_ms > *pause_start_capture_time_ms_) {
+    pause_intervals_.push_back(
+        {*pause_start_capture_time_ms_, capture_time_ms});
+    pause_start_capture_time_ms_.reset();
+  }
+}
+
 void DriftAggregator::record_error(std::string category) {
   if (!category.empty())
     errors_.push_back(std::move(category));
@@ -164,6 +200,7 @@ DriftSummary DriftAggregator::make_summary() const {
   result.report_gap_count = report_gap_count_;
   result.largest_report_gap_ms = largest_report_gap_ms_;
   result.hard_resync_candidate_episodes = hard_resync_candidate_episodes_;
+  result.pause_intervals = pause_intervals_;
   result.recoveries = recoveries_;
   result.errors = errors_;
 

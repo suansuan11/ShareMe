@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import queue
 import tempfile
 import unittest
+import time
 from pathlib import Path
 
 
@@ -69,10 +71,20 @@ class MovieDriftStudyTest(unittest.TestCase):
             )
             counters = self.runner.parse_result_counters(
                 "RESULT drift-study-v1 status=complete accepted_samples=4 "
-                "rejected_samples=2 received_reports=7"
+                "rejected_samples=2 received_reports=7 "
+                "report_receive_attempts=9 report_decode_successes=7"
             )
             self.assertEqual(counters["acceptedSamples"], 4)
             self.assertEqual(counters["receivedReports"], 7)
+            self.assertEqual(counters["reportReceiveAttempts"], 9)
+            self.assertEqual(counters["reportDecodeSuccesses"], 7)
+            viewer_counters = self.runner.parse_viewer_counters(
+                "DRIFT_COUNTERS role=viewer sink_submissions=12 "
+                "report_encode_attempts=8 report_encode_successes=7 "
+                "report_send_attempts=7 report_send_successes=6"
+            )
+            self.assertEqual(viewer_counters["sinkSubmissions"], 12)
+            self.assertEqual(viewer_counters["reportSendSuccesses"], 6)
 
     def test_artifact_hash_and_output_root_refuse_escape_or_existing_targets(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -106,6 +118,24 @@ class MovieDriftStudyTest(unittest.TestCase):
         self.assertEqual(summary["absoluteP99Ms"], 200)
         self.assertEqual(summary["absoluteMaxMs"], 200)
         self.assertFalse(self.runner.gates_pass({"runs": []}))
+
+        pause_samples = [
+            {"kind": "sample", "captureTimeMs": 89_750, "sampleIndex": 0,
+             "reportSequence": 0, "generation": 1, "deltaMs": 0,
+             "phase": "steady"},
+            {"kind": "sample", "captureTimeMs": 95_000, "sampleIndex": 1,
+             "reportSequence": 1, "generation": 1, "deltaMs": 0,
+             "phase": "post-resume"},
+            {"kind": "sample", "captureTimeMs": 97_750, "sampleIndex": 2,
+             "reportSequence": 2, "generation": 1, "deltaMs": 0,
+             "phase": "post-resume"},
+        ]
+        pause_summary = self.runner.recompute_summary(
+            pause_samples,
+            [{"startCaptureTimeMs": 90_000, "endCaptureTimeMs": 95_000}],
+        )
+        self.assertEqual(pause_summary["reportGapCount"], 1)
+        self.assertEqual(pause_summary["largestReportGapMs"], 2_750)
 
     def test_diagnostics_redact_paths_and_room_secrets(self):
         diagnostic = self.runner.redact_diagnostic(
@@ -143,6 +173,48 @@ class MovieDriftStudyTest(unittest.TestCase):
                 "RESULT drift-study-v1 status=complete", Process(1)
             )
         )
+
+    def test_runner_wakes_when_viewer_exits_while_host_is_silent(self):
+        class Reader:
+            events = queue.Queue()
+
+        class Process:
+            def poll(self):
+                return 1
+
+        with self.assertRaisesRegex(
+            self.runner.DriftStudyError, "viewer-exited-before-host-event"
+        ):
+            self.runner.wait_for_host_event_or_viewer(
+                Reader(), Process(), time.monotonic() + 10
+            )
+
+    def test_runner_rechecks_viewer_after_host_exit(self):
+        class Host:
+            def poll(self):
+                return 0
+
+        class Viewer:
+            def poll(self):
+                return 1
+
+        with self.assertRaisesRegex(
+            self.runner.DriftStudyError, "viewer-exited-after-result"
+        ):
+            self.runner.wait_for_host_exit_or_viewer(Host(), Viewer(), 1)
+
+    def test_runner_preserves_partial_artifact_failure_category(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "run-01.jsonl"
+            artifact.write_text('{"kind":"summary"}\n', encoding="utf-8")
+            with self.assertRaisesRegex(
+                self.runner.DriftStudyError,
+                "viewer-exited-before-host-event; partial-artifact=run-01.jsonl",
+            ):
+                self.runner.raise_run_error(
+                    self.runner.DriftStudyError("viewer-exited-before-host-event"),
+                    artifact,
+                )
 
 
 if __name__ == "__main__":

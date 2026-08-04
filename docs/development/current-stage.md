@@ -99,7 +99,10 @@ for exact proof and evidence boundaries.
 - **Partial — drift-study measurement:** the required movie session reached the
   scripted 300-second host completion, but the formal run produced zero valid
   host-received playout reports. The same result reproduced once with Qt
-  `offscreen` and once with native macOS Cocoa. See
+  `offscreen` and once with native macOS Cocoa. The measurement chain now
+  excludes the implicit no-report pause interval, wakes on viewer exit, and
+  exposes sink/encode/send/receive counters; the post-fix native diagnostic
+  recorded sink submissions but no report encode attempt. See
   [Movie Drift Study Verification](../verification/movie-drift-study.md).
 - **Unimplemented:** correction application, bounded hard resync, TURN/public
   network acceptance, process-loopback audio, measured performance, and all
@@ -107,9 +110,9 @@ for exact proof and evidence boundaries.
 
 ## Next recommended stage
 
-First instrument the viewer-side frame-submission and DataChannel report-send
-boundaries with sanitized counters, then rerun the exact three-run
-`drift-study-v1` gate after a valid report stream is demonstrated. Keep
+Inspect and fix the viewer reportability preconditions identified by the
+layered counters, then run a fresh diagnostic and rerun the exact three-run
+`drift-study-v1` gate only after a valid report stream is demonstrated. Keep
 automatic hard-resync unimplemented until all frozen gates pass; do not inject
 artificial offsets or change existing correction thresholds.
 

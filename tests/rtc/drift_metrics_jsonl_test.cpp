@@ -98,6 +98,8 @@ void rejects_existing_output_and_unsanitized_candidate_values() {
   REQUIRE(writer.append(unsafe));
   shareme::core::DriftSummary summary;
   summary.complete = true;
+  summary.pause_intervals = {{.start_capture_time_ms = 100,
+                              .end_capture_time_ms = 200}};
   summary.errors = {"rtc-failure"};
   REQUIRE(writer.finalize(summary));
 
@@ -109,6 +111,7 @@ void rejects_existing_output_and_unsanitized_candidate_values() {
   REQUIRE(!content.contains("token"));
   REQUIRE(!content.contains("secret"));
   REQUIRE(!content.contains("sdp"));
+  REQUIRE(content.contains("\"pauseIntervals\":[{\"endCaptureTimeMs\":200,\"startCaptureTimeMs\":100}]"));
   const auto error_summary =
       QJsonDocument::fromJson(content.split('\n').at(1)).object();
   REQUIRE(error_summary.value("errors").toArray().size() == 1);
