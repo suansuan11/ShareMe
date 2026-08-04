@@ -77,7 +77,8 @@ measurement and conversion-cleanup slice is complete with outcome
   RSS P95 changed by -3.381%, and PSNR/SSIM plus the paused probe were not
   recorded. No hardware adapter was added because the evidence did not
   establish a codec boundary as dominant.
-- final macOS regression verification passed CTest 48/48, 20 repeated
+- final macOS regression verification passed CTest 49/49, including the MSVC
+  portability regression contract, 20 repeated
   `signaled_peer` lifecycles, Go race/vet, workflow 8/8, the skill validator,
   and `git diff --check`; Windows and human visual/audio/thermal evidence remain
   environment-dependent or unperformed.

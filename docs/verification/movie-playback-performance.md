@@ -130,8 +130,9 @@ scanout, acoustic A/V synchronization, or physical screen presentation.
 
 ## Stage verification
 
-The completed macOS verification checkpoint passed full CTest 48/48,
-20/20 repeated `signaled_peer` lifecycles, `go test -race ./...`, `go vet
+The completed macOS verification checkpoint passed full CTest 49/49,
+including the standard-C++ portability regression contract, 20/20 repeated
+`signaled_peer` lifecycles, `go test -race ./...`, `go vet
 ./...`, ShareMe Sol–Terra workflow tests 8/8, the ShareMe skill validator, and
 `git diff --check`. These checks establish regression and tooling health; they
 do not turn the failed performance gate into a pass. No Windows build, native
