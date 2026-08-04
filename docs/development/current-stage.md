@@ -110,11 +110,13 @@ for exact proof and evidence boundaries.
 
 ## Next recommended stage
 
-Inspect and fix the viewer reportability preconditions identified by the
-layered counters, then run a fresh diagnostic and rerun the exact three-run
-`drift-study-v1` gate only after a valid report stream is demonstrated. Keep
-automatic hard-resync unimplemented until all frozen gates pass; do not inject
-artificial offsets or change existing correction thresholds.
+Movie playback performance and user-observed severe heat are now the highest
+priority. Execute the measurement-first quality-preserving performance plan in
+[Movie Playback Performance Priority](../superpowers/plans/2026-08-04-movie-playback-performance-priority.md).
+Pause viewer reportability repair and the three-run drift study until this
+performance stage finishes. Keep automatic hard-resync unimplemented until all
+frozen drift gates eventually pass; do not inject artificial offsets or change
+existing correction thresholds.
 
 ## Git handoff
 
