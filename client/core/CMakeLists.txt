@@ -1,6 +1,7 @@
 add_library(
   shareme_core
   STATIC
+  src/drift_metrics.cpp
   src/probe_cli.cpp
   src/probe_contract.cpp
   src/sync_controller.cpp

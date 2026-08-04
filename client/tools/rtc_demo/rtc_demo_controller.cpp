@@ -3,10 +3,12 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
+#include <QCoreApplication>
 #include <QVideoFrame>
 #include <QVideoSink>
 
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <utility>
@@ -56,6 +58,26 @@ QString sync_action_name(shareme::core::SyncAction action) {
   return QStringLiteral("unavailable");
 }
 
+QString drift_phase_name(shareme::core::DriftPhase phase) {
+  switch (phase) {
+  case shareme::core::DriftPhase::warmup:
+    return QStringLiteral("warmup");
+  case shareme::core::DriftPhase::steady:
+    return QStringLiteral("steady");
+  case shareme::core::DriftPhase::paused:
+    return QStringLiteral("paused");
+  case shareme::core::DriftPhase::post_resume:
+    return QStringLiteral("post-resume");
+  case shareme::core::DriftPhase::post_forward_seek:
+    return QStringLiteral("post-forward-seek");
+  case shareme::core::DriftPhase::post_backward_seek:
+    return QStringLiteral("post-backward-seek");
+  case shareme::core::DriftPhase::cooldown:
+    return QStringLiteral("cooldown");
+  }
+  return QStringLiteral("unknown");
+}
+
 } // namespace
 
 RtcDemoController::RtcDemoController(QUrl server_url,
@@ -63,11 +85,18 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                      QString requested_room,
                                      bool desktop_source,
                                      std::filesystem::path movie_path,
-                                     bool movie_audio, QObject *parent)
+                                     bool movie_audio, QString metrics_jsonl_path,
+                                     QString drift_scenario_name,
+                                     qint64 measurement_duration_seconds,
+                                     QObject *parent)
     : QObject(parent), server_url_(std::move(server_url)), role_(role),
       requested_room_(std::move(requested_room)),
       desktop_source_(desktop_source), movie_path_(std::move(movie_path)),
-      movie_audio_(movie_audio) {
+      movie_audio_(movie_audio), metrics_jsonl_path_(std::move(metrics_jsonl_path)),
+      drift_scenario_name_(std::move(drift_scenario_name)),
+      measurement_duration_seconds_(measurement_duration_seconds),
+      drift_diagnostics_enabled_(std::getenv("SHAREME_DRIFT_DIAGNOSTICS") !=
+                                 nullptr) {
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
           &RtcDemoController::publishPlaybackState);
@@ -77,6 +106,12 @@ RtcDemoController::RtcDemoController(QUrl server_url,
   connect(&signaling_, &QtSignalingClient::statusChanged, this,
           [this](const QString &state) {
             setStatus(state);
+            if (drift_scenario_ && drift_scenario_started_ &&
+                !drift_scenario_failed_ && !drift_scenario_->completed() &&
+                state != QStringLiteral("connected")) {
+              failDriftScenario(QStringLiteral("connection-lost"));
+              return;
+            }
             if (state != QStringLiteral("connected"))
               return;
             if (role_ == shareme::rtc::SignaledRole::host)
@@ -84,6 +119,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
             else
               signaling_.joinRoom(requested_room_);
           });
+  drift_metrics_flush_timer_.setInterval(1'000);
+  connect(&drift_metrics_flush_timer_, &QTimer::timeout, this,
+          &RtcDemoController::flushDriftMetrics);
   connect(&signaling_, &QtSignalingClient::roomReady, this,
           [this](const QString &room) {
             setRoomId(room);
@@ -194,6 +232,15 @@ bool RtcDemoController::viewerRenderedAvailable() const noexcept {
   return viewer_rendered_available_;
 }
 
+QString RtcDemoController::driftScenarioPhase() const {
+  return drift_phase_name(drift_phase_);
+}
+
+bool RtcDemoController::driftScenarioActive() const noexcept {
+  return drift_scenario_.has_value() && drift_scenario_started_ &&
+      !drift_scenario_failed_ && !drift_scenario_->completed();
+}
+
 void RtcDemoController::setVideoSink(QVideoSink *sink) { video_sink_ = sink; }
 
 void RtcDemoController::start() {
@@ -264,8 +311,11 @@ bool RtcDemoController::createPeer() {
     QMetaObject::invokeMethod(
         this,
         [this, category = std::move(category)] {
+          recordDriftError("peer-failure");
           setStatus(QStringLiteral("peer-error: ") +
                     QString::fromStdString(category));
+          if (!drift_scenario_name_.isEmpty())
+            failDriftScenario(QStringLiteral("peer-failure"));
         },
         Qt::QueuedConnection);
   };
@@ -309,6 +359,7 @@ bool RtcDemoController::createPeer() {
   peer_ = shareme::rtc::SignaledPeer::create(std::move(config),
                                              std::move(callbacks));
   if (!peer_) {
+    recordDriftError("peer-creation-failure");
     setStatus(QStringLiteral("peer-creation-failed"));
     return false;
   }
@@ -334,8 +385,11 @@ bool RtcDemoController::createPeer() {
     movie_callbacks.failure = [this](std::string category) {
       QMetaObject::invokeMethod(
           this, [this, category = std::move(category)] {
+            recordDriftError("movie-audio-failure");
             setStatus(QStringLiteral("movie-audio-error: ") +
                       QString::fromStdString(category));
+            if (!drift_scenario_name_.isEmpty())
+              failDriftScenario(QStringLiteral("movie-audio-failure"));
           }, Qt::QueuedConnection);
     };
     shareme::rtc::MovieAudioPeerConfig movie_config{.role = role_};
@@ -350,6 +404,7 @@ bool RtcDemoController::createPeer() {
     movie_peer_ = shareme::rtc::MovieAudioPeer::create(
         std::move(movie_config), std::move(movie_callbacks));
     if (!movie_peer_) {
+      recordDriftError("movie-audio-peer-creation-failure");
       setStatus(QStringLiteral("movie-audio-peer-creation-failed"));
       return false;
     }
@@ -361,9 +416,25 @@ bool RtcDemoController::createPeer() {
 void RtcDemoController::startPeer() {
   if (peer_started_ || !peer_)
     return;
+  if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty() &&
+      !metrics_jsonl_path_.isEmpty()) {
+    drift_metrics_writer_ = std::make_unique<shareme::tools::DriftMetricsJsonlWriter>(
+        metrics_jsonl_path_);
+    if (drift_metrics_writer_->open()) {
+      drift_capture_enabled_ = true;
+      drift_metrics_flush_timer_.start();
+    } else {
+      setStatus(QStringLiteral("drift-capture-disabled: ") +
+                drift_metrics_writer_->failure_category());
+      drift_metrics_writer_.reset();
+    }
+  }
   peer_started_ = peer_->start();
   if (!peer_started_) {
+    recordDriftError("peer-start-failure");
     setStatus(QStringLiteral("peer-start-failed"));
+    if (!drift_scenario_name_.isEmpty())
+      failDriftScenario(QStringLiteral("peer-start-failure"));
     return;
   }
   if (movie_peer_ && movie_peer_->start()) {
@@ -372,11 +443,17 @@ void RtcDemoController::startPeer() {
       if (!result.error.empty()) {
         QMetaObject::invokeMethod(
             this, [this, error = result.error] {
+              recordDriftError("movie-audio-wait-failure");
               setStatus(QStringLiteral("movie-audio-error: ") +
                         QString::fromStdString(error));
             }, Qt::QueuedConnection);
       }
     });
+  } else if (movie_peer_) {
+    recordDriftError("movie-audio-start-failure");
+    setStatus(QStringLiteral("movie-audio-start-failed"));
+    if (!drift_scenario_name_.isEmpty())
+      failDriftScenario(QStringLiteral("movie-audio-start-failure"));
   }
   setStatus(QStringLiteral("negotiating"));
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
@@ -385,14 +462,24 @@ void RtcDemoController::startPeer() {
     playback_state_timer_.start();
   if (role_ == shareme::rtc::SignaledRole::viewer)
     playout_report_timer_.start();
+  if (role_ == shareme::rtc::SignaledRole::host &&
+      drift_scenario_name_ == QStringLiteral("drift-study-v1")) {
+    drift_scenario_.emplace();
+    drift_scenario_timer_.setInterval(100);
+    connect(&drift_scenario_timer_, &QTimer::timeout, this,
+            &RtcDemoController::runDriftScenario);
+    drift_scenario_timer_.start();
+  }
   waiter_ = std::jthread([this] {
     const auto result = peer_->wait(std::chrono::seconds(15));
     QMetaObject::invokeMethod(
         this,
         [this, result] {
+          selected_candidate_type_ = result.selected_candidate_type;
           if (result.error.empty()) {
             setStatus(QStringLiteral("connected"));
           } else {
+            recordDriftError("peer-wait-failure");
             setStatus(QStringLiteral("call-error: ") +
                       QString::fromStdString(result.error));
           }
@@ -404,6 +491,8 @@ void RtcDemoController::startPeer() {
 void RtcDemoController::stopPeer() noexcept {
   playback_state_timer_.stop();
   playout_report_timer_.stop();
+  drift_scenario_timer_.stop();
+  stopDriftMetrics();
   if (peer_)
     peer_->cancel_wait();
   if (movie_peer_)
@@ -418,6 +507,168 @@ void RtcDemoController::stopPeer() noexcept {
     peer_->stop();
   peer_.reset();
   movie_peer_.reset();
+}
+
+void RtcDemoController::flushDriftMetrics() {
+  if (!drift_capture_enabled_ || !drift_metrics_writer_)
+    return;
+  while (!pending_drift_samples_.empty()) {
+    if (!drift_metrics_writer_->append(pending_drift_samples_.front())) {
+      drift_capture_enabled_ = false;
+      pending_drift_samples_.clear();
+      recordDriftError("capture-write-failure", false);
+      setStatus(QStringLiteral("drift-capture-disabled: ") +
+                drift_metrics_writer_->failure_category());
+      return;
+    }
+    pending_drift_samples_.pop_front();
+  }
+}
+
+void RtcDemoController::stopDriftMetrics() noexcept {
+  drift_metrics_flush_timer_.stop();
+  if (!drift_metrics_writer_)
+    return;
+  if (!drift_capture_enabled_) {
+    drift_metrics_writer_.reset();
+    pending_drift_samples_.clear();
+    return;
+  }
+  flushDriftMetrics();
+  if (!drift_capture_enabled_)
+    return;
+  if (!drift_scenario_failed_)
+    drift_aggregator_.complete_run();
+  const auto finalized = drift_metrics_writer_->finalize(drift_aggregator_.summary());
+  if (!finalized) {
+    drift_capture_enabled_ = false;
+    setStatus(QStringLiteral("drift-capture-disabled: ") +
+              drift_metrics_writer_->failure_category());
+  }
+  drift_metrics_writer_.reset();
+}
+
+void RtcDemoController::runDriftScenario() {
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (!drift_scenario_ || drift_scenario_failed_ || !movie_timeline_)
+    return;
+  const auto timeline = movie_timeline_->snapshot();
+  if (!timeline)
+    return;
+  if (!drift_scenario_started_) {
+    const auto end_pts_ms = timeline->start_pts_ms + timeline->duration_ms;
+    if (!shareme::tools::has_drift_study_duration(
+            timeline->start_pts_ms, timeline->media_pts_ms, end_pts_ms)) {
+      failDriftScenario(QStringLiteral("insufficient-duration"));
+      return;
+    }
+    drift_scenario_started_at_ = std::chrono::steady_clock::now();
+    drift_scenario_started_ = true;
+    drift_phase_ = shareme::core::DriftPhase::warmup;
+    return;
+  }
+
+  const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now() -
+                              drift_scenario_started_at_)
+                              .count();
+  const auto next_phase = drift_scenario_->phase_at(elapsed_ms);
+  if (drift_phase_ != next_phase) {
+    drift_phase_ = next_phase;
+    const auto phase_capture_time_ms = std::chrono::duration_cast<
+        std::chrono::milliseconds>(std::chrono::steady_clock::now()
+                                       .time_since_epoch())
+                                       .count();
+    drift_aggregator_.record_phase_boundary(drift_phase_,
+                                            phase_capture_time_ms);
+    emit driftScenarioChanged();
+  }
+  for (const auto& event : drift_scenario_->advance(elapsed_ms)) {
+    if (event.action == shareme::tools::DriftScenarioAction::complete) {
+      drift_scenario_timer_.stop();
+      drift_aggregator_.complete_run();
+      const auto summary = drift_aggregator_.summary();
+      std::cout << "RESULT drift-study-v1 status=complete accepted_samples="
+                << summary.accepted_samples << " rejected_samples="
+                << summary.rejected_samples << " received_reports="
+                << drift_report_messages_ << " report_receive_attempts="
+                << drift_report_receive_attempts_ << " report_decode_successes="
+                << drift_report_decode_successes_ << std::endl;
+      QCoreApplication::exit(EXIT_SUCCESS);
+      return;
+    }
+
+    const auto current = movie_timeline_->snapshot();
+    if (!current) {
+      failDriftScenario(QStringLiteral("timeline-unavailable"));
+      return;
+    }
+    if (event.action == shareme::tools::DriftScenarioAction::pause) {
+      if (!movie_timeline_->pause()) {
+        failDriftScenario(QStringLiteral("pause-rejected"));
+        return;
+      }
+    } else if (event.action == shareme::tools::DriftScenarioAction::resume) {
+      if (!movie_timeline_->resume()) {
+        failDriftScenario(QStringLiteral("resume-rejected"));
+        return;
+      }
+    } else {
+      const auto end_pts_ms = current->start_pts_ms + current->duration_ms;
+      const auto target = shareme::tools::bounded_seek_target(
+          current->media_pts_ms, event.seek_delta_ms, current->start_pts_ms,
+          end_pts_ms);
+      const auto expected_generation = current->generation + 1;
+      if (!movie_timeline_->seek(target)) {
+        failDriftScenario(QStringLiteral("seek-rejected"));
+        return;
+      }
+      const auto after_seek = movie_timeline_->snapshot();
+      if (!after_seek || after_seek->generation != expected_generation) {
+        failDriftScenario(QStringLiteral("unexpected-generation"));
+        return;
+      }
+    }
+    refreshHostPlayback();
+    publishPlaybackState();
+  }
+#else
+  failDriftScenario(QStringLiteral("movie-source-unavailable"));
+#endif
+}
+
+void RtcDemoController::failDriftScenario(const QString& category) {
+  if (drift_scenario_failed_)
+    return;
+  drift_scenario_failed_ = true;
+  drift_aggregator_.record_error(category.toStdString());
+  drift_scenario_timer_.stop();
+  setStatus(QStringLiteral("drift-scenario-failed: ") + category);
+  const auto summary = drift_aggregator_.summary();
+  std::cout << "RESULT drift-study-v1 status=failed category="
+            << category.toStdString() << " accepted_samples="
+            << summary.accepted_samples << " rejected_samples="
+            << summary.rejected_samples << " received_reports="
+            << drift_report_messages_ << " report_receive_attempts="
+            << drift_report_receive_attempts_ << " report_decode_successes="
+            << drift_report_decode_successes_ << std::endl;
+  QCoreApplication::exit(EXIT_FAILURE);
+}
+
+void RtcDemoController::recordDriftError(std::string category,
+                                         bool notify_viewer) {
+  drift_aggregator_.record_error(category);
+  if (!viewer())
+    return;
+  bool sent = false;
+  if (notify_viewer && peer_ && !room_id_.isEmpty()) {
+    const auto encoded = shareme::tools::encode_drift_failure(
+        QString::fromStdString(category));
+    sent = !encoded.isEmpty() && peer_->send_control_message(encoded.toStdString());
+  }
+  if (!sent)
+    drift_aggregator_.record_error("drift-error-send-failure");
+  QCoreApplication::exit(EXIT_FAILURE);
 }
 
 void RtcDemoController::publishPlaybackState() {
@@ -452,12 +703,18 @@ void RtcDemoController::publishPlaybackState() {
   ++playback_sequence_;
   if (ended)
     playback_state_timer_.stop();
+  if (ended && drift_scenario_ && drift_scenario_started_ &&
+      !drift_scenario_->completed()) {
+    failDriftScenario(QStringLiteral("media-ended-early"));
+    return;
+  }
   else
     playback_state_timer_.setInterval(1'000);
 #endif
 }
 
 void RtcDemoController::publishPlayoutReport() {
+  emitDriftDiagnostics();
   const auto &rendered_sample = rendered_playout_tracker_.last();
   if (!viewer() || !peer_ || room_id_.isEmpty() || !rendered_sample ||
       !viewer_playback_anchor_ ||
@@ -473,11 +730,32 @@ void RtcDemoController::publishPlayoutReport() {
       .buffer_ms = rendered_sample->buffer_ms,
       .receive_time_ms = rendered_sample_time_ms_,
       .generation = rendered_sample->generation};
+  ++drift_report_encode_attempts_;
   const auto encoded = shareme::tools::encode_playout_report(report);
-  if (encoded.isEmpty() ||
-      !peer_->send_control_message(encoded.toStdString()))
+  if (encoded.isEmpty())
     return;
+  ++drift_report_encode_successes_;
+  ++drift_report_send_attempts_;
+  if (!peer_->send_control_message(encoded.toStdString()))
+    return;
+  ++drift_report_send_successes_;
   ++playout_report_sequence_;
+}
+
+void RtcDemoController::emitDriftDiagnostics() {
+  if (!drift_diagnostics_enabled_ || !viewer())
+    return;
+  const auto now = std::chrono::steady_clock::now();
+  if (last_drift_diagnostic_at_ != std::chrono::steady_clock::time_point{} &&
+      now - last_drift_diagnostic_at_ < std::chrono::seconds(1))
+    return;
+  last_drift_diagnostic_at_ = now;
+  std::cout << "DRIFT_COUNTERS role=viewer sink_submissions="
+            << drift_sink_submissions_ << " report_encode_attempts="
+            << drift_report_encode_attempts_ << " report_encode_successes="
+            << drift_report_encode_successes_ << " report_send_attempts="
+            << drift_report_send_attempts_ << " report_send_successes="
+            << drift_report_send_successes_ << std::endl;
 }
 
 void RtcDemoController::refreshHostPlayback() {
@@ -523,6 +801,14 @@ void RtcDemoController::receiveControlMessage(std::string message) {
   if (room_id_.isEmpty())
     return;
   const auto bytes = QByteArray::fromStdString(message);
+  if (!viewer()) {
+    if (const auto failure = shareme::tools::decode_drift_failure(bytes)) {
+      recordDriftError(failure->toStdString(), false);
+      if (!drift_scenario_name_.isEmpty())
+        failDriftScenario(QStringLiteral("remote-failure"));
+      return;
+    }
+  }
   if (viewer()) {
     const auto state =
         shareme::tools::decode_playback_state(bytes, room_id_);
@@ -546,8 +832,13 @@ void RtcDemoController::receiveControlMessage(std::string message) {
 #if defined(SHAREME_HAS_MOVIE_RTC)
   if (!movie_timeline_)
     return;
+  ++drift_report_receive_attempts_;
   const auto timeline = movie_timeline_->snapshot();
   const auto report = shareme::tools::decode_playout_report(bytes, room_id_);
+  if (report) {
+    ++drift_report_messages_;
+    ++drift_report_decode_successes_;
+  }
   if (!timeline || !report ||
       !playout_report_tracker_.accept(*report, timeline->generation))
     return;
@@ -561,6 +852,35 @@ void RtcDemoController::receiveControlMessage(std::string message) {
   host_sync_action_ = sync_action_name(decision.action);
   viewer_rendered_available_ = true;
   emit playoutReportChanged();
+  if (drift_metrics_writer_ && drift_capture_enabled_ &&
+      (!drift_scenario_ || drift_scenario_started_)) {
+    if (pending_drift_samples_.size() >= 64) {
+      drift_aggregator_.record_rejection();
+    } else {
+      const auto capture_time_ms = std::chrono::duration_cast<
+          std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+      shareme::core::DriftSample sample{
+          .capture_time_ms = capture_time_ms,
+          .sample_index = drift_sample_index_++,
+          .report_sequence = report->sequence,
+          .generation = report->generation,
+          .host_pts_ms = timeline->media_pts_ms,
+          .viewer_pts_ms = static_cast<std::int64_t>(report->rendered_pts_ms),
+          .delta_ms = *delta,
+          .buffer_ms = report->buffer_ms,
+          .playing = timeline->state == shareme::rtc::MovieTimelineState::playing,
+          .action = decision.action,
+          .phase = drift_scenario_ ? drift_phase_
+                                   : shareme::core::DriftPhase::steady,
+          .selected_candidate_type = selected_candidate_type_,
+      };
+      if (drift_aggregator_.accept(sample)) {
+        pending_drift_samples_.push_back(std::move(sample));
+        if (pending_drift_samples_.size() == 64)
+          flushDriftMetrics();
+      }
+    }
+  }
 #endif
 }
 
@@ -608,8 +928,10 @@ void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
   const auto queued = QMetaObject::invokeMethod(
       this,
       [this, image = std::move(image), rtp_timestamp] {
-        if (video_sink_)
+        if (video_sink_) {
           video_sink_->setVideoFrame(QVideoFrame(image));
+          ++drift_sink_submissions_;
+        }
         if (viewer())
           recordRenderedFrame(rtp_timestamp);
         video_delivery_pending_.store(false, std::memory_order_release);

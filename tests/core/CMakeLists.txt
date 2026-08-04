@@ -8,6 +8,11 @@ target_link_libraries(shareme_sync_controller_test PRIVATE ShareMe::Core)
 
 add_test(NAME sync_controller COMMAND shareme_sync_controller_test)
 
+add_executable(shareme_drift_metrics_test drift_metrics_test.cpp)
+target_link_libraries(shareme_drift_metrics_test PRIVATE ShareMe::Core)
+
+add_test(NAME drift_metrics COMMAND shareme_drift_metrics_test)
+
 add_executable(shareme_probe_contract_test probe_contract_test.cpp)
 target_link_libraries(shareme_probe_contract_test PRIVATE ShareMe::Core)
 

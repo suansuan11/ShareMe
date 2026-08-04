@@ -1,5 +1,8 @@
 set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
                              playout_report.cpp playout_report.hpp
+                             drift_metrics_jsonl.cpp drift_metrics_jsonl.hpp
+                             drift_failure.cpp drift_failure.hpp
+                             drift_scenario.cpp drift_scenario.hpp
                              rtc_demo_controller.cpp rtc_demo_controller.hpp)
 if(WIN32)
   list(APPEND shareme_rtc_demo_sources app.manifest)

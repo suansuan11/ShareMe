@@ -37,6 +37,9 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("host or viewer", result.stdout)
         self.assertIn("--movie", result.stdout)
         self.assertIn("--movie-audio", result.stdout)
+        self.assertIn("--metrics-jsonl", result.stdout)
+        self.assertIn("--drift-scenario", result.stdout)
+        self.assertIn("--measurement-duration-seconds", result.stdout)
 
     def test_missing_required_options_is_usage_error(self):
         self.assertEqual(self.run_demo().returncode, 2)
@@ -98,6 +101,63 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertEqual(viewer.returncode, 2)
         self.assertNotIn(movie, viewer.stderr)
 
+    def test_metrics_capture_is_host_movie_only_and_rejects_empty_or_same_path(self):
+        output = "/tmp/shareme-drift-study.jsonl"
+        viewer = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "viewer",
+            "--room", "ABC234", "--source", "test", "--metrics-jsonl", output
+        )
+        self.assertEqual(viewer.returncode, 2)
+
+        non_movie = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "test", "--metrics-jsonl", output, "--validate"
+        )
+        self.assertEqual(non_movie.returncode, 2)
+
+        empty = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "movie", "--movie", "/private/movie.mkv",
+            "--metrics-jsonl", "", "--validate"
+        )
+        self.assertEqual(empty.returncode, 2)
+
+        same_path = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "movie", "--movie", "/private/movie.mkv",
+            "--metrics-jsonl", "/private/movie.mkv", "--validate"
+        )
+        self.assertEqual(same_path.returncode, 2)
+
+    def test_drift_scenario_is_frozen_host_movie_profile(self):
+        common = [
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "movie", "--movie", "/private/movie.mkv",
+        ]
+        missing_duration = self.run_demo(
+            *common, "--drift-scenario", "drift-study-v1", "--validate"
+        )
+        self.assertEqual(missing_duration.returncode, 2)
+
+        wrong_duration = self.run_demo(
+            *common, "--drift-scenario", "drift-study-v1",
+            "--measurement-duration-seconds", "299", "--validate"
+        )
+        self.assertEqual(wrong_duration.returncode, 2)
+
+        wrong_profile = self.run_demo(
+            *common, "--drift-scenario", "other",
+            "--measurement-duration-seconds", "300", "--validate"
+        )
+        self.assertEqual(wrong_profile.returncode, 2)
+
+        viewer = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "viewer",
+            "--room", "ABC234", "--source", "test", "--drift-scenario",
+            "drift-study-v1", "--measurement-duration-seconds", "300"
+        )
+        self.assertEqual(viewer.returncode, 2)
+
     def test_sender_qml_exposes_bounded_host_controls(self):
         source = self.qml.read_text(encoding="utf-8")
         self.assertIn("hostControlsAvailable", source)
@@ -106,6 +166,8 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("seekHostPlayback(", source)
         self.assertIn("to: Math.max(0, window.controller.hostPlaybackDurationMs)", source)
         self.assertIn("when: !playbackSlider.pressed", source)
+        self.assertIn("driftScenarioActive", source)
+        self.assertIn("driftScenarioPhase", source)
 
     def test_controller_uses_dedicated_movie_audio_relays(self):
         source = self.controller_source.read_text(encoding="utf-8")
