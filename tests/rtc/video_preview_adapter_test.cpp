@@ -64,11 +64,33 @@ void rejects_without_sink(QGuiApplication& app) {
   REQUIRE(result.path == shareme::tools::PreviewPath::no_sink);
 }
 
+void keeps_the_i420_buffer_alive_without_copying_planes(QGuiApplication& app) {
+  QVideoSink sink;
+  shareme::tools::VideoPreviewAdapter adapter(&sink);
+  adapter.set_sink(&sink);
+  auto source_buffer = webrtc::I420Buffer::Create(4, 4);
+  source_buffer->MutableDataY()[0] = 32;
+  const auto source = webrtc::VideoFrame::Builder()
+                          .set_video_frame_buffer(source_buffer)
+                          .set_timestamp_us(42)
+                          .set_rtp_timestamp(90)
+                          .build();
+  const auto result = adapter.submit(source);
+  REQUIRE(result.path == shareme::tools::PreviewPath::planar_yuv);
+  source_buffer->MutableDataY()[0] = 220;
+  app.processEvents();
+  auto delivered = sink.videoFrame();
+  REQUIRE(delivered.map(QVideoFrame::ReadOnly));
+  REQUIRE(delivered.bits(0)[0] == 220);
+  delivered.unmap();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   QGuiApplication app(argc, argv);
   submits_planar_frame_and_keeps_one_in_flight(app);
   rejects_without_sink(app);
+  keeps_the_i420_buffer_alive_without_copying_planes(app);
   return EXIT_SUCCESS;
 }

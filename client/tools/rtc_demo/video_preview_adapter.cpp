@@ -8,10 +8,8 @@
 #include <QVideoSink>
 
 #include <cstddef>
-#include <cstring>
 #include <new>
 #include <utility>
-#include <vector>
 
 #include "api/video/i420_buffer.h"
 #include "libyuv/convert_argb.h"
@@ -26,35 +24,23 @@ struct PreparedFrame {
 
 class I420VideoBuffer final : public QAbstractVideoBuffer {
 public:
-  I420VideoBuffer(const webrtc::I420BufferInterface& source,
+  I420VideoBuffer(
+      const webrtc::scoped_refptr<webrtc::I420BufferInterface>& source,
                   QVideoFrameFormat format)
-      : format_(std::move(format)),
-        strides_{source.width(), (source.width() + 1) / 2,
-                 (source.width() + 1) / 2},
-        heights_{source.height(), (source.height() + 1) / 2,
-                (source.height() + 1) / 2} {
-    const std::uint8_t* planes[] = {
-        source.DataY(), source.DataU(), source.DataV()};
-    const int source_strides[] = {
-        source.StrideY(), source.StrideU(), source.StrideV()};
-    for (int plane = 0; plane < 3; ++plane) {
-      planes_[plane].resize(static_cast<std::size_t>(strides_[plane]) *
-                            static_cast<std::size_t>(heights_[plane]));
-      for (int row = 0; row < heights_[plane]; ++row) {
-        std::memcpy(planes_[plane].data() + row * strides_[plane],
-                    planes[plane] + row * source_strides[plane],
-                    static_cast<std::size_t>(strides_[plane]));
-      }
-    }
-  }
+      : source_(source), format_(std::move(format)),
+        strides_{source_->StrideY(), source_->StrideU(), source_->StrideV()},
+        heights_{source_->height(), (source_->height() + 1) / 2,
+                 (source_->height() + 1) / 2} {}
 
   MapData map(QVideoFrame::MapMode) override {
     MapData data;
     data.planeCount = 3;
+    const std::uint8_t* planes[] = {
+        source_->DataY(), source_->DataU(), source_->DataV()};
     for (int plane = 0; plane < 3; ++plane) {
       data.bytesPerLine[plane] = strides_[plane];
-      data.data[plane] = planes_[plane].data();
-      data.dataSize[plane] = static_cast<int>(planes_[plane].size());
+      data.data[plane] = const_cast<uchar*>(planes[plane]);
+      data.dataSize[plane] = strides_[plane] * heights_[plane];
     }
     return data;
   }
@@ -62,18 +48,18 @@ public:
   QVideoFrameFormat format() const override { return format_; }
 
 private:
+  webrtc::scoped_refptr<webrtc::I420BufferInterface> source_;
   QVideoFrameFormat format_;
-  std::vector<uchar> planes_[3];
   int strides_[3];
   int heights_[3];
 };
 
 PreparedFrame make_planar_frame(
-    const webrtc::I420BufferInterface& buffer,
+    const webrtc::scoped_refptr<webrtc::I420BufferInterface>& buffer,
     std::atomic<std::uint64_t>& mapping_failures,
     std::atomic<std::uint64_t>& fallback_copies) {
-  const auto width = buffer.width();
-  const auto height = buffer.height();
+  const auto width = buffer->width();
+  const auto height = buffer->height();
   try {
     const QVideoFrameFormat format{
         QSize(width, height), QVideoFrameFormat::Format_YUV420P};
@@ -86,8 +72,9 @@ PreparedFrame make_planar_frame(
   QImage image(width, height, QImage::Format_ARGB32);
   if (image.isNull() ||
       libyuv::I420ToARGB(
-          buffer.DataY(), buffer.StrideY(), buffer.DataU(), buffer.StrideU(),
-          buffer.DataV(), buffer.StrideV(), image.bits(), image.bytesPerLine(),
+          buffer->DataY(), buffer->StrideY(), buffer->DataU(),
+          buffer->StrideU(), buffer->DataV(), buffer->StrideV(), image.bits(),
+          image.bytesPerLine(),
           width, height) != 0) {
     return {};
   }
@@ -148,7 +135,7 @@ VideoPreviewResult VideoPreviewAdapter::submit(const webrtc::VideoFrame& source)
     return result;
   }
   auto prepared = make_planar_frame(
-      *i420, state_->mapping_failures, state_->fallback_copies);
+      i420, state_->mapping_failures, state_->fallback_copies);
   if (!prepared.frame.isValid()) {
     state_->pending.store(false, std::memory_order_release);
     return result;
