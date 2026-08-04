@@ -32,6 +32,7 @@ void decodes_generated_movie(const std::filesystem::path& movie_path) {
   using shareme::media::EndOfStream;
   using shareme::media::FfmpegMediaSource;
   using shareme::media::VideoFrame;
+  using shareme::media::VideoPixelFormat;
 
   FfmpegMediaSource source;
   const auto info = source.open(movie_path);
@@ -57,8 +58,13 @@ void decodes_generated_movie(const std::filesystem::path& movie_path) {
     if (const auto* video = std::get_if<VideoFrame>(&event)) {
       REQUIRE(video->width == 160);
       REQUIRE(video->height == 90);
-      REQUIRE(video->stride >= video->width * 4);
-      REQUIRE_FALSE(video->rgba.empty());
+      REQUIRE(video->pixel_format == VideoPixelFormat::i420);
+      REQUIRE(video->stride_y >= video->width);
+      REQUIRE(video->stride_u >= (video->width + 1) / 2);
+      REQUIRE(video->stride_v >= (video->width + 1) / 2);
+      REQUIRE_FALSE(video->i420_y.empty());
+      REQUIRE_FALSE(video->i420_u.empty());
+      REQUIRE_FALSE(video->i420_v.empty());
       REQUIRE(video->generation == 7);
       if (last_video_pts.has_value()) {
         REQUIRE(video->pts_ms >= *last_video_pts);

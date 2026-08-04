@@ -175,10 +175,16 @@ public:
         const auto* video_stream = format_context_->streams[video_stream_index_];
         info.video_frame_rate_num = video_stream->avg_frame_rate.num;
         info.video_frame_rate_den = video_stream->avg_frame_rate.den;
-        info.video_pixel_aspect_num =
-            video_codec_context_->sample_aspect_ratio.num;
-        info.video_pixel_aspect_den =
-            video_codec_context_->sample_aspect_ratio.den;
+        if (video_codec_context_->sample_aspect_ratio.num > 0 &&
+            video_codec_context_->sample_aspect_ratio.den > 0) {
+          info.video_pixel_aspect_num =
+              video_codec_context_->sample_aspect_ratio.num;
+          info.video_pixel_aspect_den =
+              video_codec_context_->sample_aspect_ratio.den;
+        } else {
+          info.video_pixel_aspect_num = 1;
+          info.video_pixel_aspect_den = 1;
+        }
         info.video_codec = avcodec_get_name(video_codec_context_->codec_id);
         if (const auto* profile = avcodec_profile_name(
                 video_codec_context_->codec_id, video_codec_context_->profile))
@@ -400,7 +406,7 @@ private:
         static_cast<AVPixelFormat>(frame_->format),
         width,
         height,
-        AV_PIX_FMT_RGBA,
+        AV_PIX_FMT_YUV420P,
         SWS_BILINEAR,
         nullptr,
         nullptr,
@@ -410,23 +416,30 @@ private:
     }
 
     VideoFrame output;
+    output.pixel_format = VideoPixelFormat::i420;
     output.width = width;
     output.height = height;
-    output.stride = width * 4;
-    output.rgba.resize(
-        static_cast<std::size_t>(output.stride) *
-        static_cast<std::size_t>(output.height));
+    output.stride_y = width;
+    output.stride_u = (width + 1) / 2;
+    output.stride_v = (width + 1) / 2;
+    output.i420_y.resize(static_cast<std::size_t>(output.stride_y) *
+                         static_cast<std::size_t>(height));
+    output.i420_u.resize(static_cast<std::size_t>(output.stride_u) *
+                         static_cast<std::size_t>((height + 1) / 2));
+    output.i420_v.resize(static_cast<std::size_t>(output.stride_v) *
+                         static_cast<std::size_t>((height + 1) / 2));
     output.generation = generation;
     output.pts_ms = frame_pts_ms(video_stream_index_, last_video_pts_ms_);
     last_video_pts_ms_ = output.pts_ms;
 
     std::array<std::uint8_t*, 4> destination_data{
-        reinterpret_cast<std::uint8_t*>(output.rgba.data()),
-        nullptr,
-        nullptr,
+        reinterpret_cast<std::uint8_t*>(output.i420_y.data()),
+        reinterpret_cast<std::uint8_t*>(output.i420_u.data()),
+        reinterpret_cast<std::uint8_t*>(output.i420_v.data()),
         nullptr,
     };
-    std::array<int, 4> destination_linesize{output.stride, 0, 0, 0};
+    std::array<int, 4> destination_linesize{
+        output.stride_y, output.stride_u, output.stride_v, 0};
     const auto scaled_height = sws_scale(
         sws_context_,
         frame_->data,

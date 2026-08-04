@@ -47,6 +47,10 @@ void decodes_and_paces_movie_frames(const std::filesystem::path &movie_path) {
   REQUIRE(sink.last_luma_min() < sink.last_luma_max());
   REQUIRE(source->generated_count() >= sink.frame_count());
   REQUIRE(source->last_pts_ms().has_value());
+  REQUIRE(source->video_format().has_value());
+  REQUIRE(source->video_format()->width == 320);
+  REQUIRE(source->video_format()->height == 180);
+  REQUIRE(source->conversion_failure_count() == 0);
 }
 
 void missing_movie_is_typed_failure(const std::filesystem::path &directory) {

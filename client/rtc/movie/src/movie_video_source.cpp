@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <cstring>
 #include <thread>
 #include <utility>
 
@@ -256,25 +257,59 @@ void MovieVideoSource::run(std::stop_token stop_token) {
 
 bool MovieVideoSource::emit_frame(const media::VideoFrame &frame,
                                   std::uint64_t generation) {
-  if (frame.width <= 0 || frame.height <= 0 || frame.stride < frame.width * 4 ||
-      frame.rgba.size() < static_cast<std::size_t>(frame.stride) *
-                              static_cast<std::size_t>(frame.height)) {
+  const auto chroma_width = (frame.width + 1) / 2;
+  const auto chroma_height = (frame.height + 1) / 2;
+  const auto has_i420 =
+      frame.pixel_format == media::VideoPixelFormat::i420 &&
+      frame.width > 0 && frame.height > 0 && frame.stride_y >= frame.width &&
+      frame.stride_u >= chroma_width && frame.stride_v >= chroma_width &&
+      frame.i420_y.size() >= static_cast<std::size_t>(frame.stride_y) *
+                                  static_cast<std::size_t>(frame.height) &&
+      frame.i420_u.size() >= static_cast<std::size_t>(frame.stride_u) *
+                                  static_cast<std::size_t>(chroma_height) &&
+      frame.i420_v.size() >= static_cast<std::size_t>(frame.stride_v) *
+                                  static_cast<std::size_t>(chroma_height);
+  const auto has_rgba_fallback =
+      frame.pixel_format == media::VideoPixelFormat::rgba && frame.width > 0 &&
+      frame.height > 0 && frame.stride >= frame.width * 4 &&
+      frame.rgba.size() >= static_cast<std::size_t>(frame.stride) *
+                                static_cast<std::size_t>(frame.height);
+  if (!has_i420 && !has_rgba_fallback) {
     dropped_count_.fetch_add(1, std::memory_order_relaxed);
     set_error("movie-frame-invalid");
     return false;
   }
 
   auto input = webrtc::I420Buffer::Create(frame.width, frame.height);
-  const auto conversion = libyuv::ABGRToI420(
-      reinterpret_cast<const std::uint8_t *>(frame.rgba.data()), frame.stride,
-      input->MutableDataY(), input->StrideY(), input->MutableDataU(),
-      input->StrideU(), input->MutableDataV(), input->StrideV(), frame.width,
-      frame.height);
-  if (conversion != 0) {
-    conversion_failure_count_.fetch_add(1, std::memory_order_relaxed);
-    dropped_count_.fetch_add(1, std::memory_order_relaxed);
-    set_error("movie-frame-conversion-failed");
-    return false;
+  if (has_i420) {
+    for (int row = 0; row < frame.height; ++row) {
+      std::memcpy(input->MutableDataY() + row * input->StrideY(),
+                  reinterpret_cast<const std::uint8_t *>(frame.i420_y.data()) +
+                      row * frame.stride_y,
+                  static_cast<std::size_t>(frame.width));
+    }
+    for (int row = 0; row < chroma_height; ++row) {
+      std::memcpy(input->MutableDataU() + row * input->StrideU(),
+                  reinterpret_cast<const std::uint8_t *>(frame.i420_u.data()) +
+                      row * frame.stride_u,
+                  static_cast<std::size_t>(chroma_width));
+      std::memcpy(input->MutableDataV() + row * input->StrideV(),
+                  reinterpret_cast<const std::uint8_t *>(frame.i420_v.data()) +
+                      row * frame.stride_v,
+                  static_cast<std::size_t>(chroma_width));
+    }
+  } else {
+    const auto conversion = libyuv::ABGRToI420(
+        reinterpret_cast<const std::uint8_t *>(frame.rgba.data()), frame.stride,
+        input->MutableDataY(), input->StrideY(), input->MutableDataU(),
+        input->StrideU(), input->MutableDataV(), input->StrideV(), frame.width,
+        frame.height);
+    if (conversion != 0) {
+      conversion_failure_count_.fetch_add(1, std::memory_order_relaxed);
+      dropped_count_.fetch_add(1, std::memory_order_relaxed);
+      set_error("movie-frame-conversion-failed");
+      return false;
+    }
   }
 
   auto timestamp_us = webrtc::TimeMicros();

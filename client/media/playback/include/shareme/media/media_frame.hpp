@@ -6,7 +6,16 @@
 
 namespace shareme::media {
 
+enum class VideoPixelFormat { i420, rgba };
+
 struct VideoFrame {
+  VideoPixelFormat pixel_format{VideoPixelFormat::rgba};
+  std::vector<std::byte> i420_y;
+  std::vector<std::byte> i420_u;
+  std::vector<std::byte> i420_v;
+  int stride_y{0};
+  int stride_u{0};
+  int stride_v{0};
   std::vector<std::byte> rgba;
   int width{0};
   int height{0};
