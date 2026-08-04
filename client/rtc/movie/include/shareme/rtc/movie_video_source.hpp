@@ -41,6 +41,7 @@ struct MovieVideoFormat {
   std::string color_space;
   std::string codec;
   std::string profile;
+  std::string video_acceleration;
 };
 
 class MovieVideoSource final : private webrtc::RefCountedBase,

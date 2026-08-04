@@ -50,6 +50,7 @@ void decodes_and_paces_movie_frames(const std::filesystem::path &movie_path) {
   REQUIRE(source->video_format().has_value());
   REQUIRE(source->video_format()->width == 320);
   REQUIRE(source->video_format()->height == 180);
+  REQUIRE(source->video_format()->video_acceleration == "software");
   REQUIRE(source->conversion_failure_count() == 0);
 }
 

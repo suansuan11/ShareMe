@@ -25,6 +25,7 @@ struct MediaInfo {
   std::string video_profile;
   std::string video_color_range;
   std::string video_color_space;
+  std::string video_acceleration{"software"};
 };
 
 struct EndOfStream {};

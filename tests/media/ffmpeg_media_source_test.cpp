@@ -92,6 +92,27 @@ void decodes_generated_movie(const std::filesystem::path& movie_path) {
   source.close();
 }
 
+void reports_video_acceleration_fallback_for_unsupported_fixture(
+    const std::filesystem::path& movie_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoAccelerationMode;
+
+  FfmpegMediaSource software_source{FfmpegMediaSourceOptions{
+      .decode_video = true,
+      .decode_audio = false,
+      .video_acceleration = VideoAccelerationMode::software}};
+  const auto software_info = software_source.open(movie_path);
+  REQUIRE(software_info.video_acceleration == "software");
+
+  FfmpegMediaSource automatic_source{FfmpegMediaSourceOptions{
+      .decode_video = true,
+      .decode_audio = false,
+      .video_acceleration = VideoAccelerationMode::auto_mode}};
+  const auto automatic_info = automatic_source.open(movie_path);
+  REQUIRE(automatic_info.video_acceleration == "software");
+}
+
 void seeks_to_requested_region(const std::filesystem::path& movie_path) {
   using shareme::media::EndOfStream;
   using shareme::media::FfmpegMediaSource;
@@ -492,6 +513,7 @@ void rejects_when_all_decoders_are_disabled() {
 int main(int argc, char** argv) {
   REQUIRE(argc == 7);
   decodes_generated_movie(argv[1]);
+  reports_video_acceleration_fallback_for_unsupported_fixture(argv[1]);
   seeks_to_requested_region(argv[1]);
   decodes_audio_without_video(argv[1]);
   decodes_video_without_audio(argv[1]);

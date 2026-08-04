@@ -604,6 +604,8 @@ void RtcDemoController::emitPerformanceCounters() {
         codec = format->codec;
       if (!format->profile.empty())
         profile = format->profile;
+      if (!format->video_acceleration.empty())
+        path = format->video_acceleration;
       std::erase_if(profile, [](unsigned char value) {
         return std::isspace(value) != 0;
       });

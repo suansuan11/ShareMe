@@ -94,7 +94,8 @@ bool MovieVideoSource::start() {
           .color_range = info.video_color_range,
           .color_space = info.video_color_space,
           .codec = info.video_codec,
-          .profile = info.video_profile};
+          .profile = info.video_profile,
+          .video_acceleration = info.video_acceleration};
     }
     if (!timeline_->initialize(info.start_time_ms, info.duration_ms)) {
       session->close();

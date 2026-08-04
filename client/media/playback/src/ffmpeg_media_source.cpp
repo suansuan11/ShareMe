@@ -19,6 +19,7 @@ extern "C" {
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/pixfmt.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
@@ -36,28 +37,103 @@ namespace {
   return std::runtime_error{operation + ": " + detail.data()};
 }
 
+struct HardwareFormatSelection {
+  bool selected{false};
+};
+
+enum AVPixelFormat select_video_pixel_format(
+    AVCodecContext* codec_context, const enum AVPixelFormat* formats) {
+  auto* selection =
+      static_cast<HardwareFormatSelection*>(codec_context->opaque);
+  for (const auto* format = formats; *format != AV_PIX_FMT_NONE; ++format) {
+    if (*format == AV_PIX_FMT_VIDEOTOOLBOX) {
+      if (selection != nullptr)
+        selection->selected = true;
+      return *format;
+    }
+  }
+  return formats[0];
+}
+
 [[nodiscard]] AVCodecContext* open_decoder(
     AVFormatContext* format_context,
     int stream_index,
-    const AVCodec* decoder) {
-  auto* codec_context = avcodec_alloc_context3(decoder);
-  if (codec_context == nullptr) {
-    throw std::runtime_error{"Could not allocate FFmpeg decoder context"};
-  }
+    const AVCodec* decoder,
+    bool prefer_videotoolbox,
+    bool* videotoolbox_selected) {
+  if (videotoolbox_selected != nullptr)
+    *videotoolbox_selected = false;
 
-  const auto parameters_result = avcodec_parameters_to_context(
-      codec_context, format_context->streams[stream_index]->codecpar);
-  if (parameters_result < 0) {
-    avcodec_free_context(&codec_context);
-    throw ffmpeg_error("Could not copy codec parameters", parameters_result);
-  }
+  const auto open_once = [&](bool use_videotoolbox) -> AVCodecContext* {
+    auto* codec_context = avcodec_alloc_context3(decoder);
+    if (codec_context == nullptr) {
+      if (use_videotoolbox)
+        return nullptr;
+      throw std::runtime_error{"Could not allocate FFmpeg decoder context"};
+    }
 
-  const auto open_result = avcodec_open2(codec_context, decoder, nullptr);
-  if (open_result < 0) {
-    avcodec_free_context(&codec_context);
-    throw ffmpeg_error("Could not open FFmpeg decoder", open_result);
+    const auto parameters_result = avcodec_parameters_to_context(
+        codec_context, format_context->streams[stream_index]->codecpar);
+    if (parameters_result < 0) {
+      avcodec_free_context(&codec_context);
+      if (use_videotoolbox)
+        return nullptr;
+      throw ffmpeg_error("Could not copy codec parameters", parameters_result);
+    }
+
+    HardwareFormatSelection format_selection;
+    if (use_videotoolbox) {
+      if (decoder->id != AV_CODEC_ID_HEVC) {
+        avcodec_free_context(&codec_context);
+        return nullptr;
+      }
+      bool supports_videotoolbox = false;
+      for (int index = 0;; ++index) {
+        const auto* config = avcodec_get_hw_config(decoder, index);
+        if (config == nullptr)
+          break;
+        if (config->device_type == AV_HWDEVICE_TYPE_VIDEOTOOLBOX &&
+            (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) != 0 &&
+            config->pix_fmt == AV_PIX_FMT_VIDEOTOOLBOX) {
+          supports_videotoolbox = true;
+          break;
+        }
+      }
+      if (!supports_videotoolbox) {
+        avcodec_free_context(&codec_context);
+        return nullptr;
+      }
+      AVBufferRef* device_context = nullptr;
+      const auto device_result = av_hwdevice_ctx_create(
+          &device_context, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nullptr, nullptr, 0);
+      if (device_result < 0) {
+        avcodec_free_context(&codec_context);
+        return nullptr;
+      }
+      codec_context->hw_device_ctx = device_context;
+      codec_context->opaque = &format_selection;
+      codec_context->get_format = &select_video_pixel_format;
+      format_selection.selected = true;
+    }
+
+    const auto open_result = avcodec_open2(codec_context, decoder, nullptr);
+    codec_context->opaque = nullptr;
+    if (open_result < 0) {
+      avcodec_free_context(&codec_context);
+      if (use_videotoolbox)
+        return nullptr;
+      throw ffmpeg_error("Could not open FFmpeg decoder", open_result);
+    }
+    if (videotoolbox_selected != nullptr)
+      *videotoolbox_selected = format_selection.selected;
+    return codec_context;
+  };
+
+  if (prefer_videotoolbox) {
+    if (auto* codec_context = open_once(true))
+      return codec_context;
   }
-  return codec_context;
+  return open_once(false);
 }
 
 [[nodiscard]] Rational time_base_of(
@@ -136,8 +212,12 @@ public:
         if (video_stream_index_ < 0 || video_decoder == nullptr) {
           throw VideoStreamUnavailable{};
         }
-        video_codec_context_ =
-            open_decoder(format_context_, video_stream_index_, video_decoder);
+        bool videotoolbox_selected = false;
+        video_codec_context_ = open_decoder(
+            format_context_, video_stream_index_, video_decoder,
+            options_.video_acceleration == VideoAccelerationMode::auto_mode,
+            &videotoolbox_selected);
+        video_acceleration_path_ = videotoolbox_selected ? "hardware" : "software";
       }
 
       if (options_.decode_audio) {
@@ -151,7 +231,9 @@ public:
             0);
         if (audio_stream_index_ >= 0 && audio_decoder != nullptr) {
           audio_codec_context_ =
-              open_decoder(format_context_, audio_stream_index_, audio_decoder);
+              open_decoder(
+                  format_context_, audio_stream_index_, audio_decoder, false,
+                  nullptr);
         } else {
           audio_stream_index_ = -1;
           if (!options_.decode_video) {
@@ -193,6 +275,7 @@ public:
             color_range_name(video_codec_context_->color_range);
         info.video_color_space =
             color_space_name(video_codec_context_->colorspace);
+        info.video_acceleration = video_acceleration_path_;
       }
       if (format_context_->duration != AV_NOPTS_VALUE) {
         info.duration_ms = av_rescale_q(
@@ -311,6 +394,9 @@ public:
     if (frame_ != nullptr) {
       av_frame_free(&frame_);
     }
+    if (software_frame_ != nullptr) {
+      av_frame_free(&software_frame_);
+    }
     if (packet_ != nullptr) {
       av_packet_free(&packet_);
     }
@@ -334,6 +420,7 @@ public:
     next_audio_output_pts_ms_.reset();
     video_discard_before_ms_.reset();
     audio_discard_before_ms_.reset();
+    video_acceleration_path_ = "software";
   }
 
 private:
@@ -393,8 +480,26 @@ private:
   }
 
   VideoFrame convert_video(std::uint64_t generation) {
-    const auto width = frame_->width;
-    const auto height = frame_->height;
+    const AVFrame* source_frame = frame_;
+    if (frame_->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+      if (software_frame_ == nullptr) {
+        software_frame_ = av_frame_alloc();
+        if (software_frame_ == nullptr) {
+          throw std::runtime_error{"Could not allocate software video frame"};
+        }
+      }
+      av_frame_unref(software_frame_);
+      const auto transfer_result =
+          av_hwframe_transfer_data(software_frame_, frame_, 0);
+      if (transfer_result < 0) {
+        throw ffmpeg_error(
+            "Could not transfer VideoToolbox frame", transfer_result);
+      }
+      source_frame = software_frame_;
+    }
+
+    const auto width = source_frame->width;
+    const auto height = source_frame->height;
     if (width <= 0 || height <= 0) {
       throw std::runtime_error{"Decoded video frame has invalid dimensions"};
     }
@@ -403,7 +508,7 @@ private:
         sws_context_,
         width,
         height,
-        static_cast<AVPixelFormat>(frame_->format),
+        static_cast<AVPixelFormat>(source_frame->format),
         width,
         height,
         AV_PIX_FMT_YUV420P,
@@ -442,8 +547,8 @@ private:
         output.stride_y, output.stride_u, output.stride_v, 0};
     const auto scaled_height = sws_scale(
         sws_context_,
-        frame_->data,
-        frame_->linesize,
+        source_frame->data,
+        source_frame->linesize,
         0,
         height,
         destination_data.data(),
@@ -630,6 +735,7 @@ private:
   SwrContext* swr_context_{nullptr};
   AVPacket* packet_{nullptr};
   AVFrame* frame_{nullptr};
+  AVFrame* software_frame_{nullptr};
   int video_stream_index_{-1};
   int audio_stream_index_{-1};
   bool input_finished_{false};
@@ -640,6 +746,7 @@ private:
   std::optional<std::int64_t> next_audio_output_pts_ms_;
   std::optional<std::int64_t> video_discard_before_ms_;
   std::optional<std::int64_t> audio_discard_before_ms_;
+  std::string video_acceleration_path_{"software"};
   std::deque<MediaEvent> pending_events_;
   const FfmpegMediaSourceOptions options_;
 };
