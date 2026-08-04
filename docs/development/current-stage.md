@@ -28,9 +28,8 @@ Receiver native movie-audio playout is merged on `main` through `46710c7`.
 Host-authoritative movie pause, resume, and seek remain the merged baseline
 through `48e4d27`.
 Sender local-track movie preview is merged on `main` through `b931a2f`.
-Receiver playout reporting and generation-aware reconciliation are delivered on
-`codex/receiver-playout-reports`; integration into `main` is pending this
-stage's merge.
+Receiver playout reporting and generation-aware reconciliation are merged on
+`main` through `ad1be7c`.
 
 Delivered behavior:
 
@@ -57,12 +56,13 @@ Delivered behavior:
 - builds without MovieRTC keep compiling and test a stable unsupported result.
 
 See [Movie Audio Isolation Verification](../verification/movie-audio-isolation.md)
-and [Host Playback Controls Verification](../verification/host-playback-controls.md)
+[Host Playback Controls Verification](../verification/host-playback-controls.md),
+and [Receiver Playout Reports Verification](../verification/receiver-playout-reports.md)
 for exact proof and evidence boundaries.
 
 ## Verification status
 
-- **Verified — macOS movie-call:** full build and CTest passed 39/39; the
+- **Verified — macOS movie-call:** full build and CTest passed 40/40; the
   dedicated peer lifecycle test also passed 20 consecutive runs.
 - **Verified — macOS live signaling:** five consecutive microphone/movie/audio
   smoke calls passed with stereo 48 kHz delivery and no captured codec
@@ -91,8 +91,8 @@ for exact proof and evidence boundaries.
 - **Partial — playout telemetry GUI:** a supplied-movie host/viewer call stayed
   connected without RTC/media error; visible values and long-run drift remain
   human or instrumented acceptance.
-- **Unimplemented:** correction application, bounded hard resync, TURN/public network acceptance,
-  process-loopback audio, and measured performance.
+- **Unimplemented:** correction application, bounded hard resync, TURN/public
+  network acceptance, process-loopback audio, and measured performance.
 
 ## Next recommended stage
 
