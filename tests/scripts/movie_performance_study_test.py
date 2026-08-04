@@ -87,6 +87,19 @@ class MoviePerformanceStudyTest(unittest.TestCase):
             failed[field] = value
             self.assertFalse(self.runner.gates_pass(failed), field)
 
+    def test_real_session_commands_are_movie_only_and_software_is_explicit(self):
+        host = self.runner.build_host_command(
+            Path("/bin/demo"), "ws://127.0.0.1:18080/v1/ws",
+            Path("<MOVIE_PATH>"), "software"
+        )
+        self.assertIn("--video-acceleration", host)
+        self.assertEqual(host[host.index("--video-acceleration") + 1], "software")
+        self.assertNotIn("--drift-scenario", host)
+        viewer = self.runner.build_viewer_command(
+            Path("/bin/demo"), "ws://127.0.0.1:18080/v1/ws", "ABC234"
+        )
+        self.assertEqual(viewer[-2:], ["--source", "test"])
+
 
 if __name__ == "__main__":
     unittest.main()

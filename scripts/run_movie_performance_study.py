@@ -13,21 +13,35 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import queue
 import re
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_signaled_call_smoke import (  # noqa: E402
+    popen_group_options,
+    start_managed_process,
+    start_signaling_server,
+    terminate_process_group,
+    wait_for_health,
+)
+
 
 REQUIRED_RUNS = 3
 SCENARIO_SECONDS = 180
+ROOM_PATTERN = re.compile(r"^ROOM ([A-Z2-7]{6})$")
 ALLOWED_KEYS = {
     "version", "role", "cpu_percent", "rss_bytes", "decoded", "offered",
     "encoded", "received", "callback", "submitted", "coalesced", "dropped",
     "conversion_failures", "width", "height", "cadence_num", "cadence_den",
     "pixel_aspect_num", "pixel_aspect_den", "color_range", "color_space",
-    "codec", "profile", "path", "state", "candidate",
+    "codec", "profile", "path", "state", "candidate", "fallback_copies",
 }
 ENUMS = {
     "role": {"host", "viewer"},
@@ -39,6 +53,7 @@ ENUMS = {
 INTEGER_KEYS = {
     "version", "rss_bytes", "decoded", "offered", "encoded", "received",
     "callback", "submitted", "coalesced", "dropped", "conversion_failures",
+    "fallback_copies",
     "width", "height", "cadence_num", "cadence_den", "pixel_aspect_num",
     "pixel_aspect_den",
 }
@@ -50,6 +65,23 @@ def validate_run_count(count: int) -> int:
     if count != REQUIRED_RUNS:
         raise ValueError(f"the study requires exactly {REQUIRED_RUNS} sequential runs")
     return count
+
+
+def build_host_command(
+    demo: Path, server_url: str, movie: Path, video_acceleration: str
+) -> list[str]:
+    return [
+        str(demo), "--server", server_url, "--role", "host", "--source", "movie",
+        "--movie", str(movie), "--movie-audio", "--video-acceleration",
+        video_acceleration,
+    ]
+
+
+def build_viewer_command(demo: Path, server_url: str, room: str) -> list[str]:
+    return [
+        str(demo), "--server", server_url, "--role", "viewer", "--room", room,
+        "--source", "test",
+    ]
 
 
 def prepare_output_root(root: Path, parent: Path) -> Path:
@@ -163,6 +195,212 @@ def gates_pass(report: dict) -> bool:
     )
 
 
+class PerformanceStudyError(RuntimeError):
+    pass
+
+
+class OutputReader:
+    def __init__(self, process: subprocess.Popen[str]):
+        self.process = process
+        self.events: queue.Queue[str | None] = queue.Queue()
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+
+    def _read(self) -> None:
+        stream = self.process.stdout
+        if stream is None:
+            self.events.put(None)
+            return
+        try:
+            for line in stream:
+                self.events.put(line)
+        finally:
+            self.events.put(None)
+
+
+def _start_demo(command: list[str], environment: dict[str, str]):
+    try:
+        process = start_managed_process(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", env=environment,
+            **popen_group_options(),
+        )
+    except OSError as error:
+        raise PerformanceStudyError("process-start-failed") from error
+    return process, OutputReader(process)
+
+
+def _read_process_metrics(process: subprocess.Popen[str]) -> tuple[float, int]:
+    if process.poll() is not None or sys.platform == "win32":
+        return 0.0, 0
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "%cpu=", "-o", "rss=", "-p", str(process.pid)],
+            check=False, capture_output=True, text=True, timeout=1,
+        )
+        fields = result.stdout.split()
+        if len(fields) >= 2:
+            return float(fields[0]), int(fields[1]) * 1024
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    return 0.0, 0
+
+
+def _drain_counter_events(
+    reader: OutputReader, role: str, elapsed_seconds: int, output
+) -> int:
+    count = 0
+    while True:
+        try:
+            line = reader.events.get_nowait()
+        except queue.Empty:
+            return count
+        if line is None:
+            return count
+        parsed = parse_perf_counters(line)
+        if parsed is not None:
+            _write_jsonl_line(output, {
+                "kind": "counter", "elapsed_seconds": elapsed_seconds,
+                "role": role, **parsed,
+            })
+            count += 1
+
+
+def _wait_for_room(reader: OutputReader, process: subprocess.Popen[str]) -> str:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise PerformanceStudyError("host-exited-before-room")
+        try:
+            line = reader.events.get(timeout=0.25)
+        except queue.Empty:
+            continue
+        if line is None:
+            raise PerformanceStudyError("host-output-closed-before-room")
+        match = ROOM_PATTERN.fullmatch(line.strip())
+        if match:
+            return match.group(1)
+    raise PerformanceStudyError("room-timeout")
+
+
+def run_real_session(
+    demo: Path,
+    server_url: str,
+    movie: Path,
+    output_path: Path,
+    video_acceleration: str,
+    duration_seconds: int = SCENARIO_SECONDS,
+    environment: dict[str, str] | None = None,
+) -> dict:
+    refuse_existing_artifact(output_path)
+    env = os.environ.copy()
+    if environment:
+        env.update(environment)
+    env["SHAREME_PERFORMANCE_COUNTERS"] = "1"
+    host = viewer = None
+    host_reader = viewer_reader = None
+    counter_count = 0
+    failure = None
+    started = time.monotonic()
+    with output_path.open("x", encoding="utf-8") as output:
+        _write_jsonl_line(output, {
+            "kind": "run", "version": 1, "mode": video_acceleration,
+            "duration_seconds": duration_seconds,
+        })
+        try:
+            host, host_reader = _start_demo(
+                build_host_command(demo, server_url, movie, video_acceleration), env
+            )
+            room = _wait_for_room(host_reader, host)
+            viewer, viewer_reader = _start_demo(
+                build_viewer_command(demo, server_url, room), env
+            )
+            deadline = started + duration_seconds
+            next_metrics = started
+            while time.monotonic() < deadline:
+                if viewer.poll() is not None:
+                    raise PerformanceStudyError("viewer-exited-during-measurement")
+                if host.poll() is not None:
+                    raise PerformanceStudyError("host-exited-during-measurement")
+                now = time.monotonic()
+                elapsed = int(now - started)
+                counter_count += _drain_counter_events(
+                    host_reader, "host", elapsed, output
+                )
+                counter_count += _drain_counter_events(
+                    viewer_reader, "viewer", elapsed, output
+                )
+                if now >= next_metrics:
+                    for process, role in ((host, "host"), (viewer, "viewer")):
+                        cpu, rss = _read_process_metrics(process)
+                        _write_jsonl_line(output, {
+                            "kind": "process", "elapsed_seconds": elapsed,
+                            "role": role, "cpu_percent": cpu, "rss_bytes": rss,
+                        })
+                    next_metrics += 1
+                time.sleep(0.05)
+            counter_count += _drain_counter_events(
+                host_reader, "host", duration_seconds, output
+            )
+            counter_count += _drain_counter_events(
+                viewer_reader, "viewer", duration_seconds, output
+            )
+        except PerformanceStudyError as error:
+            failure = str(error)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            failure = redact_diagnostic(str(error))
+        finally:
+            for process in (viewer, host):
+                if process is not None and process.poll() is None:
+                    terminate_process_group(process, grace_seconds=1)
+            _write_jsonl_line(output, {
+                "kind": "summary", "complete": failure is None,
+                "failure": failure, "counter_count": counter_count,
+                "platform": sys.platform,
+            })
+    if failure is not None:
+        raise PerformanceStudyError(f"{failure}; partial-artifact={output_path.name}")
+    return {"artifact": output_path.name, "counter_count": counter_count}
+
+
+def run_study(args: argparse.Namespace) -> dict:
+    validate_run_count(args.run_count)
+    if not args.demo.is_file():
+        raise PerformanceStudyError("demo-not-found")
+    if not args.movie.is_file():
+        raise PerformanceStudyError("movie-not-found")
+    root = prepare_output_root(args.output_root, args.output_parent)
+    from urllib.parse import urlparse
+
+    parsed = urlparse(args.server_url)
+    if parsed.port is None or args.server_root is None:
+        raise PerformanceStudyError("server-root-and-port-required")
+    server = server_log = server_directory = None
+    reports = []
+    try:
+        server, server_log, server_directory = start_signaling_server(
+            args.server_root, parsed.hostname or "127.0.0.1", parsed.port
+        )
+        wait_for_health(
+            f"http://{parsed.hostname or '127.0.0.1'}:{parsed.port}/healthz",
+            server, server_log=server_log,
+        )
+        for index in range(1, REQUIRED_RUNS + 1):
+            reports.append(run_real_session(
+                args.demo, args.server_url, args.movie,
+                root / f"run-{index:02d}.jsonl", args.video_acceleration,
+                args.duration_seconds,
+            ))
+    finally:
+        if server is not None and server.poll() is None:
+            terminate_process_group(server, grace_seconds=1)
+        if server_log is not None:
+            server_log.close()
+        if server_directory is not None:
+            server_directory.cleanup()
+    return {"runs": reports, "run_count": len(reports), "mode": args.video_acceleration}
+
+
 def _write_jsonl_line(handle, value: dict) -> None:
     handle.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
     handle.flush()
@@ -209,9 +447,27 @@ def main() -> int:
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--output-parent", type=Path, required=True)
     parser.add_argument("--run-count", type=int, default=REQUIRED_RUNS)
+    parser.add_argument("--demo", type=Path)
+    parser.add_argument("--server-url")
+    parser.add_argument("--server-root", type=Path)
+    parser.add_argument("--movie", type=Path)
+    parser.add_argument("--video-acceleration", choices=("auto", "software"),
+                        default="software")
+    parser.add_argument("--duration-seconds", type=int, default=SCENARIO_SECONDS)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     validate_run_count(args.run_count)
+    if args.demo is not None or args.movie is not None or args.server_url is not None:
+        if args.demo is None or args.movie is None or args.server_url is None:
+            parser.error("real study requires --demo, --movie, and --server-url")
+        if args.duration_seconds != SCENARIO_SECONDS:
+            parser.error("the frozen study duration is 180 seconds")
+        try:
+            print(json.dumps(run_study(args), sort_keys=True))
+        except PerformanceStudyError as error:
+            print(redact_diagnostic(str(error)), file=sys.stderr)
+            return 1
+        return 0
     root = prepare_output_root(args.output_root, args.output_parent)
     if not args.command:
         parser.error("a measurement command is required")
