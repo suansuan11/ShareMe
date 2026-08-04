@@ -259,8 +259,14 @@ bool RtcDemoController::createPeer() {
     };
   }
 #endif
-  config.remote_video_frame =
-      [this](const webrtc::VideoFrame &frame) { deliverRemoteFrame(frame); };
+  if (role_ == shareme::rtc::SignaledRole::host) {
+    config.local_video_frame =
+        [this](const webrtc::VideoFrame &frame) { deliverRemoteFrame(frame); };
+  }
+  if (role_ == shareme::rtc::SignaledRole::viewer) {
+    config.remote_video_frame =
+        [this](const webrtc::VideoFrame &frame) { deliverRemoteFrame(frame); };
+  }
   config.control_message = [this](std::string message) {
     QMetaObject::invokeMethod(
         this, [this, message = std::move(message)] {

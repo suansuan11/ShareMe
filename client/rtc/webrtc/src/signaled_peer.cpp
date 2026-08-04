@@ -166,7 +166,8 @@ public:
   Impl(SignaledPeerConfig config, SignaledPeerCallbacks callbacks)
       : config_(std::move(config)), role_(config_.role),
         callbacks_(std::move(callbacks)),
-        sink_(config_.remote_video_frame) {}
+        local_video_sink_(config_.local_video_frame),
+        remote_video_sink_(config_.remote_video_frame) {}
   bool initialize() {
     if (!valid_signaled_peer_config(config_)) {
       if (config_.role != SignaledRole::host &&
@@ -281,7 +282,8 @@ public:
         std::lock_guard lock(mu_);
         if (!result_.error.empty())
           break;
-        if (result_.connected && sink_.frame_count() > 0 && !media_ready)
+        if (result_.connected && remote_video_sink_.frame_count() > 0 &&
+            !media_ready)
           media_ready = std::chrono::steady_clock::now();
       }
       if (media_ready && std::chrono::steady_clock::now() - *media_ready >=
@@ -316,14 +318,17 @@ public:
     if (stopped_.exchange(true))
       return;
     callbacks_active_->store(false, std::memory_order_release);
-    sink_.clear_callback();
+    local_video_sink_.clear_callback();
+    remote_video_sink_.clear_callback();
     if (video_source_)
       video_source_->stop();
     if (runtime_ && runtime_->signaling_thread() &&
         runtime_->signaling_thread()->RunningForTest())
       runtime_->signaling_thread()->BlockingCall([this] {
+        if (video_track_)
+          video_track_->RemoveSink(&local_video_sink_);
         if (remote_video_)
-          remote_video_->RemoveSink(&sink_);
+          remote_video_->RemoveSink(&remote_video_sink_);
         if (control_channel_ && control_observer_)
           control_channel_->UnregisterObserver();
         control_observer_.reset();
@@ -417,6 +422,8 @@ private:
     peer_->SetAudioPlayout(false);
     video_track_ =
         runtime_->factory()->CreateVideoTrack(video_source_, "movie-video");
+    if (video_track_)
+      video_track_->AddOrUpdateSink(&local_video_sink_, {});
     const auto policy = signaled_audio_policy(config_.audio_mode);
     const auto audio_kind = policy.processing_enabled
                                 ? AudioSourceKind::microphone
@@ -555,7 +562,7 @@ private:
     auto track = value->receiver()->track();
     if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
       remote_video_ = static_cast<webrtc::VideoTrackInterface *>(track.get());
-      remote_video_->AddOrUpdateSink(&sink_, {});
+      remote_video_->AddOrUpdateSink(&remote_video_sink_, {});
     } else if (track->kind() == webrtc::MediaStreamTrackInterface::kAudioKind) {
       auto audio_track = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
           static_cast<webrtc::AudioTrackInterface *>(track.get()));
@@ -564,9 +571,9 @@ private:
     }
   }
   void populate_media_result() {
-    result_.video_frames_received = sink_.frame_count();
-    result_.video_width = sink_.last_width();
-    result_.video_height = sink_.last_height();
+    result_.video_frames_received = remote_video_sink_.frame_count();
+    result_.video_width = remote_video_sink_.last_width();
+    result_.video_height = remote_video_sink_.last_height();
   }
   void collect_stats() {
     if (!runtime_ || !peer_)
@@ -634,7 +641,8 @@ private:
   std::shared_ptr<WebRtcRuntime> runtime_;
   std::unique_ptr<webrtc::TaskQueueFactory> queues_;
   webrtc::scoped_refptr<LocalVideoSource> video_source_;
-  RemoteVideoSink sink_;
+  RemoteVideoSink local_video_sink_;
+  RemoteVideoSink remote_video_sink_;
   std::unique_ptr<PeerObserver> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_;
   webrtc::scoped_refptr<webrtc::VideoTrackInterface> video_track_,

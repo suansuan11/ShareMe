@@ -117,6 +117,13 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("movie_config.native_playout =", source)
         self.assertIn("role_ == shareme::rtc::SignaledRole::viewer", source)
 
+    def test_controller_routes_host_local_and_viewer_remote_video(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("config.local_video_frame", source)
+        self.assertIn("if (role_ == shareme::rtc::SignaledRole::host)", source)
+        self.assertIn("config.remote_video_frame", source)
+        self.assertIn("if (role_ == shareme::rtc::SignaledRole::viewer)", source)
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--demo", type=Path, required=True)

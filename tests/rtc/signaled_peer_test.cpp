@@ -278,12 +278,25 @@ int main() {
   REQUIRE(viewer_only != nullptr);
   REQUIRE(!viewer_only->send_control_message("{}"));
   viewer_only->stop();
+  std::promise<std::pair<int, int>> local_preview_promise;
+  auto local_preview_future = local_preview_promise.get_future();
+  std::atomic_bool local_preview_reported{false};
   auto peer = shareme::rtc::SignaledPeer::create(
-      {.role = SignaledRole::host, .audio_mode = SignaledAudioMode::synthetic},
+      {.role = SignaledRole::host,
+       .audio_mode = SignaledAudioMode::synthetic,
+       .local_video_frame = [&](const webrtc::VideoFrame &frame) {
+         if (!local_preview_reported.exchange(true))
+           local_preview_promise.set_value({frame.width(), frame.height()});
+       }},
       {});
   REQUIRE(peer != nullptr);
   REQUIRE(!peer->send_control_message("{}"));
   REQUIRE(peer->start());
+  REQUIRE(local_preview_future.wait_for(std::chrono::seconds(2)) ==
+          std::future_status::ready);
+  const auto local_preview_size = local_preview_future.get();
+  REQUIRE(local_preview_size.first == 640);
+  REQUIRE(local_preview_size.second == 360);
   auto wait_result = std::async(
       std::launch::async, [&] { return peer->wait(std::chrono::seconds(15)); });
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
