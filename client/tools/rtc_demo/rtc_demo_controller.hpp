@@ -2,6 +2,7 @@
 
 #include "qt_signaling_client.hpp"
 #include "playback_state.hpp"
+#include "playout_report.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
@@ -14,12 +15,15 @@
 #include <QVideoSink>
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <filesystem>
+#include <optional>
 #include <thread>
 
 namespace shareme::rtc {
 class MovieTimeline;
+class MovieVideoSource;
 }
 
 class RtcDemoController final : public QObject {
@@ -35,6 +39,10 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(qint64 hostPlaybackDurationMs READ hostPlaybackDurationMs NOTIFY hostPlaybackChanged)
   Q_PROPERTY(qulonglong hostPlaybackGeneration READ hostPlaybackGeneration NOTIFY hostPlaybackChanged)
   Q_PROPERTY(bool hostControlsAvailable READ hostControlsAvailable NOTIFY hostPlaybackChanged)
+  Q_PROPERTY(qint64 viewerRenderedPositionMs READ viewerRenderedPositionMs NOTIFY playoutReportChanged)
+  Q_PROPERTY(qint64 hostViewerDeltaMs READ hostViewerDeltaMs NOTIFY playoutReportChanged)
+  Q_PROPERTY(QString hostSyncAction READ hostSyncAction NOTIFY playoutReportChanged)
+  Q_PROPERTY(bool viewerRenderedAvailable READ viewerRenderedAvailable NOTIFY playoutReportChanged)
 
 public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
@@ -57,6 +65,10 @@ public:
   [[nodiscard]] qint64 hostPlaybackDurationMs() const noexcept;
   [[nodiscard]] qulonglong hostPlaybackGeneration() const noexcept;
   [[nodiscard]] bool hostControlsAvailable() const noexcept;
+  [[nodiscard]] qint64 viewerRenderedPositionMs() const noexcept;
+  [[nodiscard]] qint64 hostViewerDeltaMs() const noexcept;
+  [[nodiscard]] QString hostSyncAction() const;
+  [[nodiscard]] bool viewerRenderedAvailable() const noexcept;
 
   Q_INVOKABLE void setVideoSink(QVideoSink *sink);
   Q_INVOKABLE void start();
@@ -69,6 +81,7 @@ signals:
   void roomIdChanged();
   void remotePlaybackChanged();
   void hostPlaybackChanged();
+  void playoutReportChanged();
 
 private:
   bool createPeer();
@@ -77,7 +90,9 @@ private:
   void setStatus(QString status);
   void setRoomId(QString room_id);
   void deliverRemoteFrame(const webrtc::VideoFrame &frame);
+  void recordRenderedFrame(std::uint32_t rtp_timestamp);
   void publishPlaybackState();
+  void publishPlayoutReport();
   void refreshHostPlayback();
   void receiveControlMessage(std::string message);
 
@@ -88,7 +103,7 @@ private:
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
   std::shared_ptr<shareme::rtc::MovieTimeline> movie_timeline_;
-  webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> movie_video_source_;
+  webrtc::scoped_refptr<shareme::rtc::MovieVideoSource> movie_video_source_;
   QString status_{QStringLiteral("idle")};
   QString room_id_;
   QPointer<QVideoSink> video_sink_;
@@ -99,8 +114,15 @@ private:
   std::jthread movie_waiter_;
   std::atomic_bool video_delivery_pending_{false};
   QTimer playback_state_timer_;
+  QTimer playout_report_timer_;
   std::uint64_t playback_sequence_{1};
   shareme::tools::PlaybackStateTracker playback_tracker_;
+  shareme::tools::PlayoutReportTracker playout_report_tracker_;
+  std::optional<shareme::tools::PlaybackState> viewer_playback_anchor_;
+  shareme::tools::RenderedPlayoutTracker rendered_playout_tracker_;
+  std::chrono::steady_clock::time_point viewer_anchor_received_at_{};
+  std::int64_t rendered_sample_time_ms_{0};
+  std::uint64_t playout_report_sequence_{1};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};
@@ -109,6 +131,10 @@ private:
   qint64 host_playback_duration_ms_{0};
   qulonglong host_playback_generation_{0};
   bool host_controls_available_{false};
+  qint64 viewer_rendered_position_ms_{0};
+  qint64 host_viewer_delta_ms_{0};
+  QString host_sync_action_{QStringLiteral("unavailable")};
+  bool viewer_rendered_available_{false};
   bool peer_started_{false};
   bool start_requested_{false};
 };

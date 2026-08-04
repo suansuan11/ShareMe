@@ -50,21 +50,32 @@ QByteArray encode_playback_state(const PlaybackState &state) {
       state.media_pts_ms > kMaximumJsonSafeInteger ||
       state.effective_at_host_time_ms < -kMaximumJsonSafeInteger ||
       state.effective_at_host_time_ms > kMaximumJsonSafeInteger ||
+      (state.video_anchor_media_pts_ms &&
+       (*state.video_anchor_media_pts_ms < -kMaximumJsonSafeInteger ||
+        *state.video_anchor_media_pts_ms > kMaximumJsonSafeInteger)) ||
+      static_cast<bool>(state.video_anchor_media_pts_ms) !=
+          static_cast<bool>(state.video_rtp_timestamp) ||
       !std::isfinite(state.rate) || state.rate < 0.5 || state.rate > 2.0 ||
       state.generation >
           static_cast<std::uint64_t>(kMaximumJsonSafeInteger))
     return {};
+  QJsonObject payload{{QStringLiteral("state"), state.state},
+                      {QStringLiteral("mediaPtsMs"), static_cast<qint64>(state.media_pts_ms)},
+                      {QStringLiteral("effectiveAtHostTimeMs"), static_cast<qint64>(state.effective_at_host_time_ms)},
+                      {QStringLiteral("rate"), state.rate},
+                      {QStringLiteral("generation"), static_cast<qint64>(state.generation)}};
+  if (state.video_anchor_media_pts_ms) {
+    payload.insert(QStringLiteral("videoAnchorMediaPtsMs"),
+                   static_cast<qint64>(*state.video_anchor_media_pts_ms));
+    payload.insert(QStringLiteral("videoRtpTimestamp"),
+                   static_cast<qint64>(*state.video_rtp_timestamp));
+  }
   return QJsonDocument(QJsonObject{
                            {QStringLiteral("version"), 1},
                            {QStringLiteral("type"), QStringLiteral("playback-state")},
                            {QStringLiteral("roomId"), state.room_id},
                            {QStringLiteral("sequence"), static_cast<qint64>(state.sequence)},
-                           {QStringLiteral("payload"),
-                            QJsonObject{{QStringLiteral("state"), state.state},
-                                        {QStringLiteral("mediaPtsMs"), static_cast<qint64>(state.media_pts_ms)},
-                                        {QStringLiteral("effectiveAtHostTimeMs"), static_cast<qint64>(state.effective_at_host_time_ms)},
-                                        {QStringLiteral("rate"), state.rate},
-                                        {QStringLiteral("generation"), static_cast<qint64>(state.generation)}}}})
+                           {QStringLiteral("payload"), payload}})
       .toJson(QJsonDocument::Compact);
 }
 
@@ -87,9 +98,25 @@ std::optional<PlaybackState> decode_playback_state(const QByteArray &message,
   const auto media_pts = signed_integer(payload.value(QStringLiteral("mediaPtsMs")));
   const auto effective_at = signed_integer(payload.value(QStringLiteral("effectiveAtHostTimeMs")));
   const auto generation = positive_unsigned_integer(payload.value(QStringLiteral("generation")), false);
+  std::optional<std::int64_t> video_anchor_media_pts;
+  std::optional<std::uint64_t> video_rtp_timestamp;
+  const auto has_anchor_pts = payload.contains(QStringLiteral("videoAnchorMediaPtsMs"));
+  const auto has_anchor_rtp = payload.contains(QStringLiteral("videoRtpTimestamp"));
+  if (has_anchor_pts != has_anchor_rtp)
+    return std::nullopt;
+  if (has_anchor_pts) {
+    video_anchor_media_pts =
+        signed_integer(payload.value(QStringLiteral("videoAnchorMediaPtsMs")));
+    video_rtp_timestamp = positive_unsigned_integer(
+        payload.value(QStringLiteral("videoRtpTimestamp")), false);
+  }
   const auto rate = payload.value(QStringLiteral("rate"));
   if ((state != QStringLiteral("playing") && state != QStringLiteral("paused")) ||
-      !media_pts || !effective_at || !generation || !rate.isDouble() ||
+      !media_pts || !effective_at || !generation ||
+      (has_anchor_pts &&
+       (!video_anchor_media_pts || !video_rtp_timestamp ||
+        *video_rtp_timestamp > std::numeric_limits<std::uint32_t>::max())) ||
+      !rate.isDouble() ||
       !std::isfinite(rate.toDouble()) || rate.toDouble() < 0.5 || rate.toDouble() > 2.0)
     return std::nullopt;
   return PlaybackState{.room_id = expected_room,
@@ -98,13 +125,21 @@ std::optional<PlaybackState> decode_playback_state(const QByteArray &message,
                        .media_pts_ms = *media_pts,
                        .effective_at_host_time_ms = *effective_at,
                        .rate = rate.toDouble(),
-                       .generation = *generation};
+                       .generation = *generation,
+                       .video_anchor_media_pts_ms = video_anchor_media_pts,
+                       .video_rtp_timestamp = video_rtp_timestamp
+                                                  ? std::optional{
+                                                        static_cast<std::uint32_t>(
+                                                            *video_rtp_timestamp)}
+                                                  : std::nullopt};
 }
 
 std::optional<PlaybackState> make_movie_playback_state(
     QString room_id, std::uint64_t sequence,
     std::int64_t media_pts_ms, std::int64_t effective_at_host_time_ms,
-    MoviePlaybackState playback_state, std::uint64_t generation) {
+    MoviePlaybackState playback_state, std::uint64_t generation,
+    std::int64_t video_anchor_media_pts_ms,
+    std::uint32_t video_rtp_timestamp) {
   PlaybackState state{.room_id = std::move(room_id),
                       .sequence = sequence,
                       .state = playback_state == MoviePlaybackState::paused
@@ -113,7 +148,9 @@ std::optional<PlaybackState> make_movie_playback_state(
                       .media_pts_ms = media_pts_ms,
                       .effective_at_host_time_ms = effective_at_host_time_ms,
                       .rate = 1.0,
-                      .generation = generation};
+                      .generation = generation,
+                      .video_anchor_media_pts_ms = video_anchor_media_pts_ms,
+                      .video_rtp_timestamp = video_rtp_timestamp};
   if (encode_playback_state(state).isEmpty())
     return std::nullopt;
   return state;

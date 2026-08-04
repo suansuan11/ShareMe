@@ -16,6 +16,8 @@ struct PlaybackState {
   std::int64_t effective_at_host_time_ms{};
   double rate{};
   std::uint64_t generation{};
+  std::optional<std::int64_t> video_anchor_media_pts_ms;
+  std::optional<std::uint32_t> video_rtp_timestamp;
 };
 
 enum class MoviePlaybackState { playing, paused };
@@ -26,7 +28,9 @@ decode_playback_state(const QByteArray &message, const QString &expected_room);
 [[nodiscard]] std::optional<PlaybackState> make_movie_playback_state(
     QString room_id, std::uint64_t sequence,
     std::int64_t media_pts_ms, std::int64_t effective_at_host_time_ms,
-    MoviePlaybackState playback_state, std::uint64_t generation);
+    MoviePlaybackState playback_state, std::uint64_t generation,
+    std::int64_t video_anchor_media_pts_ms,
+    std::uint32_t video_rtp_timestamp);
 
 class PlaybackStateTracker final {
 public:

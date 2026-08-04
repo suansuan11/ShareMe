@@ -8,9 +8,11 @@
 
 #include <chrono>
 #include <iostream>
+#include <limits>
 #include <utility>
 
 #include "libyuv/convert_argb.h"
+#include "shareme/core/sync_controller.hpp"
 
 #if defined(SHAREME_HAS_DESKTOP_CAPTURE)
 #include "shareme/rtc/desktop_capture_source.hpp"
@@ -40,6 +42,20 @@ QByteArray candidate_payload(const std::string &mid, int line,
       .toJson(QJsonDocument::Compact);
 }
 
+QString sync_action_name(shareme::core::SyncAction action) {
+  switch (action) {
+  case shareme::core::SyncAction::none:
+    return QStringLiteral("none");
+  case shareme::core::SyncAction::adjust_buffer:
+    return QStringLiteral("adjust-buffer");
+  case shareme::core::SyncAction::adjust_rate:
+    return QStringLiteral("adjust-rate");
+  case shareme::core::SyncAction::hard_resync:
+    return QStringLiteral("hard-resync-observed");
+  }
+  return QStringLiteral("unavailable");
+}
+
 } // namespace
 
 RtcDemoController::RtcDemoController(QUrl server_url,
@@ -55,6 +71,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
           &RtcDemoController::publishPlaybackState);
+  playout_report_timer_.setInterval(250);
+  connect(&playout_report_timer_, &QTimer::timeout, this,
+          &RtcDemoController::publishPlayoutReport);
   connect(&signaling_, &QtSignalingClient::statusChanged, this,
           [this](const QString &state) {
             setStatus(state);
@@ -159,6 +178,20 @@ qulonglong RtcDemoController::hostPlaybackGeneration() const noexcept {
 
 bool RtcDemoController::hostControlsAvailable() const noexcept {
   return host_controls_available_;
+}
+
+qint64 RtcDemoController::viewerRenderedPositionMs() const noexcept {
+  return viewer_rendered_position_ms_;
+}
+
+qint64 RtcDemoController::hostViewerDeltaMs() const noexcept {
+  return host_viewer_delta_ms_;
+}
+
+QString RtcDemoController::hostSyncAction() const { return host_sync_action_; }
+
+bool RtcDemoController::viewerRenderedAvailable() const noexcept {
+  return viewer_rendered_available_;
 }
 
 void RtcDemoController::setVideoSink(QVideoSink *sink) { video_sink_ = sink; }
@@ -350,6 +383,8 @@ void RtcDemoController::startPeer() {
     refreshHostPlayback();
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
     playback_state_timer_.start();
+  if (role_ == shareme::rtc::SignaledRole::viewer)
+    playout_report_timer_.start();
   waiter_ = std::jthread([this] {
     const auto result = peer_->wait(std::chrono::seconds(15));
     QMetaObject::invokeMethod(
@@ -368,6 +403,7 @@ void RtcDemoController::startPeer() {
 
 void RtcDemoController::stopPeer() noexcept {
   playback_state_timer_.stop();
+  playout_report_timer_.stop();
   if (peer_)
     peer_->cancel_wait();
   if (movie_peer_)
@@ -391,6 +427,9 @@ void RtcDemoController::publishPlaybackState() {
   const auto timeline = movie_timeline_->snapshot();
   if (!timeline)
     return;
+  const auto video_sample = movie_video_source_->last_frame_sample();
+  if (!video_sample || video_sample->generation != timeline->generation)
+    return;
   refreshHostPlayback();
   const auto now = std::chrono::steady_clock::now();
   const auto effective = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -403,7 +442,8 @@ void RtcDemoController::publishPlaybackState() {
       ended || timeline->state == shareme::rtc::MovieTimelineState::paused
           ? shareme::tools::MoviePlaybackState::paused
           : shareme::tools::MoviePlaybackState::playing,
-      timeline->generation);
+      timeline->generation, video_sample->media_pts_ms,
+      video_sample->rtp_timestamp);
   if (!state)
     return;
   if (!peer_->send_control_message(
@@ -415,6 +455,29 @@ void RtcDemoController::publishPlaybackState() {
   else
     playback_state_timer_.setInterval(1'000);
 #endif
+}
+
+void RtcDemoController::publishPlayoutReport() {
+  const auto &rendered_sample = rendered_playout_tracker_.last();
+  if (!viewer() || !peer_ || room_id_.isEmpty() || !rendered_sample ||
+      !viewer_playback_anchor_ ||
+      !viewer_playback_anchor_->video_anchor_media_pts_ms ||
+      !viewer_playback_anchor_->video_rtp_timestamp ||
+      viewer_playback_anchor_->state != QStringLiteral("playing") ||
+      rendered_sample->generation != viewer_playback_anchor_->generation)
+    return;
+  const shareme::tools::PlayoutReport report{
+      .room_id = room_id_,
+      .sequence = playout_report_sequence_,
+      .rendered_pts_ms = rendered_sample->rendered_pts_ms,
+      .buffer_ms = rendered_sample->buffer_ms,
+      .receive_time_ms = rendered_sample_time_ms_,
+      .generation = rendered_sample->generation};
+  const auto encoded = shareme::tools::encode_playout_report(report);
+  if (encoded.isEmpty() ||
+      !peer_->send_control_message(encoded.toStdString()))
+    return;
+  ++playout_report_sequence_;
 }
 
 void RtcDemoController::refreshHostPlayback() {
@@ -457,15 +520,48 @@ void RtcDemoController::refreshHostPlayback() {
 }
 
 void RtcDemoController::receiveControlMessage(std::string message) {
-  if (!viewer() || room_id_.isEmpty())
+  if (room_id_.isEmpty())
     return;
-  const auto state = shareme::tools::decode_playback_state(
-      QByteArray::fromStdString(message), room_id_);
-  if (!state || !playback_tracker_.accept(*state))
+  const auto bytes = QByteArray::fromStdString(message);
+  if (viewer()) {
+    const auto state =
+        shareme::tools::decode_playback_state(bytes, room_id_);
+    if (!state || !playback_tracker_.accept(*state))
+      return;
+    if (!state->video_anchor_media_pts_ms || !state->video_rtp_timestamp ||
+        !viewer_playback_anchor_ ||
+        viewer_playback_anchor_->generation != state->generation) {
+      rendered_playout_tracker_.reset();
+      viewer_rendered_position_ms_ = 0;
+      viewer_rendered_available_ = false;
+      emit playoutReportChanged();
+    }
+    viewer_playback_anchor_ = *state;
+    viewer_anchor_received_at_ = std::chrono::steady_clock::now();
+    remote_playback_state_ = state->state;
+    remote_playback_position_ms_ = static_cast<qint64>(state->media_pts_ms);
+    emit remotePlaybackChanged();
     return;
-  remote_playback_state_ = state->state;
-  remote_playback_position_ms_ = static_cast<qint64>(state->media_pts_ms);
-  emit remotePlaybackChanged();
+  }
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (!movie_timeline_)
+    return;
+  const auto timeline = movie_timeline_->snapshot();
+  const auto report = shareme::tools::decode_playout_report(bytes, room_id_);
+  if (!timeline || !report ||
+      !playout_report_tracker_.accept(*report, timeline->generation))
+    return;
+  const auto delta = shareme::tools::viewer_delta_ms(
+      timeline->media_pts_ms, report->rendered_pts_ms);
+  if (!delta)
+    return;
+  const auto decision = shareme::core::SyncController{}.decide(*delta);
+  viewer_rendered_position_ms_ = static_cast<qint64>(report->rendered_pts_ms);
+  host_viewer_delta_ms_ = static_cast<qint64>(*delta);
+  host_sync_action_ = sync_action_name(decision.action);
+  viewer_rendered_available_ = true;
+  emit playoutReportChanged();
+#endif
 }
 
 void RtcDemoController::setStatus(QString status) {
@@ -490,6 +586,7 @@ void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
     video_delivery_pending_.store(false, std::memory_order_release);
   };
   const auto source_buffer = frame.video_frame_buffer();
+  const auto rtp_timestamp = frame.rtp_timestamp();
   const auto buffer = source_buffer ? source_buffer->ToI420() : nullptr;
   if (!buffer) {
     release_delivery();
@@ -510,12 +607,43 @@ void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
   }
   const auto queued = QMetaObject::invokeMethod(
       this,
-      [this, image = std::move(image)] {
+      [this, image = std::move(image), rtp_timestamp] {
         if (video_sink_)
           video_sink_->setVideoFrame(QVideoFrame(image));
+        if (viewer())
+          recordRenderedFrame(rtp_timestamp);
         video_delivery_pending_.store(false, std::memory_order_release);
       },
       Qt::QueuedConnection);
   if (!queued)
     release_delivery();
+}
+
+void RtcDemoController::recordRenderedFrame(std::uint32_t rtp_timestamp) {
+  if (!viewer_playback_anchor_)
+    return;
+  const auto now = std::chrono::steady_clock::now();
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           now - viewer_anchor_received_at_)
+                           .count();
+  const auto sample = shareme::tools::reconcile_rendered_frame(
+      *viewer_playback_anchor_, rtp_timestamp, elapsed);
+  if (!sample)
+    return;
+  if (!rendered_playout_tracker_.accept(*viewer_playback_anchor_, *sample))
+    return;
+  rendered_sample_time_ms_ =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          now.time_since_epoch())
+          .count();
+  if (viewer_rendered_position_ms_ !=
+      static_cast<qint64>(sample->rendered_pts_ms)) {
+    viewer_rendered_position_ms_ =
+        static_cast<qint64>(sample->rendered_pts_ms);
+    emit playoutReportChanged();
+  }
+  if (!viewer_rendered_available_) {
+    viewer_rendered_available_ = true;
+    emit playoutReportChanged();
+  }
 }

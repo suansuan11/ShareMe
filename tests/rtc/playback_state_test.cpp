@@ -25,6 +25,9 @@ int main() {
   using shareme::tools::decode_playback_state;
   using shareme::tools::encode_playback_state;
   using shareme::tools::make_movie_playback_state;
+  const auto make_message = [](QJsonObject object) {
+    return QJsonDocument(std::move(object)).toJson(QJsonDocument::Compact);
+  };
 
   const PlaybackState playing{.room_id = QStringLiteral("ABC234"),
                               .sequence = 1,
@@ -32,7 +35,9 @@ int main() {
                               .media_pts_ms = 12'500,
                               .effective_at_host_time_ms = -91,
                               .rate = 1.0,
-                              .generation = 4};
+                              .generation = 4,
+                              .video_anchor_media_pts_ms = 12'480,
+                              .video_rtp_timestamp = 123'456U};
   const auto encoded = encode_playback_state(playing);
   const auto decoded = decode_playback_state(encoded, QStringLiteral("ABC234"));
   REQUIRE(decoded.has_value());
@@ -41,10 +46,25 @@ int main() {
   REQUIRE(decoded->media_pts_ms == playing.media_pts_ms);
   REQUIRE(decoded->effective_at_host_time_ms == playing.effective_at_host_time_ms);
   REQUIRE(decoded->generation == playing.generation);
+  REQUIRE(decoded->video_anchor_media_pts_ms ==
+          playing.video_anchor_media_pts_ms);
+  REQUIRE(decoded->video_rtp_timestamp == playing.video_rtp_timestamp);
 
-  const auto make_message = [](QJsonObject object) {
-    return QJsonDocument(std::move(object)).toJson(QJsonDocument::Compact);
-  };
+  auto legacy_object = QJsonDocument::fromJson(encoded).object();
+  auto legacy_payload = legacy_object.value(QStringLiteral("payload")).toObject();
+  legacy_payload.remove(QStringLiteral("videoAnchorMediaPtsMs"));
+  legacy_payload.remove(QStringLiteral("videoRtpTimestamp"));
+  legacy_object.insert(QStringLiteral("payload"), legacy_payload);
+  const auto legacy = decode_playback_state(
+      make_message(legacy_object), QStringLiteral("ABC234"));
+  REQUIRE(legacy.has_value());
+  REQUIRE(!legacy->video_anchor_media_pts_ms.has_value());
+  REQUIRE(!legacy->video_rtp_timestamp.has_value());
+  legacy_payload.insert(QStringLiteral("videoAnchorMediaPtsMs"), 12'480);
+  legacy_object.insert(QStringLiteral("payload"), legacy_payload);
+  REQUIRE(!decode_playback_state(make_message(legacy_object),
+                                 QStringLiteral("ABC234")));
+
   auto object = QJsonDocument::fromJson(encoded).object();
   object.insert(QStringLiteral("version"), 2);
   REQUIRE(!decode_playback_state(make_message(object), QStringLiteral("ABC234")));
@@ -102,14 +122,14 @@ int main() {
 
   const auto nonzero_pts = make_movie_playback_state(
       QStringLiteral("ABC234"), 8, 42'750, 91'000,
-      MoviePlaybackState::playing, 2);
+      MoviePlaybackState::playing, 2, 42'720, 90U);
   REQUIRE(nonzero_pts.has_value());
   REQUIRE(nonzero_pts->state == QStringLiteral("playing"));
   REQUIRE(nonzero_pts->media_pts_ms == 42'750);
   REQUIRE(nonzero_pts->generation == 2);
   const auto paused = make_movie_playback_state(
       QStringLiteral("ABC234"), 9, 44'000, 92'000,
-      MoviePlaybackState::paused, 3);
+      MoviePlaybackState::paused, 3, 44'000, 180U);
   REQUIRE(paused.has_value());
   REQUIRE(paused->state == QStringLiteral("paused"));
   REQUIRE(paused->media_pts_ms == 44'000);
