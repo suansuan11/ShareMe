@@ -63,6 +63,18 @@ void accepts_equivalent_rational_cadence_and_exact_quality_boundaries() {
   REQUIRE(comparison.ssim_pass);
 }
 
+void accepts_equivalent_large_rationals_without_cross_multiplication() {
+  auto expected = contract();
+  expected.cadence = {4'000'000'000'000'000'000ULL,
+                      3'000'000'000'000'000'000ULL};
+  auto observed = sample();
+  observed.cadence = {8'000'000'000'000'000'000ULL,
+                      6'000'000'000'000'000'000ULL};
+  const auto comparison =
+      shareme::core::compare_quality(expected, observed);
+  REQUIRE(comparison.exact_cadence);
+}
+
 void rejects_geometry_metadata_codec_and_extra_drop_changes() {
   auto observed = sample();
   observed.width = 853;
@@ -107,6 +119,7 @@ void enforces_psnr_and_ssim_lower_bounds() {
 
 int main() {
   accepts_equivalent_rational_cadence_and_exact_quality_boundaries();
+  accepts_equivalent_large_rationals_without_cross_multiplication();
   rejects_geometry_metadata_codec_and_extra_drop_changes();
   rejects_invalid_rationals_missing_metrics_and_non_finite_values();
   enforces_psnr_and_ssim_lower_bounds();

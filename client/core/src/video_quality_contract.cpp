@@ -1,6 +1,7 @@
 #include "shareme/core/video_quality_contract.hpp"
 
 #include <cmath>
+#include <numeric>
 
 namespace shareme::core {
 namespace {
@@ -12,9 +13,10 @@ bool valid_rational(const Rational& value) {
 bool equal_rational(const Rational& lhs, const Rational& rhs) {
   if (!valid_rational(lhs) || !valid_rational(rhs))
     return false;
-  using Wide = unsigned __int128;
-  return static_cast<Wide>(lhs.numerator) * rhs.denominator ==
-         static_cast<Wide>(rhs.numerator) * lhs.denominator;
+  const auto lhs_divisor = std::gcd(lhs.numerator, lhs.denominator);
+  const auto rhs_divisor = std::gcd(rhs.numerator, rhs.denominator);
+  return lhs.numerator / lhs_divisor == rhs.numerator / rhs_divisor &&
+         lhs.denominator / lhs_divisor == rhs.denominator / rhs_divisor;
 }
 
 bool finite_at_least(const std::optional<double>& value, double threshold) {
