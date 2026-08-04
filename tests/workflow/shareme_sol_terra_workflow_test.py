@@ -21,9 +21,9 @@ class ShareMeSolTerraWorkflowTest(unittest.TestCase):
         self.assertTrue(TERRA_EXPLORER.is_file(), "Terra explorer configuration is missing")
         self.assertTrue(TERRA_IMPLEMENTER.is_file(), "Terra implementer configuration is missing")
         config = CONFIG.read_text(encoding="utf-8")
+        self.assertNotIn('model = "gpt-5.6-sol"', config)
+        self.assertNotIn('model_reasoning_effort = "medium"', config)
         for required in (
-            'model = "gpt-5.6-sol"',
-            'model_reasoning_effort = "medium"',
             "[agents]",
             "enabled = true",
             "max_concurrent_threads_per_session = 2",

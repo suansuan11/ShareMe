@@ -11,9 +11,9 @@ tests, and verification evidence before relying on it.
   authorization. Root `AGENTS.md`, the ShareMe skill, Sol/Terra role files, and
   the two-child configuration are active for new trusted ShareMe tasks.
 - The active workflow migration is delivered on
-  `codex/shareme-sol-terra-migration`: Sol remains the root model, Terra is
-  the medium-reasoning child route, and one writer remains mandatory for every
-  implementation scope.
+  `codex/shareme-sol-terra-migration`: the Codex client or user configuration
+  selects the root model for new tasks, Terra is the medium-reasoning child
+  route, and one writer remains mandatory for every implementation scope.
 - The deterministic ShareMe workflow stage is delivered on
   `codex/shareme-workflow-simplify` and integrated by that merge. The remote
   branch remains historical backup evidence, not pending work.
@@ -69,9 +69,11 @@ for exact proof and evidence boundaries.
   collision or AudioSendStream race diagnostic.
 - **Verified — signaling/workflow:** Go `-race`, Go vet, workflow 8/8, and the
   repository skill validator passed.
-- **Verified — Sol–Terra routing:** static workflow tests confirm the two-task
+- **Verified — root-model choice and Terra routing:** project configuration
+  does not pin the root model; Codex client/user configuration selects from
+  models available to that session. Static workflow tests confirm the two-task
   cap, independent read-only parallel work, one-writer invariant, and
-  Terra/medium role configuration. A fresh Sol/medium ShareMe task successfully
+  Terra/medium role configuration. A fresh ShareMe task successfully
   dispatched `terra_explorer` at Terra/medium/read-only for a
   `client/rtc/desktop` source analysis without fallback or file changes.
   Codex did not expose an exact deployed model identifier; the configured
