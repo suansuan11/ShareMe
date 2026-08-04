@@ -50,72 +50,92 @@ python3 scripts/run_movie_performance_study.py \
   --duration-seconds 180
 ```
 
-The same command was run with `--video-acceleration auto` for the candidate.
-Each run was one local signaling server, one movie host with independent movie
-audio, and one viewer. The raw JSONL remained in ignored build-output
-directories and is not part of Git.
+The baseline and candidate used separate executable paths and SHA-256
+identities. The baseline command used `<BASELINE_DEMO>` with
+`--video-acceleration software`; the candidate used `<CANDIDATE_DEMO>` with
+`--video-acceleration auto`. Each side ran three sequential times. Each run
+was one local signaling server, one movie host with independent movie audio,
+and one viewer. The raw JSONL remained in ignored build-output directories and
+is not part of Git.
 
 ## Three-run software baseline
 
-The final frozen baseline is the phase-correct post-cleanup software path used
-for the candidate comparison. Each run completed 180 seconds on Darwin with no
-runner failure, decode failure, audio failure, or RTC failure recorded.
+The review-corrected baseline is an independently built instrumented binary
+from the pre-cleanup movie playback path at source `cd3045e` plus measurement-only
+counter log sanitation; its executable
+SHA-256 is
+`7169750fffc0440c6f4ebfd87034356179290dd4a51b44e6aeda425fd153f4d2`.
+All three runs completed 180 seconds on Darwin with 120 process samples per
+role in the 30–150 second measurement window. CPU and RSS below exclude
+warmup and finalization.
 
 | Run | Host average CPU | Viewer average CPU | Host CPU P95 | Viewer CPU P95 | Host RSS P95 | Viewer RSS P95 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 01 | 121.67% | 15.18% | 159.6% | 21.1% | 815,005,696 | 257,753,088 |
-| 02 | 132.77% | 15.38% | 212.8% | 23.1% | 820,772,864 | 263,389,184 |
-| 03 | 167.20% | 16.43% | 359.4% | 29.2% | 986,185,728 | 392,560,640 |
+| 01 | 226.96% | 23.83% | 338.1% | 32.7% | 1,022,148,608 | 379,322,368 |
+| 02 | 152.24% | 19.41% | 189.2% | 25.1% | 934,264,832 | 320,405,504 |
+| 03 | 173.39% | 20.32% | 283.0% | 29.3% | 1,038,811,136 | 430,456,832 |
 
-Observed host media metadata was 3840×2160, 24000/1001, 1/1 pixel aspect,
-limited range, HEVC Main10. The source color-space field was `unknown` on this
-FFmpeg build and was identical in baseline and candidate. The software
-baseline SHA-256 values are:
+Observed host media metadata was 3840×2160, 24000/1001, limited range, HEVC
+Main10. The source color-space field was `unknown` on this FFmpeg build. The
+baseline pixel-aspect counter was 0/1 while the candidate counter was 1/1,
+which is one of the failed exact-metadata checks. The baseline artifact
+SHA-256 values are:
 
 ```text
-run-01.jsonl  ac95d188c0e6612d4e8beccdca469075eda8cb8a593c562c8c8e297859c1c6c0
-run-02.jsonl  d40fb02d237074da57f050d7deb8128dcf4f375b0a3c4665e043ffdfe8cc7b42
-run-03.jsonl  50427da1bf5bb213670fa2aa779130cc5841a12bb66c82297e4d37f29648c7ac
+run-01.jsonl  bab4a0e891e3789638a75acadbd1e1e38c8eb3b43637edf8b6c04c4396021d88
+run-02.jsonl  c24c7bbf62a04ad8b061258f67af126aedb501c025724d5fb2897b150560f0ce
+run-03.jsonl  27365752cb96f19884a6bdc46f5b297b58395372bda49ed6ed2cd8617d39fa6e
 ```
 
-The earlier pre-cleanup forced-software diagnostic was also completed three
-times and established the redundant conversion/copy hot-path hypothesis. It
-is retained as ignored evidence only and is not used as the frozen gate
-baseline because its pre-normalization pixel-aspect counter was invalid.
+The earlier same-binary software/auto comparison is invalidated and is not
+used as evidence. This baseline is the first comparison with distinct
+executable identities and measurement-window-only process statistics.
 
 ## Three-run auto candidate and gates
 
-All three auto runs completed 180 seconds. The current `auto` mode has no
-platform hardware adapter and therefore remains the unchanged quality-
-preserving software path. Candidate SHA-256 values are:
+All three auto runs completed 180 seconds with 120 process samples per role in
+the formal measurement window. The current `auto` mode has no platform
+hardware adapter and therefore remains the unchanged quality-preserving
+software path. Its executable SHA-256 is
+`0ef2bf6aebe8bee6ebdbc835e67eed94aa880a074ba86c560a4370712d6e18b9`.
+The candidate measurement-chain fixes are recorded in local commit `4eecb83`.
+Candidate artifact SHA-256 values are:
 
 ```text
-run-01.jsonl  54f1f4d6257ed5dae19bb5762c377dbc9275db2c38f550abafa69cd308233c2f
-run-02.jsonl  c07fc4de30db46aef99770eb4df05ffb1118c9d68191556478d009415e39706c
-run-03.jsonl  696f9eace4c84557f1a5a175a01d3aa2b1d0cdf469fef879afb6ebb24a4fef9a
+run-01.jsonl  ba6c9fc4ad625f1192fa0d332b606ee729f838a905d2a2363623c744ceb61547
+run-02.jsonl  752837f5be51603a892b29d1424c60d908fa144a85b2d20240c1cdb9433bd4ea
+run-03.jsonl  8b90260803835ac418d296d3ecacdb02d22f1f0b90a6663e649ff317fc46fa59
 ```
+
+| Run | Host average CPU | Viewer average CPU | Host CPU P95 | Viewer CPU P95 | Host RSS P95 | Viewer RSS P95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 01 | 129.20% | 17.68% | 170.3% | 23.0% | 730,152,960 | 256,655,360 |
+| 02 | 177.93% | 21.88% | 355.0% | 32.9% | 1,048,395,776 | 364,347,392 |
+| 03 | 127.13% | 16.86% | 150.3% | 21.1% | 732,856,320 | 250,445,824 |
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | Complete 180-second lifecycle | verified | 3/3 artifacts complete; failure is null |
-| Exact dimensions and metadata | verified | 3840×2160, cadence, aspect, range, codec, profile match |
-| Cadence ≥99% of baseline | verified | counter-based submitted ratio 1.0493; timestamp cadence was not independently sampled |
-| No additional drops/coalescing | verified | aggregate additional count 0; no host coalescing was observed in either phase-correct set |
+| Exact dimensions and metadata | failed | per-run/per-role comparison failed: candidate viewer was 2560×1440 versus baseline 1920×1080 in run 02, and 1920×1080 versus baseline 3840×2160 in run 03; host pixel aspect was 1/1 versus baseline 0/1 |
+| Cadence ≥99% of baseline | failed | minimum per-run/per-role submitted ratio was 85.23% in run 02 viewer; timestamp cadence was not independently sampled |
+| No additional drops/coalescing | failed | run 02 recorded 22 candidate coalesced frames on both host and viewer |
 | PSNR ≥45 dB | failed / missing | no sampled decoded-frame pair was recorded |
 | SSIM ≥0.995 | failed / missing | no sampled decoded-frame pair was recorded |
-| Combined average CPU reduction ≥30% | failed | aggregate reduction 7.47% versus phase-correct software baseline |
-| CPU P95 non-regression | verified | combined candidate P95 change -61.3 percentage points |
-| RSS P95 growth ≤10% | verified | aggregate growth -3.381% |
+| Combined average CPU reduction ≥30% | failed | median-of-three reduction 24.17% versus the independent baseline |
+| CPU P95 non-regression | verified | combined candidate P95 change -119.0 percentage points |
+| RSS P95 growth ≤10% | verified | median-of-three growth -29.59% |
 | Paused CPU reduction ≥70% | failed / missing | dedicated paused probe not executed |
-| One-frame GUI backlog bound | partial | adapter unit test passes; real run counter shows no candidate coalescing, but no display scanout proof |
+| One-frame GUI backlog bound | verified / application-layer | all six role/run summaries reported `max_pending=1`; no display scanout proof |
 | Preview/audio/pause/seek human checks | environment-dependent | no human GUI/audio confirmation was captured in this headless run |
 
 The frozen candidate gate therefore did not pass. No threshold was changed and
-no quality-degrading workaround was introduced. The remaining boundary is the
-missing quality evidence (sampled PSNR/SSIM and human audio/pause/seek
-confirmation), timestamp-level cadence evidence, and an evidenced codec/encode
-boundary if a future hardware adapter is considered. The current data does not
-justify claiming a 30% CPU reduction or claiming reduced physical temperature.
+no quality-degrading workaround was introduced. The review findings are now
+covered by distinct baseline/candidate identities, measurement-window-only
+CPU/RSS, explicit sampling failures, and per-run/per-role comparisons. The
+remaining boundary is the failed geometry/cadence/coalescing evidence plus
+missing PSNR/SSIM, paused-probe, and human audio/pause/seek confirmation. The
+current data does not justify claiming a 30% CPU reduction or claiming reduced
+physical temperature.
 
 ## Verification boundary
 

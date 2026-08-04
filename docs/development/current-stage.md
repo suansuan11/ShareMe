@@ -71,12 +71,16 @@ measurement and conversion-cleanup slice is complete with outcome
   executed on macOS with the supplied movie under the phase-correct scenario;
 - direct FFmpeg-to-I420 frames and the bounded planar-YUV Qt preview adapter are
   implemented and covered by focused tests; and
-- the candidate did not pass the frozen gate: submitted-counter cadence was
-  104.93%, combined CPU reduction was 7.47% against the phase-correct
-  post-cleanup software baseline, CPU P95 improved by 61.3 percentage points,
-  RSS P95 changed by -3.381%, and PSNR/SSIM plus the paused probe were not
-  recorded. No hardware adapter was added because the evidence did not
-  establish a codec boundary as dominant.
+- the candidate did not pass the frozen gate: the worst per-run/per-role
+  submitted-counter cadence was 85.23%, combined CPU reduction was 24.17%
+  against an independently built pre-cleanup baseline, CPU P95 improved by
+  119.0 percentage points, RSS P95 changed by -29.59%, and exact dimensions,
+  metadata, and no-additional-coalescing checks also failed. PSNR/SSIM plus the
+  paused probe were not recorded. No hardware adapter was added because the
+  evidence did not establish a codec boundary as dominant.
+- the earlier 7.47% same-binary software/auto result is invalidated; the
+  corrected evidence uses distinct baseline/candidate executable identities and
+  measurement-window-only CPU/RSS samples for every run and role.
 - final macOS regression verification passed CTest 49/49, including the MSVC
   portability regression contract, 20 repeated
   `signaled_peer` lifecycles, Go race/vet, workflow 8/8, the skill validator,
@@ -90,7 +94,7 @@ resolved.
 
 ## Verification status
 
-- **Verified — macOS movie-call:** full build and CTest passed 48/48; the
+- **Verified — macOS movie-call:** full build and CTest passed 49/49; the
   dedicated peer lifecycle test also passed 20 consecutive runs.
 - **Verified — macOS live signaling:** five consecutive microphone/movie/audio
   smoke calls passed with stereo 48 kHz delivery and no captured codec
