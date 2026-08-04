@@ -427,6 +427,12 @@ if(TARGET ShareMe::Playback)
   )
   shareme_set_project_warnings(shareme_video_preview_adapter_test)
   add_test(NAME video_preview_adapter COMMAND shareme_video_preview_adapter_test)
+  set_tests_properties(
+    video_preview_adapter
+    PROPERTIES
+      TIMEOUT 10
+      ENVIRONMENT_MODIFICATION "QT_QPA_PLATFORM=set:offscreen"
+  )
 
   add_executable(shareme_movie_timeline_test movie_timeline_test.cpp)
   target_link_libraries(

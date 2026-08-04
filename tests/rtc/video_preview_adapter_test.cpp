@@ -49,9 +49,18 @@ void submits_planar_frame_and_keeps_one_in_flight(QGuiApplication& app) {
   REQUIRE(adapter.counters().submissions == 1);
   REQUIRE(adapter.counters().coalesced == 1);
   REQUIRE(sink.videoFrame().isValid());
-  REQUIRE(sink.videoFrame().startTime() == 90);
+  REQUIRE(sink.videoFrame().startTime() == 42);
   REQUIRE(sink.videoFrame().pixelFormat() ==
           QVideoFrameFormat::Format_YUV420P);
+}
+
+void rejects_without_sink(QGuiApplication& app) {
+  Q_UNUSED(app);
+  QVideoSink sink;
+  shareme::tools::VideoPreviewAdapter adapter(&sink);
+  const auto result = adapter.submit(frame());
+  REQUIRE(!result.submitted);
+  REQUIRE(result.path == shareme::tools::PreviewPath::no_sink);
 }
 
 }  // namespace
@@ -59,5 +68,6 @@ void submits_planar_frame_and_keeps_one_in_flight(QGuiApplication& app) {
 int main(int argc, char** argv) {
   QGuiApplication app(argc, argv);
   submits_planar_frame_and_keeps_one_in_flight(app);
+  rejects_without_sink(app);
   return EXIT_SUCCESS;
 }

@@ -14,7 +14,13 @@ class QVideoSink;
 
 namespace shareme::tools {
 
-enum class PreviewPath { planar_yuv, argb_fallback, coalesced, rejected };
+enum class PreviewPath {
+  planar_yuv,
+  argb_fallback,
+  coalesced,
+  no_sink,
+  rejected,
+};
 
 struct VideoPreviewResult {
   bool submitted{false};

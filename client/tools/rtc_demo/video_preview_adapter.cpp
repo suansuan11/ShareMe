@@ -129,8 +129,10 @@ void VideoPreviewAdapter::set_submitted_callback(
 
 VideoPreviewResult VideoPreviewAdapter::submit(const webrtc::VideoFrame& source) {
   VideoPreviewResult result{.rtp_timestamp = source.rtp_timestamp()};
-  if (state_->sink.isNull() || state_->queue_target.isNull())
+  if (state_->sink.isNull() || state_->queue_target.isNull()) {
+    result.path = PreviewPath::no_sink;
     return result;
+  }
   if (state_->pending.exchange(true, std::memory_order_acq_rel)) {
     state_->coalesced.fetch_add(1, std::memory_order_relaxed);
     result.path = PreviewPath::coalesced;
@@ -152,13 +154,15 @@ VideoPreviewResult VideoPreviewAdapter::submit(const webrtc::VideoFrame& source)
   result.submitted = true;
   result.path = prepared.path;
   const auto timestamp = result.rtp_timestamp;
+  const auto start_time_us = source.timestamp_us();
   const auto state = state_;
   if (!QMetaObject::invokeMethod(
           state->queue_target,
-          [state, queued_frame = std::move(prepared.frame), timestamp]() mutable {
+          [state, queued_frame = std::move(prepared.frame), timestamp,
+           start_time_us]() mutable {
             if (!state->sink.isNull()) {
               auto submitted = std::move(queued_frame);
-              submitted.setStartTime(static_cast<qint64>(timestamp));
+              submitted.setStartTime(start_time_us);
               state->sink->setVideoFrame(std::move(submitted));
               state->submissions.fetch_add(1, std::memory_order_relaxed);
               if (state->submitted_callback)
