@@ -146,6 +146,10 @@ def build_demo_environment(
     return environment
 
 
+def viewer_is_alive(process: Any) -> bool:
+    return process.poll() is None
+
+
 def result_is_complete(output: str) -> bool:
     return any(line.strip().startswith(COMPLETE_RESULT) for line in output.splitlines())
 
@@ -351,6 +355,8 @@ def run_one(
         result_lines: list[str] = []
         deadline = time.monotonic() + timeout_seconds
         while True:
+            if not viewer_is_alive(viewer):
+                raise DriftStudyError("viewer-exited-before-result")
             event = _wait_for_event(host_reader, deadline - time.monotonic())
             if event is None:
                 raise DriftStudyError("host-exited-without-result")

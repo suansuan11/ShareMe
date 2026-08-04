@@ -183,6 +183,20 @@ if(TARGET ShareMe::QtSignaling)
   )
   shareme_set_project_warnings(shareme_drift_metrics_jsonl_test)
   add_test(NAME drift_metrics_jsonl COMMAND shareme_drift_metrics_jsonl_test)
+
+  add_executable(
+    shareme_drift_failure_test
+    drift_failure_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/drift_failure.cpp"
+  )
+  target_include_directories(
+    shareme_drift_failure_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_drift_failure_test PRIVATE cxx_std_20)
+  target_link_libraries(shareme_drift_failure_test PRIVATE Qt6::Core)
+  shareme_set_project_warnings(shareme_drift_failure_test)
+  add_test(NAME drift_failure COMMAND shareme_drift_failure_test)
 endif()
 
 if(WIN32)

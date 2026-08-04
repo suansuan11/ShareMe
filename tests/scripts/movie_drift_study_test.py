@@ -123,6 +123,17 @@ class MovieDriftStudyTest(unittest.TestCase):
         offscreen = self.runner.build_demo_environment({}, "offscreen")
         self.assertEqual(offscreen["QT_QPA_PLATFORM"], "offscreen")
 
+    def test_runner_detects_viewer_exit_before_host_result(self):
+        class Process:
+            def __init__(self, code):
+                self.code = code
+
+            def poll(self):
+                return self.code
+
+        self.assertTrue(self.runner.viewer_is_alive(Process(None)))
+        self.assertFalse(self.runner.viewer_is_alive(Process(1)))
+
 
 if __name__ == "__main__":
     unittest.main()

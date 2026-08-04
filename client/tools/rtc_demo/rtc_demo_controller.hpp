@@ -2,6 +2,7 @@
 
 #include "qt_signaling_client.hpp"
 #include "drift_metrics_jsonl.hpp"
+#include "drift_failure.hpp"
 #include "playback_state.hpp"
 #include "playout_report.hpp"
 #include "shareme/core/drift_metrics.hpp"
@@ -111,6 +112,7 @@ private:
   void stopDriftMetrics() noexcept;
   void runDriftScenario();
   void failDriftScenario(const QString& category);
+  void recordDriftError(std::string category, bool notify_viewer = true);
 
   QUrl server_url_;
   shareme::rtc::SignaledRole role_;
