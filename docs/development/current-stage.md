@@ -60,9 +60,36 @@ See [Movie Audio Isolation Verification](../verification/movie-audio-isolation.m
 and [Receiver Playout Reports Verification](../verification/receiver-playout-reports.md)
 for exact proof and evidence boundaries.
 
+### Current performance-stage handoff
+
+On `codex/movie-playback-performance`, the quality-preserving performance
+measurement and conversion-cleanup slice is complete with outcome
+`blocked-on-quality-preserving-boundary`:
+
+- the runner, sanitized JSONL counters, artifact aggregator, three-run 180-second
+  software baseline, and three-run `auto` candidate are implemented and were
+  executed on macOS with the supplied movie under the phase-correct scenario;
+- direct FFmpeg-to-I420 frames and the bounded planar-YUV Qt preview adapter are
+  implemented and covered by focused tests; and
+- the candidate did not pass the frozen gate: submitted-counter cadence was
+  104.93%, combined CPU reduction was 7.47% against the phase-correct
+  post-cleanup software baseline, CPU P95 improved by 61.3 percentage points,
+  RSS P95 changed by -3.381%, and PSNR/SSIM plus the paused probe were not
+  recorded. No hardware adapter was added because the evidence did not
+  establish a codec boundary as dominant.
+- final macOS regression verification passed CTest 48/48, 20 repeated
+  `signaled_peer` lifecycles, Go race/vet, workflow 8/8, the skill validator,
+  and `git diff --check`; Windows and human visual/audio/thermal evidence remain
+  environment-dependent or unperformed.
+
+See [Movie Playback Performance Verification](../verification/movie-playback-performance.md).
+The branch must not merge to `main` or resume drift/hard-resync work until the
+remaining quality evidence and a quality-preserving performance boundary are
+resolved.
+
 ## Verification status
 
-- **Verified — macOS movie-call:** full build and CTest passed 40/40; the
+- **Verified — macOS movie-call:** full build and CTest passed 48/48; the
   dedicated peer lifecycle test also passed 20 consecutive runs.
 - **Verified — macOS live signaling:** five consecutive microphone/movie/audio
   smoke calls passed with stereo 48 kHz delivery and no captured codec
@@ -104,19 +131,23 @@ for exact proof and evidence boundaries.
   exposes sink/encode/send/receive counters; the post-fix native diagnostic
   recorded sink submissions but no report encode attempt. See
   [Movie Drift Study Verification](../verification/movie-drift-study.md).
+- **Partial — movie playback performance:** measurement tooling, three-run
+  software/auto lifecycle evidence, direct-I420 conversion cleanup, planar
+  preview tests, and the final macOS regression suite are verified. The frozen
+  performance/quality gate is failed as documented; Windows, PSNR/SSIM, paused
+  probe, human GUI/audio acceptance, display scanout, and physical thermal
+  evidence remain unverified.
 - **Unimplemented:** correction application, bounded hard resync, TURN/public
-  network acceptance, process-loopback audio, measured performance, and all
-  hard-resync tasks blocked by the failed drift gate.
+  network acceptance, process-loopback audio, platform hardware video
+  adapters, and all hard-resync tasks blocked by the failed drift gate.
 
 ## Next recommended stage
 
-Movie playback performance and user-observed severe heat are now the highest
-priority. Execute the measurement-first quality-preserving performance plan in
-[Movie Playback Performance Priority](../superpowers/plans/2026-08-04-movie-playback-performance-priority.md).
-Pause viewer reportability repair and the three-run drift study until this
-performance stage finishes. Keep automatic hard-resync unimplemented until all
-frozen drift gates eventually pass; do not inject artificial offsets or change
-existing correction thresholds.
+The next stage should add the missing sampled PSNR/SSIM/timestamp evidence and
+paused-probe measurement, then use profiling to choose the next
+quality-preserving codec/copy boundary. Do not lower quality, tune thresholds,
+add an unmeasured hardware adapter, resume viewer reportability repair, or
+start hard-resync until the frozen performance gate is genuinely satisfied.
 
 ## Git handoff
 
