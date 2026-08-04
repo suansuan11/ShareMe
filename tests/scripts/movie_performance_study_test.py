@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,6 +100,57 @@ class MoviePerformanceStudyTest(unittest.TestCase):
             Path("/bin/demo"), "ws://127.0.0.1:18080/v1/ws", "ABC234"
         )
         self.assertEqual(viewer[-2:], ["--source", "test"])
+        self.assertEqual(self.runner.scenario_phase(0), "warmup")
+        self.assertEqual(self.runner.scenario_phase(30), "measurement")
+        self.assertEqual(self.runner.scenario_phase(149), "measurement")
+        self.assertEqual(self.runner.scenario_phase(150), "finalization")
+
+    def test_aggregator_keeps_hashes_and_fails_missing_quality_metrics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def write_artifact(path, cpu, mode):
+                records = [
+                    {"kind": "run", "version": 1, "mode": mode},
+                    {"kind": "counter", "role": "host", "decoded": 100,
+                     "received": 100, "submitted": 100, "coalesced": 0,
+                     "dropped": 0, "conversion_failures": 0, "fallback_copies": 0,
+                     "width": 3840, "height": 2160, "cadence_num": 24000,
+                     "cadence_den": 1001, "pixel_aspect_num": 1,
+                     "pixel_aspect_den": 1, "color_range": "limited",
+                     "color_space": "unknown", "codec": "hevc",
+                     "profile": "Main10", "path": mode},
+                    {"kind": "counter", "role": "viewer", "submitted": 100,
+                     "coalesced": 0, "dropped": 0, "conversion_failures": 0,
+                     "fallback_copies": 0},
+                    {"kind": "process", "role": "host", "cpu_percent": cpu,
+                     "rss_bytes": 100},
+                    {"kind": "process", "role": "viewer", "cpu_percent": 10,
+                     "rss_bytes": 100},
+                    {"kind": "summary", "complete": True, "failure": None,
+                     "counter_count": 2, "platform": "darwin"},
+                ]
+                path.write_text("\n".join(json.dumps(r) for r in records) + "\n",
+                                encoding="utf-8")
+
+            baseline = []
+            candidate = []
+            for index in range(3):
+                baseline_path = root / f"baseline-{index}.jsonl"
+                candidate_path = root / f"candidate-{index}.jsonl"
+                write_artifact(baseline_path, 100, "software")
+                write_artifact(candidate_path, 60, "auto")
+                baseline.append(baseline_path)
+                candidate.append(candidate_path)
+            report = self.runner.aggregate_performance_runs(baseline, candidate)
+            self.assertEqual(len(report["baselineRuns"]), 3)
+            self.assertEqual(len(report["candidateRuns"]), 3)
+            self.assertTrue(report["exact_dimensions"])
+            self.assertTrue(report["exact_metadata"])
+            self.assertEqual(report["additional_drops"], 0)
+            self.assertIsNone(report["psnr_db"])
+            self.assertFalse(report["gatePassed"])
+            self.assertRegex(report["baselineRuns"][0]["sha256"], r"^[0-9a-f]{64}$")
 
 
 if __name__ == "__main__":

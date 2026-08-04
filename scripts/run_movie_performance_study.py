@@ -17,6 +17,7 @@ import os
 import queue
 import re
 import subprocess
+import statistics
 import sys
 import threading
 import time
@@ -163,6 +164,164 @@ def is_complete_artifact(path: Path) -> bool:
         return False
 
 
+def _nearest_rank(values: list[float], percentile: int) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = max(1, (len(ordered) * percentile + 99) // 100)
+    return ordered[min(rank, len(ordered)) - 1]
+
+
+def summarize_performance_artifact(path: Path) -> dict:
+    try:
+        records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError("invalid-performance-artifact") from error
+    summaries = [record for record in records if record.get("kind") == "summary"]
+    if not summaries or summaries[-1].get("complete") is not True:
+        raise ValueError("incomplete-performance-artifact")
+    result = {
+        "artifact": path.name,
+        "sha256": _sha256_file(path),
+        "complete": True,
+        "failure": summaries[-1].get("failure"),
+        "platform": summaries[-1].get("platform", "unknown"),
+        "counterCount": int(summaries[-1].get("counter_count", 0)),
+        "roles": {},
+    }
+    for role in ("host", "viewer"):
+        counters = [record for record in records
+                    if record.get("kind") == "counter" and record.get("role") == role]
+        processes = [record for record in records
+                     if record.get("kind") == "process" and record.get("role") == role]
+        cpu = [float(record["cpu_percent"]) for record in processes]
+        rss = [float(record["rss_bytes"]) for record in processes]
+        last = counters[-1] if counters else {}
+        result["roles"][role] = {
+            "counterSamples": len(counters),
+            "decoded": int(last.get("decoded", 0)),
+            "received": int(last.get("received", 0)),
+            "submitted": int(last.get("submitted", 0)),
+            "coalesced": int(last.get("coalesced", 0)),
+            "dropped": int(last.get("dropped", 0)),
+            "conversionFailures": int(last.get("conversion_failures", 0)),
+            "fallbackCopies": int(last.get("fallback_copies", 0)),
+            "width": int(last.get("width", 0)),
+            "height": int(last.get("height", 0)),
+            "cadenceNum": int(last.get("cadence_num", 0)),
+            "cadenceDen": int(last.get("cadence_den", 0)),
+            "pixelAspectNum": int(last.get("pixel_aspect_num", 0)),
+            "pixelAspectDen": int(last.get("pixel_aspect_den", 0)),
+            "colorRange": last.get("color_range", "unknown"),
+            "colorSpace": last.get("color_space", "unknown"),
+            "codec": last.get("codec", "unknown"),
+            "profile": last.get("profile", "unknown"),
+            "path": last.get("path", "unknown"),
+            "cpuAverage": sum(cpu) / len(cpu) if cpu else 0.0,
+            "cpuP95": _nearest_rank(cpu, 95),
+            "rssP95": _nearest_rank(rss, 95),
+        }
+    result["combinedAverageCpu"] = sum(
+        result["roles"][role]["cpuAverage"] for role in ("host", "viewer")
+    )
+    result["combinedCpuP95"] = sum(
+        result["roles"][role]["cpuP95"] for role in ("host", "viewer")
+    )
+    result["combinedRssP95"] = sum(
+        result["roles"][role]["rssP95"] for role in ("host", "viewer")
+    )
+    return result
+
+
+def _sha256_file(path: Path) -> str:
+    import hashlib
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def aggregate_performance_runs(
+    baseline_paths: list[Path], candidate_paths: list[Path]
+) -> dict:
+    baseline = [summarize_performance_artifact(path) for path in baseline_paths]
+    candidate = [summarize_performance_artifact(path) for path in candidate_paths]
+    if len(baseline) != REQUIRED_RUNS or len(candidate) != REQUIRED_RUNS:
+        raise ValueError("performance comparison requires three runs per side")
+    baseline_median_cpu = statistics.median(
+        run["combinedAverageCpu"] for run in baseline
+    )
+    candidate_median_cpu = statistics.median(
+        run["combinedAverageCpu"] for run in candidate
+    )
+    baseline_median_p95 = statistics.median(
+        run["combinedCpuP95"] for run in baseline
+    )
+    candidate_median_p95 = statistics.median(
+        run["combinedCpuP95"] for run in candidate
+    )
+    baseline_median_rss = statistics.median(
+        run["combinedRssP95"] for run in baseline
+    )
+    candidate_median_rss = statistics.median(
+        run["combinedRssP95"] for run in candidate
+    )
+    baseline_host = baseline[1]["roles"]["host"]
+    candidate_host = candidate[1]["roles"]["host"]
+    exact_dimensions = (
+        candidate_host["width"] == baseline_host["width"]
+        and candidate_host["height"] == baseline_host["height"]
+    )
+    exact_metadata = all(
+        candidate_host[key] == baseline_host[key]
+        for key in (
+            "cadenceNum", "cadenceDen", "pixelAspectNum", "pixelAspectDen",
+            "colorRange", "colorSpace", "codec", "profile",
+        )
+    )
+    baseline_submitted = sum(
+        run["roles"]["host"]["submitted"] for run in baseline
+    )
+    candidate_submitted = sum(
+        run["roles"]["host"]["submitted"] for run in candidate
+    )
+    baseline_drops = sum(
+        run["roles"]["host"]["dropped"] + run["roles"]["host"]["coalesced"]
+        for run in baseline
+    )
+    candidate_drops = sum(
+        run["roles"]["host"]["dropped"] + run["roles"]["host"]["coalesced"]
+        for run in candidate
+    )
+    report = {
+        "baselineRuns": baseline,
+        "candidateRuns": candidate,
+        "exact_dimensions": exact_dimensions,
+        "exact_metadata": exact_metadata,
+        "cadence_ratio": candidate_submitted / baseline_submitted
+        if baseline_submitted else 0.0,
+        "additional_drops": max(0, candidate_drops - baseline_drops),
+        "combined_average_cpu_reduction": (
+            1.0 - candidate_median_cpu / baseline_median_cpu
+            if baseline_median_cpu else 0.0
+        ),
+        "candidate_cpu_p95_regression": candidate_median_p95 - baseline_median_p95,
+        "rss_p95_growth": (
+            candidate_median_rss / baseline_median_rss - 1.0
+            if baseline_median_rss else 1.0
+        ),
+        "psnr_db": None,
+        "ssim": None,
+        "paused_cpu_reduction": None,
+        "one_frame_backlog_bound": all(
+            run["roles"]["host"]["coalesced"] <= 1 for run in candidate
+        ),
+    }
+    report["gatePassed"] = gates_pass(report)
+    return report
+
+
 def synthetic_passing_report() -> dict:
     return {
         "exact_dimensions": True,
@@ -180,17 +339,21 @@ def synthetic_passing_report() -> dict:
 
 
 def gates_pass(report: dict) -> bool:
+    psnr = report.get("psnr_db")
+    ssim = report.get("ssim")
+    paused_reduction = report.get("paused_cpu_reduction")
     return (
         report.get("exact_dimensions") is True
         and report.get("exact_metadata") is True
         and report.get("cadence_ratio", 0) >= 0.99
         and report.get("additional_drops", 1) <= 0
-        and report.get("psnr_db", 0) >= 45.0
-        and report.get("ssim", 0) >= 0.995
+        and isinstance(psnr, (int, float)) and math.isfinite(psnr) and psnr >= 45.0
+        and isinstance(ssim, (int, float)) and math.isfinite(ssim) and ssim >= 0.995
         and report.get("combined_average_cpu_reduction", 0) >= 0.30
         and report.get("candidate_cpu_p95_regression", 1) <= 0
         and report.get("rss_p95_growth", 1) <= 0.10
-        and report.get("paused_cpu_reduction", 0) >= 0.70
+        and isinstance(paused_reduction, (int, float))
+        and math.isfinite(paused_reduction) and paused_reduction >= 0.70
         and report.get("one_frame_backlog_bound") is True
     )
 
@@ -216,6 +379,14 @@ class OutputReader:
                 self.events.put(line)
         finally:
             self.events.put(None)
+
+
+def scenario_phase(elapsed_seconds: int) -> str:
+    if elapsed_seconds < 30:
+        return "warmup"
+    if elapsed_seconds < 150:
+        return "measurement"
+    return "finalization"
 
 
 def _start_demo(command: list[str], environment: dict[str, str]):
@@ -261,7 +432,7 @@ def _drain_counter_events(
         if parsed is not None:
             _write_jsonl_line(output, {
                 "kind": "counter", "elapsed_seconds": elapsed_seconds,
-                "role": role, **parsed,
+                "phase": scenario_phase(elapsed_seconds), "role": role, **parsed,
             })
             count += 1
 
@@ -301,7 +472,6 @@ def run_real_session(
     host_reader = viewer_reader = None
     counter_count = 0
     failure = None
-    started = time.monotonic()
     with output_path.open("x", encoding="utf-8") as output:
         _write_jsonl_line(output, {
             "kind": "run", "version": 1, "mode": video_acceleration,
@@ -315,15 +485,16 @@ def run_real_session(
             viewer, viewer_reader = _start_demo(
                 build_viewer_command(demo, server_url, room), env
             )
-            deadline = started + duration_seconds
-            next_metrics = started
+            scenario_started = time.monotonic()
+            deadline = scenario_started + duration_seconds
+            next_metrics = scenario_started
             while time.monotonic() < deadline:
                 if viewer.poll() is not None:
                     raise PerformanceStudyError("viewer-exited-during-measurement")
                 if host.poll() is not None:
                     raise PerformanceStudyError("host-exited-during-measurement")
                 now = time.monotonic()
-                elapsed = int(now - started)
+                elapsed = int(now - scenario_started)
                 counter_count += _drain_counter_events(
                     host_reader, "host", elapsed, output
                 )
@@ -335,7 +506,8 @@ def run_real_session(
                         cpu, rss = _read_process_metrics(process)
                         _write_jsonl_line(output, {
                             "kind": "process", "elapsed_seconds": elapsed,
-                            "role": role, "cpu_percent": cpu, "rss_bytes": rss,
+                            "phase": scenario_phase(elapsed), "role": role,
+                            "cpu_percent": cpu, "rss_bytes": rss,
                         })
                     next_metrics += 1
                 time.sleep(0.05)
@@ -357,6 +529,8 @@ def run_real_session(
                 "kind": "summary", "complete": failure is None,
                 "failure": failure, "counter_count": counter_count,
                 "platform": sys.platform,
+                "scenario_seconds": duration_seconds,
+                "phase_boundaries_seconds": [30, 150],
             })
     if failure is not None:
         raise PerformanceStudyError(f"{failure}; partial-artifact={output_path.name}")
