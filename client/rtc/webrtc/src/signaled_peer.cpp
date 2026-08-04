@@ -14,6 +14,7 @@
 #include "api/media_stream_interface.h"
 #include "api/peer_connection_interface.h"
 #include "api/ref_counted_base.h"
+#include "api/rtp_parameters.h"
 #include "api/rtp_receiver_interface.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtc_stats_report.h"
@@ -433,11 +434,26 @@ private:
     audio_track_ = runtime_->factory()->CreateAudioTrack(
         role_ == SignaledRole::host ? "host-voice" : "viewer-voice",
         audio_source_.get());
-    if (!video_track_ || !audio_track_ ||
-        !peer_->AddTrack(video_track_, {"shareme-test"}).ok() ||
-        !peer_->AddTrack(audio_track_, {"shareme-test"}).ok()) {
+    if (!video_track_ || !audio_track_) {
       fail("adding test tracks failed");
       return false;
+    }
+    auto video_sender = peer_->AddTrack(video_track_, {"shareme-test"});
+    auto audio_sender = peer_->AddTrack(audio_track_, {"shareme-test"});
+    if (!video_sender.ok() || !audio_sender.ok()) {
+      fail("adding test tracks failed");
+      return false;
+    }
+    if (config_.preserve_video_quality) {
+      auto parameters = video_sender.value()->GetParameters();
+      parameters.degradation_preference =
+          webrtc::DegradationPreference::MAINTAIN_FRAMERATE_AND_RESOLUTION;
+      const auto error = video_sender.value()->SetParameters(parameters);
+      if (!error.ok()) {
+        fail("preserving video quality failed: " +
+             std::string(error.message()));
+        return false;
+      }
     }
     if (role_ == SignaledRole::host) {
       webrtc::DataChannelInit init;

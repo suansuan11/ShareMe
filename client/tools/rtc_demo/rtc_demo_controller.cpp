@@ -360,6 +360,7 @@ bool RtcDemoController::createPeer() {
         shareme::rtc::MovieVideoSource::create(movie_path_, movie_timeline_,
                                                acceleration);
     config.video_mode = shareme::rtc::SignaledVideoMode::injected;
+    config.preserve_video_quality = true;
     config.video_source_factory = [source = movie_video_source_](
                                       webrtc::TaskQueueFactory &)
         -> webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> {

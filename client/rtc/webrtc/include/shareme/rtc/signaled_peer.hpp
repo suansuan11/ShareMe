@@ -37,6 +37,7 @@ struct SignaledPeerConfig {
   RemoteVideoFrameCallback local_video_frame;
   RemoteVideoFrameCallback remote_video_frame;
   ControlMessageCallback control_message;
+  bool preserve_video_quality{false};
 };
 
 struct SignaledAudioPolicy {

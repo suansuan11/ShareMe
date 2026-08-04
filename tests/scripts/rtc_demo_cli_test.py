@@ -12,6 +12,7 @@ class RtcDemoCliTest(unittest.TestCase):
     demo = Path()
     qml = Path()
     controller_source = Path()
+    peer_source = Path()
     movie_supported = False
 
     def run_demo(self, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -211,6 +212,13 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("performance_frame_width_.store", source)
         self.assertIn("performance_frame_height_.store", source)
 
+    def test_movie_sender_preserves_resolution_and_framerate(self):
+        controller = self.controller_source.read_text(encoding="utf-8")
+        peer = self.peer_source.read_text(encoding="utf-8")
+        self.assertIn("preserve_video_quality", controller)
+        self.assertIn("MAINTAIN_FRAMERATE_AND_RESOLUTION", peer)
+        self.assertIn("SetParameters", peer)
+
     def test_controller_reports_rendered_playout_by_generation(self):
         source = self.controller_source.read_text(encoding="utf-8")
         qml = self.qml.read_text(encoding="utf-8")
@@ -230,11 +238,13 @@ def main() -> int:
     parser.add_argument("--demo", type=Path, required=True)
     parser.add_argument("--qml", type=Path, required=True)
     parser.add_argument("--controller-source", type=Path, required=True)
+    parser.add_argument("--peer-source", type=Path, required=True)
     parser.add_argument("--movie-supported", action="store_true")
     args, unittest_args = parser.parse_known_args()
     RtcDemoCliTest.demo = args.demo.resolve()
     RtcDemoCliTest.qml = args.qml.resolve()
     RtcDemoCliTest.controller_source = args.controller_source.resolve()
+    RtcDemoCliTest.peer_source = args.peer_source.resolve()
     RtcDemoCliTest.movie_supported = args.movie_supported
     unittest.main(argv=[sys.argv[0], *unittest_args])
     return 0

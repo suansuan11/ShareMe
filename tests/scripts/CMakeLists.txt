@@ -50,6 +50,8 @@ if(TARGET shareme_rtc_demo)
       "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qml/Main.qml"
       --controller-source
       "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/rtc_demo_controller.cpp"
+      --peer-source
+      "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/signaled_peer.cpp"
       ${shareme_rtc_demo_test_arguments}
   )
   set_tests_properties(
