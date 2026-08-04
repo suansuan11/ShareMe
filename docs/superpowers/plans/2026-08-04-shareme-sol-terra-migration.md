@@ -30,7 +30,7 @@
 - Consumes: active project config, named agent files, root instructions, skill package, validator, and stage handoff.
 - Produces: static assertions requiring `shareme-sol-terra`, `terra_explorer`, `terra_implementer`, and `gpt-5.6-terra`.
 
-- [ ] **Step 1: Rename and rewrite the contract test**
+- [x] **Step 1: Rename and rewrite the contract test**
 
 Rename the test file and class to `ShareMeSolTerraWorkflowTest`. Change its
 active paths, mutation fixtures, model assertions, and required policy tokens:
@@ -54,7 +54,7 @@ Require `at most two independent Terra`, `independent read-only`, and
 `one writer`. Preserve the existing cross-platform and cache guardrail
 assertions.
 
-- [ ] **Step 2: Run the focused RED test**
+- [x] **Step 2: Run the focused RED test**
 
 Run:
 
@@ -64,7 +64,7 @@ python3 -m unittest tests.workflow.shareme_sol_terra_workflow_test -v
 
 Expected: failure because active paths and model strings still reference Luna.
 
-- [ ] **Step 3: Commit the RED contract**
+- [x] **Step 3: Commit the RED contract**
 
 ```sh
 git add tests/workflow/shareme_sol_terra_workflow_test.py
@@ -91,7 +91,7 @@ git commit -m "test: define ShareMe Sol-Terra workflow"
 - Consumes: Task 1's failing Terra contract.
 - Produces: deterministic project configuration and named roles that the Sol runtime can dispatch without a model fallback.
 
-- [ ] **Step 1: Create the required reversible backup**
+- [x] **Step 1: Create the required reversible backup**
 
 ```sh
 backup_root="/private/tmp/shareme-sol-terra-config-$(date +%Y%m%d-%H%M%S)"
@@ -102,13 +102,13 @@ cp .codex/agents/luna_implementer.toml "$backup_root/agents/luna_implementer.tom
 print "$backup_root"
 ```
 
-- [ ] **Step 2: Rename active role and skill paths**
+- [x] **Step 2: Rename active role and skill paths**
 
 Use explicit `mv` commands to rename only the two role files and the
 `shareme-sol-luna` skill directory to their Terra names. Do not rename any
 file beneath `docs/superpowers/plans` or `docs/superpowers/specs`.
 
-- [ ] **Step 3: Apply the Terra model and policy changes**
+- [x] **Step 3: Apply the Terra model and policy changes**
 
 Set the project default:
 
@@ -125,7 +125,7 @@ writer restrictions. Change active skill metadata, prompt, validator
 contract terminology to Sol–Terra while retaining the two-independent-read-only
 and one-writer limits.
 
-- [ ] **Step 4: Run GREEN static checks**
+- [x] **Step 4: Run GREEN static checks**
 
 ```sh
 python3 -m unittest tests/workflow/shareme_sol_terra_workflow_test.py -v
@@ -136,7 +136,7 @@ git diff --check
 Expected: all tests pass, validator prints `Skill is valid!`, and the diff
 check prints no output.
 
-- [ ] **Step 5: Commit the migrated active workflow**
+- [x] **Step 5: Commit the migrated active workflow**
 
 ```sh
 git add AGENTS.md .codex .agents/skills/shareme-sol-terra scripts/validate_shareme_skill.py tests/workflow
@@ -156,14 +156,14 @@ git commit -m "feat: migrate ShareMe workflow to Sol-Terra"
 - Consumes: passing static Terra contract and active role configuration.
 - Produces: a dynamic handoff that distinguishes static configuration from a fresh Desktop Sol-to-Terra dispatch result.
 
-- [ ] **Step 1: Update dynamic handoff**
+- [x] **Step 1: Update dynamic handoff**
 
 Replace active Luna workflow references with Sol–Terra. Record that a fresh
 Sol/medium ShareMe session must dispatch `terra_explorer` without fallback.
 Keep historical Luna plans/specifications unmodified and do not claim exact
 runtime model identifiers if Codex does not expose them.
 
-- [ ] **Step 2: Verify the full repository checks**
+- [x] **Step 2: Verify the full repository checks**
 
 ```sh
 python3 -m unittest tests/workflow/shareme_sol_terra_workflow_test.py -v
@@ -175,7 +175,7 @@ ctest --preset test-dev --output-on-failure
 git diff --check
 ```
 
-- [ ] **Step 3: Run a fresh Desktop Sol-to-Terra probe**
+- [x] **Step 3: Run a fresh Desktop Sol-to-Terra probe**
 
 Create a new local ShareMe Codex task with the project's default root model.
 Instruct it to use `terra_explorer` for a read-only
@@ -184,7 +184,7 @@ files, symbols, and call relationships; record the child creation identifier,
 configured Terra model, absence of fallback, and any unobservable exact
 runtime identifiers.
 
-- [ ] **Step 4: Complete the plan and commit the handoff**
+- [x] **Step 4: Complete the plan and commit the handoff**
 
 Mark every completed checkbox. Then run:
 
