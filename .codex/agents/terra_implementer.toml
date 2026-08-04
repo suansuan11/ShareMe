@@ -1,7 +1,8 @@
-name = "luna_implementer"
+name = "terra_implementer"
 description = "Bounded ShareMe implementation worker."
-model = "gpt-5.6-luna"
+model = "gpt-5.6-terra"
 model_reasoning_effort = "medium"
+sandbox_mode = "workspace-write"
 developer_instructions = """
 Implement only the frozen target and allowed files. Run the named tests and
 return the changed files, commands, results, and risks. Do not commit, do not

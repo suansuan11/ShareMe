@@ -8,12 +8,12 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_SKILL_DIR = ROOT / ".agents/skills/shareme-sol-luna"
+DEFAULT_SKILL_DIR = ROOT / ".agents/skills/shareme-sol-terra"
 EXPECTED_INTERFACE = {
-    "display_name": "ShareMe Sol-Luna",
+    "display_name": "ShareMe Sol-Terra",
     "short_description": "Run staged, evidence-led ShareMe development",
     "default_prompt": (
-        "Use $shareme-sol-luna to continue ShareMe through the next verified stage."
+        "Use $shareme-sol-terra to continue ShareMe through the next verified stage."
     ),
 }
 
@@ -51,8 +51,8 @@ def validate_frontmatter(skill_file):
         raise ValueError("SKILL.md frontmatter must contain only name and description")
 
     name = fields["name"]
-    if name != "shareme-sol-luna":
-        raise ValueError("SKILL.md name must be shareme-sol-luna")
+    if name != "shareme-sol-terra":
+        raise ValueError("SKILL.md name must be shareme-sol-terra")
     if len(name) > 64 or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
         raise ValueError("SKILL.md name must be valid hyphen-case")
 

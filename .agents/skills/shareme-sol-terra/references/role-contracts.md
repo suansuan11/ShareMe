@@ -1,17 +1,17 @@
-# ShareMe Sol-Luna Roles
+# ShareMe Sol-Terra Roles
 
 Sol owns requirements, risk, integration, verification, Git, and the final
-claim. Sol works directly by default. Use at most two independent Luna agents
+claim. Sol works directly by default. Use at most two independent Terra agents
 for bounded work; delegation is not a credit-saving claim. Parallel tasks are
 limited to independent read-only exploration, testing, or log analysis and
 cannot depend on uncommitted writes.
 
 The project configuration defines these roles:
 
-- **luna_explorer:** read-only evidence gathering. It returns relevant paths,
+- **terra_explorer:** read-only evidence gathering. It returns relevant paths,
   symbols, commands, and findings; it does not edit, commit, change
   dependencies, or redesign the request.
-- **luna_implementer:** one writer for a frozen implementation scope. It edits
+- **terra_implementer:** one writer for a frozen implementation scope. It edits
   only allowed files, runs named tests, and reports results; it does not commit,
   expand scope, clean unrelated files, or alter caches.
 
@@ -36,6 +36,6 @@ risks, and open issues. Sol verifies it against Git and current evidence.
 
 ## Cost evidence
 
-Configured Luna routing is deterministic for new trusted ShareMe sessions, but
+Configured Terra routing is deterministic for new trusted ShareMe sessions, but
 realized credit saving is **Unmeasured** without comparable per-agent telemetry.
 Do not infer savings from model selection, and do not create duplicate workers.

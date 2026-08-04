@@ -1,0 +1,4 @@
+interface:
+  display_name: "ShareMe Sol-Terra"
+  short_description: "Run staged, evidence-led ShareMe development"
+  default_prompt: "Use $shareme-sol-terra to continue ShareMe through the next verified stage."

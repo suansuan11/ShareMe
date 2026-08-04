@@ -1,4 +1,0 @@
-interface:
-  display_name: "ShareMe Sol-Luna"
-  short_description: "Run staged, evidence-led ShareMe development"
-  default_prompt: "Use $shareme-sol-luna to continue ShareMe through the next verified stage."

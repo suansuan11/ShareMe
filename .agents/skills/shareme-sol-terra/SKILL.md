@@ -1,9 +1,9 @@
 ---
-name: shareme-sol-luna
+name: shareme-sol-terra
 description: Use when working in the ShareMe repository on implementation, diagnosis, review, testing, planning, release, risky cleanup, or continuation requests such as “继续开发”
 ---
 
-# ShareMe Sol-Luna
+# ShareMe Sol-Terra
 
 ## Direct-first workflow
 
@@ -12,7 +12,7 @@ description: Use when working in the ShareMe repository on implementation, diagn
    about architecture, platform, media, Git, cache, or verification.
 2. Define one verifiable stage with acceptance evidence. Preserve unrelated
    worktrees and user changes.
-3. Sol works directly by default. Use at most two independent Luna agents only
+3. Sol works directly by default. Use at most two independent Terra agents only
    for bounded work that materially improves focus or elapsed time. Parallel
    work must be independent read-only exploration, testing, or log analysis;
    read [role-contracts.md](references/role-contracts.md) before dispatching.
