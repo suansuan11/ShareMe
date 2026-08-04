@@ -9,11 +9,13 @@
 #include <QIODevice>
 #include <QMediaDevices>
 #include <QVideoFrame>
+#include <QVideoFrameFormat>
 #include <QVideoSink>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <filesystem>
 #include <memory>
@@ -304,13 +306,38 @@ void PlaybackController::presentDueVideo() {
   }
 
   const auto& frame = *pending_video_;
-  const QImage borrowed_image{
-      reinterpret_cast<const uchar*>(frame.rgba.data()),
-      frame.width,
-      frame.height,
-      frame.stride,
-      QImage::Format_RGBA8888};
-  QVideoFrame video_frame{borrowed_image.copy()};
+  QVideoFrame video_frame;
+  if (frame.pixel_format == shareme::media::VideoPixelFormat::i420) {
+    video_frame = QVideoFrame{QVideoFrameFormat{
+        QSize(frame.width, frame.height), QVideoFrameFormat::Format_YUV420P}};
+    if (!video_frame.map(QVideoFrame::WriteOnly)) {
+      setError(QStringLiteral("Could not map decoded video frame."));
+      pending_video_.reset();
+      return;
+    }
+    const auto chroma_width = (frame.width + 1) / 2;
+    const auto chroma_height = (frame.height + 1) / 2;
+    const std::byte* planes[] = {
+        frame.i420_y.data(), frame.i420_u.data(), frame.i420_v.data()};
+    const int source_strides[] = {frame.stride_y, frame.stride_u,
+                                  frame.stride_v};
+    const int plane_heights[] = {frame.height, chroma_height, chroma_height};
+    const int plane_widths[] = {frame.width, chroma_width, chroma_width};
+    for (int plane = 0; plane < 3; ++plane) {
+      for (int row = 0; row < plane_heights[plane]; ++row) {
+        std::memcpy(video_frame.bits(plane) +
+                        row * video_frame.bytesPerLine(plane),
+                    planes[plane] + row * source_strides[plane],
+                    static_cast<std::size_t>(plane_widths[plane]));
+      }
+    }
+    video_frame.unmap();
+  } else {
+    const QImage borrowed_image{
+        reinterpret_cast<const uchar*>(frame.rgba.data()), frame.width,
+        frame.height, frame.stride, QImage::Format_RGBA8888};
+    video_frame = QVideoFrame{borrowed_image.copy()};
+  }
   video_frame.setStartTime(frame.pts_ms * 1'000);
   video_frame.setEndTime((frame.pts_ms + 33) * 1'000);
   video_sink_->setVideoFrame(video_frame);

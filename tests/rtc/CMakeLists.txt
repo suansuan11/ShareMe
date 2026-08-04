@@ -412,6 +412,22 @@ if(TARGET ShareMe::Playback)
     PROPERTIES FIXTURES_SETUP audio_gap_fixture
   )
 
+  add_executable(
+    shareme_video_preview_adapter_test
+    video_preview_adapter_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/video_preview_adapter.cpp"
+  )
+  target_include_directories(
+    shareme_video_preview_adapter_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_link_libraries(
+    shareme_video_preview_adapter_test
+    PRIVATE ShareMe::WebRTC Qt6::Core Qt6::Gui Qt6::Multimedia
+  )
+  shareme_set_project_warnings(shareme_video_preview_adapter_test)
+  add_test(NAME video_preview_adapter COMMAND shareme_video_preview_adapter_test)
+
   add_executable(shareme_movie_timeline_test movie_timeline_test.cpp)
   target_link_libraries(
     shareme_movie_timeline_test

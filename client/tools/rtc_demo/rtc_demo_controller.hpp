@@ -6,6 +6,7 @@
 #include "playback_state.hpp"
 #include "playout_report.hpp"
 #include "shareme/core/drift_metrics.hpp"
+#include "video_preview_adapter.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -138,7 +139,7 @@ private:
   std::unique_ptr<shareme::rtc::MovieAudioPeer> movie_peer_;
   std::jthread waiter_;
   std::jthread movie_waiter_;
-  std::atomic_bool video_delivery_pending_{false};
+  std::unique_ptr<shareme::tools::VideoPreviewAdapter> video_preview_adapter_;
   QTimer playback_state_timer_;
   QTimer playout_report_timer_;
   QTimer drift_metrics_flush_timer_;
@@ -179,6 +180,7 @@ private:
   std::atomic<std::uint64_t> performance_coalesced_count_{0};
   std::atomic<std::uint64_t> performance_sink_submissions_{0};
   std::atomic<std::uint64_t> performance_conversion_failures_{0};
+  std::atomic<std::uint64_t> performance_fallback_copies_{0};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};

@@ -4,16 +4,15 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QCoreApplication>
-#include <QVideoFrame>
 #include <QVideoSink>
 
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <utility>
 
-#include "libyuv/convert_argb.h"
 #include "shareme/core/sync_controller.hpp"
 
 #if defined(SHAREME_HAS_DESKTOP_CAPTURE)
@@ -103,6 +102,14 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                  nullptr),
       performance_counters_enabled_(
           std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
+  video_preview_adapter_ =
+      std::make_unique<shareme::tools::VideoPreviewAdapter>(this);
+  video_preview_adapter_->set_submitted_callback([this](std::uint32_t timestamp) {
+    performance_sink_submissions_.fetch_add(1, std::memory_order_relaxed);
+    ++drift_sink_submissions_;
+    if (viewer())
+      recordRenderedFrame(timestamp);
+  });
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
           &RtcDemoController::publishPlaybackState);
@@ -250,7 +257,11 @@ bool RtcDemoController::driftScenarioActive() const noexcept {
       !drift_scenario_failed_ && !drift_scenario_->completed();
 }
 
-void RtcDemoController::setVideoSink(QVideoSink *sink) { video_sink_ = sink; }
+void RtcDemoController::setVideoSink(QVideoSink *sink) {
+  video_sink_ = sink;
+  if (video_preview_adapter_)
+    video_preview_adapter_->set_sink(sink);
+}
 
 void RtcDemoController::start() {
   if (start_requested_)
@@ -550,6 +561,8 @@ void RtcDemoController::emitPerformanceCounters() {
   std::uint64_t dropped = 0;
   std::uint64_t conversion_failures =
       performance_conversion_failures_.load(std::memory_order_relaxed);
+  const auto fallback_copies =
+      performance_fallback_copies_.load(std::memory_order_relaxed);
   int width = 0;
   int height = 0;
   int cadence_num = 0;
@@ -583,6 +596,9 @@ void RtcDemoController::emitPerformanceCounters() {
         codec = format->codec;
       if (!format->profile.empty())
         profile = format->profile;
+      std::erase_if(profile, [](unsigned char value) {
+        return std::isspace(value) != 0;
+      });
     }
     if (const auto timeline = movie_timeline_->snapshot()) {
       state = timeline->state == shareme::rtc::MovieTimelineState::paused
@@ -603,6 +619,7 @@ void RtcDemoController::emitPerformanceCounters() {
             << performance_coalesced_count_.load(std::memory_order_relaxed)
             << " dropped=" << dropped
             << " conversion_failures=" << conversion_failures
+            << " fallback_copies=" << fallback_copies
             << " width=" << width << " height=" << height
             << " cadence_num=" << cadence_num
             << " cadence_den=" << cadence_den
@@ -990,51 +1007,15 @@ void RtcDemoController::setRoomId(QString room_id) {
 
 void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
   performance_callback_count_.fetch_add(1, std::memory_order_relaxed);
-  if (video_delivery_pending_.exchange(true, std::memory_order_acq_rel)) {
+  if (!video_preview_adapter_)
+    return;
+  const auto result = video_preview_adapter_->submit(frame);
+  if (result.path == shareme::tools::PreviewPath::coalesced)
     performance_coalesced_count_.fetch_add(1, std::memory_order_relaxed);
-    return;
-  }
-  const auto release_delivery = [this] {
-    video_delivery_pending_.store(false, std::memory_order_release);
-  };
-  const auto source_buffer = frame.video_frame_buffer();
-  const auto rtp_timestamp = frame.rtp_timestamp();
-  const auto buffer = source_buffer ? source_buffer->ToI420() : nullptr;
-  if (!buffer) {
+  if (result.path == shareme::tools::PreviewPath::argb_fallback)
+    performance_fallback_copies_.fetch_add(1, std::memory_order_relaxed);
+  if (!result.submitted && result.path == shareme::tools::PreviewPath::rejected)
     performance_conversion_failures_.fetch_add(1, std::memory_order_relaxed);
-    release_delivery();
-    return;
-  }
-  QImage image(buffer->width(), buffer->height(), QImage::Format_ARGB32);
-  if (image.isNull()) {
-    performance_conversion_failures_.fetch_add(1, std::memory_order_relaxed);
-    release_delivery();
-    return;
-  }
-  const auto converted = libyuv::I420ToARGB(
-      buffer->DataY(), buffer->StrideY(), buffer->DataU(), buffer->StrideU(),
-      buffer->DataV(), buffer->StrideV(), image.bits(), image.bytesPerLine(),
-      buffer->width(), buffer->height());
-  if (converted != 0) {
-    performance_conversion_failures_.fetch_add(1, std::memory_order_relaxed);
-    release_delivery();
-    return;
-  }
-  const auto queued = QMetaObject::invokeMethod(
-      this,
-      [this, image = std::move(image), rtp_timestamp] {
-        if (video_sink_) {
-          video_sink_->setVideoFrame(QVideoFrame(image));
-          performance_sink_submissions_.fetch_add(1, std::memory_order_relaxed);
-          ++drift_sink_submissions_;
-        }
-        if (viewer())
-          recordRenderedFrame(rtp_timestamp);
-        video_delivery_pending_.store(false, std::memory_order_release);
-      },
-      Qt::QueuedConnection);
-  if (!queued)
-    release_delivery();
 }
 
 void RtcDemoController::recordRenderedFrame(std::uint32_t rtp_timestamp) {
