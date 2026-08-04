@@ -48,6 +48,26 @@ ApplicationWindow {
         Label {
             Layout.fillWidth: true
             visible: window.controller.viewer
+                     && window.controller.viewerRenderedAvailable
+            text: "Rendered movie: "
+                  + window.controller.viewerRenderedPositionMs + " ms"
+            color: "#9fd7b5"
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: !window.controller.viewer
+                     && window.controller.viewerRenderedAvailable
+            text: "Viewer playout: "
+                  + window.controller.viewerRenderedPositionMs + " ms · delta "
+                  + window.controller.hostViewerDeltaMs + " ms · "
+                  + window.controller.hostSyncAction
+            color: "#9fd7b5"
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: window.controller.viewer
             text: "Host playback: " + window.controller.remotePlaybackState
                   + " · " + window.controller.remotePlaybackPositionMs + " ms"
             color: "#8bd5ff"

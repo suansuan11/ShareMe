@@ -124,6 +124,20 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("config.remote_video_frame", source)
         self.assertIn("if (role_ == shareme::rtc::SignaledRole::viewer)", source)
 
+    def test_controller_reports_rendered_playout_by_generation(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        qml = self.qml.read_text(encoding="utf-8")
+        self.assertIn("publishPlayoutReport", source)
+        self.assertIn("viewer_playback_anchor_->video_anchor_media_pts_ms", source)
+        self.assertIn("viewer_playback_anchor_->video_rtp_timestamp", source)
+        self.assertIn("decode_playout_report", source)
+        self.assertIn("playout_report_tracker_.accept", source)
+        self.assertIn("SyncController{}.decide", source)
+        self.assertIn("viewerRenderedPositionMs", qml)
+        self.assertIn("hostViewerDeltaMs", qml)
+        self.assertIn("hostSyncAction", qml)
+        self.assertIn("viewerRenderedAvailable", qml)
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--demo", type=Path, required=True)

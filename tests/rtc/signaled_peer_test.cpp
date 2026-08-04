@@ -226,6 +226,8 @@ int main() {
   std::unique_ptr<shareme::rtc::SignaledPeer> control_viewer;
   std::promise<std::string> control_message_promise;
   auto control_message_future = control_message_promise.get_future();
+  std::promise<std::string> viewer_report_promise;
+  auto viewer_report_future = viewer_report_promise.get_future();
   shareme::rtc::SignaledPeerCallbacks host_control_callbacks;
   host_control_callbacks.description = [&](std::string type, std::string sdp) {
     REQUIRE(control_viewer->receive_description(std::move(type),
@@ -254,7 +256,11 @@ int main() {
        }},
       std::move(viewer_control_callbacks));
   control_host = shareme::rtc::SignaledPeer::create(
-      {.role = SignaledRole::host}, std::move(host_control_callbacks));
+      {.role = SignaledRole::host,
+       .control_message = [&](std::string message) {
+         viewer_report_promise.set_value(std::move(message));
+       }},
+      std::move(host_control_callbacks));
   REQUIRE(control_viewer != nullptr);
   REQUIRE(control_host != nullptr);
   REQUIRE(control_viewer->start());
@@ -270,6 +276,11 @@ int main() {
   REQUIRE(control_message_future.wait_for(std::chrono::seconds(2)) ==
           std::future_status::ready);
   REQUIRE(control_message_future.get() == control_payload);
+  const std::string viewer_report{"{\"type\":\"playout-report\"}"};
+  REQUIRE(control_viewer->send_control_message(viewer_report));
+  REQUIRE(viewer_report_future.wait_for(std::chrono::seconds(2)) ==
+          std::future_status::ready);
+  REQUIRE(viewer_report_future.get() == viewer_report);
   control_host->stop();
   control_viewer->stop();
 

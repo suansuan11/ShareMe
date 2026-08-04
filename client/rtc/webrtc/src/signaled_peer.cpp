@@ -255,8 +255,8 @@ public:
     return true;
   }
   bool send_control_message(std::string message) {
-    if (role_ != SignaledRole::host || !valid_control_message(message) ||
-        !runtime_ || !runtime_->signaling_thread() ||
+    if (!valid_control_message(message) || !runtime_ ||
+        !runtime_->signaling_thread() ||
         !runtime_->signaling_thread()->RunningForTest())
       return false;
     return runtime_->signaling_thread()->BlockingCall(
