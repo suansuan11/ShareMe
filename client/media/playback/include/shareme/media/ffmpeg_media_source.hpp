@@ -6,9 +6,12 @@
 
 namespace shareme::media {
 
+enum class VideoAccelerationMode { auto_mode, software };
+
 struct FfmpegMediaSourceOptions {
   bool decode_video{true};
   bool decode_audio{true};
+  VideoAccelerationMode video_acceleration{VideoAccelerationMode::auto_mode};
 };
 
 class FfmpegMediaSource final : public IMediaSource {

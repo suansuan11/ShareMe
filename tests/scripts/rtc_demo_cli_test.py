@@ -37,6 +37,7 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("host or viewer", result.stdout)
         self.assertIn("--movie", result.stdout)
         self.assertIn("--movie-audio", result.stdout)
+        self.assertIn("--video-acceleration", result.stdout)
         self.assertIn("--metrics-jsonl", result.stdout)
         self.assertIn("--drift-scenario", result.stdout)
         self.assertIn("--measurement-duration-seconds", result.stdout)
@@ -100,6 +101,25 @@ class RtcDemoCliTest(unittest.TestCase):
         )
         self.assertEqual(viewer.returncode, 2)
         self.assertNotIn(movie, viewer.stderr)
+
+    def test_movie_video_acceleration_contract_is_explicit_and_host_only(self):
+        common = [
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "movie", "--movie", "/private/movie.mkv",
+        ]
+        for mode in ("auto", "software"):
+            result = self.run_demo(*common, "--video-acceleration", mode,
+                                   "--validate")
+            self.assertEqual(result.returncode, 0 if self.movie_supported else 2)
+        invalid = self.run_demo(*common, "--video-acceleration", "hardware",
+                                "--validate")
+        self.assertEqual(invalid.returncode, 2)
+        viewer = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "viewer",
+            "--room", "ABC234", "--source", "test",
+            "--video-acceleration", "software", "--validate"
+        )
+        self.assertEqual(viewer.returncode, 2)
 
     def test_metrics_capture_is_host_movie_only_and_rejects_empty_or_same_path(self):
         output = "/tmp/shareme-drift-study.jsonl"

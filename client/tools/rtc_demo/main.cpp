@@ -56,6 +56,10 @@ int main(int argc, char **argv) {
                                   QStringLiteral("path"));
   QCommandLineOption movie_audio_option(QStringList{QStringLiteral("movie-audio")},
                                         QStringLiteral("Send independent movie audio"));
+  QCommandLineOption video_acceleration_option(
+      QStringList{QStringLiteral("video-acceleration")},
+      QStringLiteral("Movie video path: auto or software"),
+      QStringLiteral("mode"), QStringLiteral("auto"));
   QCommandLineOption metrics_option(
       QStringList{QStringLiteral("metrics-jsonl")},
       QStringLiteral("Host-only sanitized drift JSONL output"),
@@ -76,6 +80,7 @@ int main(int argc, char **argv) {
   parser.addOption(source_option);
   parser.addOption(movie_option);
   parser.addOption(movie_audio_option);
+  parser.addOption(video_acceleration_option);
   parser.addOption(metrics_option);
   parser.addOption(scenario_option);
   parser.addOption(duration_option);
@@ -92,6 +97,7 @@ int main(int argc, char **argv) {
   const auto role_text = parser.value(role_option);
   const auto source_text = parser.value(source_option);
   const auto movie_path = local_path(parser.value(movie_option));
+  const auto video_acceleration = parser.value(video_acceleration_option);
   const auto metrics_path = local_path(parser.value(metrics_option));
   bool duration_ok = false;
   const auto duration_seconds =
@@ -123,6 +129,12 @@ int main(int argc, char **argv) {
        source_text != QStringLiteral("test")) ||
       (source_text == QStringLiteral("movie") && !parser.isSet(movie_option)) ||
       (source_text != QStringLiteral("movie") && parser.isSet(movie_option)) ||
+      ((parser.isSet(video_acceleration_option) ||
+        video_acceleration != QStringLiteral("auto")) &&
+       (source_text != QStringLiteral("movie") ||
+        role_text != QStringLiteral("host") ||
+        (video_acceleration != QStringLiteral("auto") &&
+         video_acceleration != QStringLiteral("software")))) ||
       (parser.isSet(movie_audio_option) && source_text != QStringLiteral("movie")) ||
       (parser.isSet(metrics_option) &&
        (role_text != QStringLiteral("host") ||
@@ -131,6 +143,7 @@ int main(int argc, char **argv) {
       !scenario_valid) {
     std::cerr << "required: --server URL --role host|viewer "
                  "[--room ROOM] [--source test|desktop|movie] [--movie PATH] [--movie-audio] "
+                 "[--video-acceleration auto|software] "
                  "[--metrics-jsonl PATH] [--drift-scenario drift-study-v1 "
                  "--measurement-duration-seconds 300]"
               << std::endl;
@@ -158,6 +171,7 @@ int main(int argc, char **argv) {
                                parser.value(room_option),
                                source_text == QStringLiteral("desktop"),
                                movie_path, parser.isSet(movie_audio_option),
+                               video_acceleration,
                                parser.value(metrics_option),
                                parser.value(scenario_option), duration_seconds);
   QQmlApplicationEngine engine;

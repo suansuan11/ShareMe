@@ -67,6 +67,30 @@ namespace {
   return {time_base.num, time_base.den};
 }
 
+[[nodiscard]] const char* color_range_name(AVColorRange range) {
+  switch (range) {
+  case AVCOL_RANGE_MPEG:
+    return "limited";
+  case AVCOL_RANGE_JPEG:
+    return "full";
+  default:
+    return "unknown";
+  }
+}
+
+[[nodiscard]] const char* color_space_name(AVColorSpace space) {
+  switch (space) {
+  case AVCOL_SPC_BT709:
+    return "bt709";
+  case AVCOL_SPC_BT2020_NCL:
+    return "bt2020nc";
+  case AVCOL_SPC_BT2020_CL:
+    return "bt2020c";
+  default:
+    return "unknown";
+  }
+}
+
 }  // namespace
 
 class FfmpegMediaSource::Impl {
@@ -148,6 +172,21 @@ public:
       if (video_codec_context_ != nullptr) {
         info.video_width = video_codec_context_->width;
         info.video_height = video_codec_context_->height;
+        const auto* video_stream = format_context_->streams[video_stream_index_];
+        info.video_frame_rate_num = video_stream->avg_frame_rate.num;
+        info.video_frame_rate_den = video_stream->avg_frame_rate.den;
+        info.video_pixel_aspect_num =
+            video_codec_context_->sample_aspect_ratio.num;
+        info.video_pixel_aspect_den =
+            video_codec_context_->sample_aspect_ratio.den;
+        info.video_codec = avcodec_get_name(video_codec_context_->codec_id);
+        if (const auto* profile = avcodec_profile_name(
+                video_codec_context_->codec_id, video_codec_context_->profile))
+          info.video_profile = profile;
+        info.video_color_range =
+            color_range_name(video_codec_context_->color_range);
+        info.video_color_space =
+            color_space_name(video_codec_context_->colorspace);
       }
       if (format_context_->duration != AV_NOPTS_VALUE) {
         info.duration_ms = av_rescale_q(

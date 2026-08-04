@@ -28,10 +28,19 @@ MovieVideoSource::create(std::filesystem::path movie_path) {
 webrtc::scoped_refptr<MovieVideoSource>
 MovieVideoSource::create(std::filesystem::path movie_path,
                          std::shared_ptr<MovieTimeline> timeline) {
+  return create(std::move(movie_path), std::move(timeline),
+                media::VideoAccelerationMode::auto_mode);
+}
+
+webrtc::scoped_refptr<MovieVideoSource>
+MovieVideoSource::create(std::filesystem::path movie_path,
+                         std::shared_ptr<MovieTimeline> timeline,
+                         media::VideoAccelerationMode video_acceleration) {
   if (!timeline)
     timeline = std::make_shared<MovieTimeline>();
   return webrtc::scoped_refptr<MovieVideoSource>(
-      new MovieVideoSource(std::move(movie_path), std::move(timeline)));
+      new MovieVideoSource(std::move(movie_path), std::move(timeline),
+                           video_acceleration));
 }
 
 MovieVideoSource::MovieVideoSource(std::filesystem::path movie_path)
@@ -40,7 +49,15 @@ MovieVideoSource::MovieVideoSource(std::filesystem::path movie_path)
 
 MovieVideoSource::MovieVideoSource(std::filesystem::path movie_path,
                                    std::shared_ptr<MovieTimeline> timeline)
-    : movie_path_(std::move(movie_path)), timeline_(std::move(timeline)) {}
+    : MovieVideoSource(std::move(movie_path), std::move(timeline),
+                       media::VideoAccelerationMode::auto_mode) {}
+
+MovieVideoSource::MovieVideoSource(
+    std::filesystem::path movie_path,
+    std::shared_ptr<MovieTimeline> timeline,
+    media::VideoAccelerationMode video_acceleration)
+    : movie_path_(std::move(movie_path)), timeline_(std::move(timeline)),
+      video_acceleration_(video_acceleration) {}
 
 MovieVideoSource::~MovieVideoSource() { stop(); }
 
@@ -54,13 +71,29 @@ bool MovieVideoSource::start() {
     auto session = std::make_unique<media::PlaybackSession>(
         std::make_unique<media::FfmpegMediaSource>(
             media::FfmpegMediaSourceOptions{.decode_video = true,
-                                            .decode_audio = false}));
+                                            .decode_audio = false,
+                                            .video_acceleration =
+                                                video_acceleration_}));
     const auto info = session->open(movie_path_);
     if (!info.has_video) {
       session->close();
       running_.store(false, std::memory_order_release);
       set_error("movie-video-unavailable");
       return false;
+    }
+    {
+      std::lock_guard lock(format_mutex_);
+      video_format_ = MovieVideoFormat{
+          .width = info.video_width,
+          .height = info.video_height,
+          .frame_rate_num = info.video_frame_rate_num,
+          .frame_rate_den = info.video_frame_rate_den,
+          .pixel_aspect_num = info.video_pixel_aspect_num,
+          .pixel_aspect_den = info.video_pixel_aspect_den,
+          .color_range = info.video_color_range,
+          .color_space = info.video_color_space,
+          .codec = info.video_codec,
+          .profile = info.video_profile};
     }
     if (!timeline_->initialize(info.start_time_ms, info.duration_ms)) {
       session->close();
@@ -122,6 +155,15 @@ std::optional<MovieVideoFrameSample>
 MovieVideoSource::last_frame_sample() const noexcept {
   std::lock_guard lock(sample_mutex_);
   return last_frame_sample_;
+}
+
+std::optional<MovieVideoFormat> MovieVideoSource::video_format() const {
+  std::lock_guard lock(format_mutex_);
+  return video_format_;
+}
+
+std::uint64_t MovieVideoSource::conversion_failure_count() const noexcept {
+  return conversion_failure_count_.load(std::memory_order_relaxed);
 }
 
 std::string MovieVideoSource::error() const {
@@ -229,6 +271,7 @@ bool MovieVideoSource::emit_frame(const media::VideoFrame &frame,
       input->StrideU(), input->MutableDataV(), input->StrideV(), frame.width,
       frame.height);
   if (conversion != 0) {
+    conversion_failure_count_.fetch_add(1, std::memory_order_relaxed);
     dropped_count_.fetch_add(1, std::memory_order_relaxed);
     set_error("movie-frame-conversion-failed");
     return false;

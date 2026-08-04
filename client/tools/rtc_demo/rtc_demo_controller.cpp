@@ -20,6 +20,7 @@
 #include "shareme/rtc/desktop_capture_source.hpp"
 #endif
 #if defined(SHAREME_HAS_MOVIE_RTC)
+#include "shareme/media/ffmpeg_media_source.hpp"
 #include "shareme/rtc/movie_audio_source.hpp"
 #include "shareme/rtc/movie_timeline.hpp"
 #include "shareme/rtc/movie_video_source.hpp"
@@ -85,18 +86,23 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                      QString requested_room,
                                      bool desktop_source,
                                      std::filesystem::path movie_path,
-                                     bool movie_audio, QString metrics_jsonl_path,
+                                     bool movie_audio, QString video_acceleration,
+                                     QString metrics_jsonl_path,
                                      QString drift_scenario_name,
                                      qint64 measurement_duration_seconds,
                                      QObject *parent)
     : QObject(parent), server_url_(std::move(server_url)), role_(role),
       requested_room_(std::move(requested_room)),
       desktop_source_(desktop_source), movie_path_(std::move(movie_path)),
-      movie_audio_(movie_audio), metrics_jsonl_path_(std::move(metrics_jsonl_path)),
+      movie_audio_(movie_audio),
+      video_acceleration_(std::move(video_acceleration)),
+      metrics_jsonl_path_(std::move(metrics_jsonl_path)),
       drift_scenario_name_(std::move(drift_scenario_name)),
       measurement_duration_seconds_(measurement_duration_seconds),
       drift_diagnostics_enabled_(std::getenv("SHAREME_DRIFT_DIAGNOSTICS") !=
-                                 nullptr) {
+                                 nullptr),
+      performance_counters_enabled_(
+          std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
           &RtcDemoController::publishPlaybackState);
@@ -122,6 +128,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
   drift_metrics_flush_timer_.setInterval(1'000);
   connect(&drift_metrics_flush_timer_, &QTimer::timeout, this,
           &RtcDemoController::flushDriftMetrics);
+  performance_timer_.setInterval(1'000);
+  connect(&performance_timer_, &QTimer::timeout, this,
+          &RtcDemoController::emitPerformanceCounters);
   connect(&signaling_, &QtSignalingClient::roomReady, this,
           [this](const QString &room) {
             setRoomId(room);
@@ -332,8 +341,13 @@ bool RtcDemoController::createPeer() {
 #if defined(SHAREME_HAS_MOVIE_RTC)
   if (!movie_path_.empty()) {
     movie_timeline_ = std::make_shared<shareme::rtc::MovieTimeline>();
+    const auto acceleration =
+        video_acceleration_ == QStringLiteral("software")
+            ? shareme::media::VideoAccelerationMode::software
+            : shareme::media::VideoAccelerationMode::auto_mode;
     movie_video_source_ =
-        shareme::rtc::MovieVideoSource::create(movie_path_, movie_timeline_);
+        shareme::rtc::MovieVideoSource::create(movie_path_, movie_timeline_,
+                                               acceleration);
     config.video_mode = shareme::rtc::SignaledVideoMode::injected;
     config.video_source_factory = [source = movie_video_source_](
                                       webrtc::TaskQueueFactory &)
@@ -462,6 +476,8 @@ void RtcDemoController::startPeer() {
     playback_state_timer_.start();
   if (role_ == shareme::rtc::SignaledRole::viewer)
     playout_report_timer_.start();
+  if (performance_counters_enabled_)
+    performance_timer_.start();
   if (role_ == shareme::rtc::SignaledRole::host &&
       drift_scenario_name_ == QStringLiteral("drift-study-v1")) {
     drift_scenario_.emplace();
@@ -492,6 +508,7 @@ void RtcDemoController::stopPeer() noexcept {
   playback_state_timer_.stop();
   playout_report_timer_.stop();
   drift_scenario_timer_.stop();
+  performance_timer_.stop();
   stopDriftMetrics();
   if (peer_)
     peer_->cancel_wait();
@@ -523,6 +540,78 @@ void RtcDemoController::flushDriftMetrics() {
     }
     pending_drift_samples_.pop_front();
   }
+}
+
+void RtcDemoController::emitPerformanceCounters() {
+  if (!performance_counters_enabled_)
+    return;
+
+  std::uint64_t decoded = 0;
+  std::uint64_t dropped = 0;
+  std::uint64_t conversion_failures =
+      performance_conversion_failures_.load(std::memory_order_relaxed);
+  int width = 0;
+  int height = 0;
+  int cadence_num = 0;
+  int cadence_den = 0;
+  int pixel_aspect_num = 0;
+  int pixel_aspect_den = 0;
+  std::string color_range = "unknown";
+  std::string color_space = "unknown";
+  std::string codec = "unknown";
+  std::string profile = "unknown";
+  std::string state = "unknown";
+  std::string path = video_acceleration_.toStdString();
+  if (path != "software")
+    path = "auto";
+  if (movie_video_source_) {
+    decoded = movie_video_source_->generated_count();
+    dropped = movie_video_source_->dropped_count();
+    conversion_failures += movie_video_source_->conversion_failure_count();
+    if (const auto format = movie_video_source_->video_format()) {
+      width = format->width;
+      height = format->height;
+      cadence_num = format->frame_rate_num;
+      cadence_den = format->frame_rate_den;
+      pixel_aspect_num = format->pixel_aspect_num;
+      pixel_aspect_den = format->pixel_aspect_den;
+      if (!format->color_range.empty())
+        color_range = format->color_range;
+      if (!format->color_space.empty())
+        color_space = format->color_space;
+      if (!format->codec.empty())
+        codec = format->codec;
+      if (!format->profile.empty())
+        profile = format->profile;
+    }
+    if (const auto timeline = movie_timeline_->snapshot()) {
+      state = timeline->state == shareme::rtc::MovieTimelineState::paused
+                  ? "paused"
+                  : "playing";
+    }
+  }
+  std::cout << "PERF_COUNTERS version=1 role="
+            << (viewer() ? "viewer" : "host")
+            << " cpu_percent=0 rss_bytes=0 decoded=" << decoded
+            << " offered=" << decoded << " received="
+            << performance_callback_count_.load(std::memory_order_relaxed)
+            << " callback="
+            << performance_callback_count_.load(std::memory_order_relaxed)
+            << " submitted="
+            << performance_sink_submissions_.load(std::memory_order_relaxed)
+            << " coalesced="
+            << performance_coalesced_count_.load(std::memory_order_relaxed)
+            << " dropped=" << dropped
+            << " conversion_failures=" << conversion_failures
+            << " width=" << width << " height=" << height
+            << " cadence_num=" << cadence_num
+            << " cadence_den=" << cadence_den
+            << " pixel_aspect_num=" << pixel_aspect_num
+            << " pixel_aspect_den=" << pixel_aspect_den
+            << " color_range=" << color_range
+            << " color_space=" << color_space << " codec=" << codec
+            << " profile=" << profile << " path=" << path
+            << " state=" << state << " candidate=unknown" << std::endl;
 }
 
 void RtcDemoController::stopDriftMetrics() noexcept {
@@ -900,8 +989,11 @@ void RtcDemoController::setRoomId(QString room_id) {
 }
 
 void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
-  if (video_delivery_pending_.exchange(true, std::memory_order_acq_rel))
+  performance_callback_count_.fetch_add(1, std::memory_order_relaxed);
+  if (video_delivery_pending_.exchange(true, std::memory_order_acq_rel)) {
+    performance_coalesced_count_.fetch_add(1, std::memory_order_relaxed);
     return;
+  }
   const auto release_delivery = [this] {
     video_delivery_pending_.store(false, std::memory_order_release);
   };
@@ -909,11 +1001,13 @@ void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
   const auto rtp_timestamp = frame.rtp_timestamp();
   const auto buffer = source_buffer ? source_buffer->ToI420() : nullptr;
   if (!buffer) {
+    performance_conversion_failures_.fetch_add(1, std::memory_order_relaxed);
     release_delivery();
     return;
   }
   QImage image(buffer->width(), buffer->height(), QImage::Format_ARGB32);
   if (image.isNull()) {
+    performance_conversion_failures_.fetch_add(1, std::memory_order_relaxed);
     release_delivery();
     return;
   }
@@ -922,6 +1016,7 @@ void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
       buffer->DataV(), buffer->StrideV(), image.bits(), image.bytesPerLine(),
       buffer->width(), buffer->height());
   if (converted != 0) {
+    performance_conversion_failures_.fetch_add(1, std::memory_order_relaxed);
     release_delivery();
     return;
   }
@@ -930,6 +1025,7 @@ void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
       [this, image = std::move(image), rtp_timestamp] {
         if (video_sink_) {
           video_sink_->setVideoFrame(QVideoFrame(image));
+          performance_sink_submissions_.fetch_add(1, std::memory_order_relaxed);
           ++drift_sink_submissions_;
         }
         if (viewer())

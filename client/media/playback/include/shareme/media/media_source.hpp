@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
+#include <string>
 #include <variant>
 
 namespace shareme::media {
@@ -16,6 +17,14 @@ struct MediaInfo {
   bool has_audio{false};
   int video_width{0};
   int video_height{0};
+  int video_frame_rate_num{0};
+  int video_frame_rate_den{0};
+  int video_pixel_aspect_num{0};
+  int video_pixel_aspect_den{0};
+  std::string video_codec;
+  std::string video_profile;
+  std::string video_color_range;
+  std::string video_color_space;
 };
 
 struct EndOfStream {};

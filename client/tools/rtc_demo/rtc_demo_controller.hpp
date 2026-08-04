@@ -57,6 +57,7 @@ public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
                     QString requested_room, bool desktop_source,
                     std::filesystem::path movie_path, bool movie_audio,
+                    QString video_acceleration,
                     QString metrics_jsonl_path, QString drift_scenario_name,
                     qint64 measurement_duration_seconds,
                     QObject *parent = nullptr);
@@ -115,6 +116,7 @@ private:
   void failDriftScenario(const QString& category);
   void recordDriftError(std::string category, bool notify_viewer = true);
   void emitDriftDiagnostics();
+  void emitPerformanceCounters();
 
   QUrl server_url_;
   shareme::rtc::SignaledRole role_;
@@ -122,6 +124,7 @@ private:
   bool desktop_source_{false};
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
+  QString video_acceleration_{QStringLiteral("auto")};
   QString metrics_jsonl_path_;
   QString drift_scenario_name_;
   qint64 measurement_duration_seconds_{0};
@@ -140,6 +143,7 @@ private:
   QTimer playout_report_timer_;
   QTimer drift_metrics_flush_timer_;
   QTimer drift_scenario_timer_;
+  QTimer performance_timer_;
   std::uint64_t playback_sequence_{1};
   shareme::tools::PlaybackStateTracker playback_tracker_;
   shareme::tools::PlayoutReportTracker playout_report_tracker_;
@@ -170,6 +174,11 @@ private:
   std::chrono::steady_clock::time_point last_drift_diagnostic_at_{};
   std::string selected_candidate_type_;
   bool drift_diagnostics_enabled_{false};
+  bool performance_counters_enabled_{false};
+  std::atomic<std::uint64_t> performance_callback_count_{0};
+  std::atomic<std::uint64_t> performance_coalesced_count_{0};
+  std::atomic<std::uint64_t> performance_sink_submissions_{0};
+  std::atomic<std::uint64_t> performance_conversion_failures_{0};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};
