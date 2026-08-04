@@ -305,6 +305,7 @@ bool RtcDemoController::createPeer() {
             Qt::QueuedConnection);
       };
   callbacks.failure = [this](std::string category) {
+    drift_aggregator_.record_error("peer-failure");
     QMetaObject::invokeMethod(
         this,
         [this, category = std::move(category)] {
@@ -376,6 +377,7 @@ bool RtcDemoController::createPeer() {
               }, Qt::QueuedConnection);
         };
     movie_callbacks.failure = [this](std::string category) {
+      drift_aggregator_.record_error("movie-audio-failure");
       QMetaObject::invokeMethod(
           this, [this, category = std::move(category)] {
             setStatus(QStringLiteral("movie-audio-error: ") +
@@ -414,6 +416,7 @@ void RtcDemoController::startPeer() {
     movie_waiter_ = std::jthread([this] {
       const auto result = movie_peer_->wait(std::chrono::seconds(15));
       if (!result.error.empty()) {
+        drift_aggregator_.record_error("movie-audio-wait-failure");
         QMetaObject::invokeMethod(
             this, [this, error = result.error] {
               setStatus(QStringLiteral("movie-audio-error: ") +
@@ -458,6 +461,7 @@ void RtcDemoController::startPeer() {
           if (result.error.empty()) {
             setStatus(QStringLiteral("connected"));
           } else {
+            drift_aggregator_.record_error("peer-wait-failure");
             setStatus(QStringLiteral("call-error: ") +
                       QString::fromStdString(result.error));
           }
@@ -494,6 +498,7 @@ void RtcDemoController::flushDriftMetrics() {
     if (!drift_metrics_writer_->append(pending_drift_samples_.front())) {
       drift_capture_enabled_ = false;
       pending_drift_samples_.clear();
+      drift_aggregator_.record_error("capture-write-failure");
       setStatus(QStringLiteral("drift-capture-disabled: ") +
                 drift_metrics_writer_->failure_category());
       return;
@@ -610,6 +615,7 @@ void RtcDemoController::failDriftScenario(const QString& category) {
   if (drift_scenario_failed_)
     return;
   drift_scenario_failed_ = true;
+  drift_aggregator_.record_error(category.toStdString());
   drift_scenario_timer_.stop();
   setStatus(QStringLiteral("drift-scenario-failed: ") + category);
   const auto summary = drift_aggregator_.summary();

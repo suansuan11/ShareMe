@@ -68,12 +68,14 @@ struct DriftSummary {
   std::int64_t largest_report_gap_ms = 0;
   std::size_t hard_resync_candidate_episodes = 0;
   std::vector<DriftRecovery> recoveries;
+  std::vector<std::string> errors;
 };
 
 class DriftAggregator {
 public:
   [[nodiscard]] bool accept(DriftSample sample);
   void record_rejection() noexcept;
+  void record_error(std::string category);
   void complete_run() noexcept;
   [[nodiscard]] DriftSummary summary() const;
 
@@ -122,6 +124,7 @@ private:
   std::int64_t largest_report_gap_ms_ = 0;
   std::size_t hard_resync_candidate_episodes_ = 0;
   std::vector<DriftRecovery> recoveries_;
+  std::vector<std::string> errors_;
   RecoveryState recovery_{};
   bool recovery_active_ = false;
   CandidateState candidate_{};

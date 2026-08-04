@@ -176,6 +176,16 @@ void counts_samples_rejected_by_an_external_capture_bound() {
   REQUIRE(aggregator.summary().rejected_samples == 1);
 }
 
+void retains_failure_categories_for_the_measurement_gate() {
+  shareme::core::DriftAggregator aggregator;
+  aggregator.record_error("rtc-failure");
+  aggregator.record_error("native-audio-failure");
+  const auto summary = aggregator.summary();
+  REQUIRE(summary.errors.size() == 2);
+  REQUIRE(summary.errors.front() == "rtc-failure");
+  REQUIRE(summary.errors.back() == "native-audio-failure");
+}
+
 }  // namespace
 
 int main() {
@@ -185,5 +195,6 @@ int main() {
   recovers_only_after_three_consecutive_current_generation_samples();
   computes_overflow_safe_absolute_value_and_nearest_rank_percentiles();
   counts_samples_rejected_by_an_external_capture_bound();
+  retains_failure_categories_for_the_measurement_gate();
   return EXIT_SUCCESS;
 }

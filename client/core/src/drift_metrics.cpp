@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace shareme::core {
 namespace {
@@ -124,6 +125,11 @@ bool DriftAggregator::accept(DriftSample sample) {
 
 void DriftAggregator::record_rejection() noexcept { ++rejected_samples_; }
 
+void DriftAggregator::record_error(std::string category) {
+  if (!category.empty())
+    errors_.push_back(std::move(category));
+}
+
 void DriftAggregator::complete_run() noexcept {
   complete_ = true;
   finish_candidate();
@@ -159,6 +165,7 @@ DriftSummary DriftAggregator::make_summary() const {
   result.largest_report_gap_ms = largest_report_gap_ms_;
   result.hard_resync_candidate_episodes = hard_resync_candidate_episodes_;
   result.recoveries = recoveries_;
+  result.errors = errors_;
 
   auto sorted_deltas = absolute_deltas_;
   std::sort(sorted_deltas.begin(), sorted_deltas.end());

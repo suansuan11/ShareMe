@@ -3,6 +3,7 @@
 #include "shareme/core/drift_metrics.hpp"
 
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -97,6 +98,7 @@ void rejects_existing_output_and_unsanitized_candidate_values() {
   REQUIRE(writer.append(unsafe));
   shareme::core::DriftSummary summary;
   summary.complete = true;
+  summary.errors = {"rtc-failure"};
   REQUIRE(writer.finalize(summary));
 
   QFile safe(sanitized_path);
@@ -107,6 +109,11 @@ void rejects_existing_output_and_unsanitized_candidate_values() {
   REQUIRE(!content.contains("token"));
   REQUIRE(!content.contains("secret"));
   REQUIRE(!content.contains("sdp"));
+  const auto error_summary =
+      QJsonDocument::fromJson(content.split('\n').at(1)).object();
+  REQUIRE(error_summary.value("errors").toArray().size() == 1);
+  REQUIRE(error_summary.value("errors").toArray().at(0).toString() ==
+          QStringLiteral("rtc-failure"));
 }
 
 }  // namespace

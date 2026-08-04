@@ -9,6 +9,7 @@
 #include <QVariant>
 
 #include <array>
+#include <cctype>
 #include <utility>
 
 namespace shareme::tools {
@@ -62,6 +63,18 @@ QString safe_candidate_type(const std::string& candidate_type) {
     return value;
   }
   return QStringLiteral("unknown");
+}
+
+QString safe_error_category(const std::string& category) {
+  if (category.empty() || category.size() > 64)
+    return QStringLiteral("unknown");
+  for (const auto character : category) {
+    const auto byte = static_cast<unsigned char>(character);
+    if (!std::isalnum(byte) && character != '_' && character != '-' &&
+        character != '.')
+      return QStringLiteral("unknown");
+  }
+  return QString::fromStdString(category);
 }
 
 QJsonObject sample_object(const shareme::core::DriftSample& sample) {
@@ -119,6 +132,9 @@ QJsonObject summary_object(const shareme::core::DriftSummary& summary) {
         {"durationMs", recovery.duration_ms},
     });
   }
+  QJsonArray errors;
+  for (const auto& error : summary.errors)
+    errors.append(safe_error_category(error));
   return {
       {"kind", "summary"},
       {"schemaVersion", static_cast<int>(shareme::core::DriftSample::kSchemaVersion)},
@@ -145,6 +161,7 @@ QJsonObject summary_object(const shareme::core::DriftSummary& summary) {
       {"largestReportGapMs", summary.largest_report_gap_ms},
       {"hardResyncCandidateEpisodes", unsigned_value(summary.hard_resync_candidate_episodes)},
       {"recoveries", recoveries},
+      {"errors", errors},
   };
 }
 
