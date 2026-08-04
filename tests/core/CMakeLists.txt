@@ -13,6 +13,17 @@ target_link_libraries(shareme_drift_metrics_test PRIVATE ShareMe::Core)
 
 add_test(NAME drift_metrics COMMAND shareme_drift_metrics_test)
 
+add_executable(
+  shareme_video_quality_contract_test
+  video_quality_contract_test.cpp
+)
+target_link_libraries(shareme_video_quality_contract_test PRIVATE ShareMe::Core)
+
+add_test(
+  NAME video_quality_contract
+  COMMAND shareme_video_quality_contract_test
+)
+
 add_executable(shareme_probe_contract_test probe_contract_test.cpp)
 target_link_libraries(shareme_probe_contract_test PRIVATE ShareMe::Core)
 

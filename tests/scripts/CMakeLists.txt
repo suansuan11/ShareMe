@@ -68,3 +68,11 @@ add_test(
     "${CMAKE_CURRENT_SOURCE_DIR}/movie_drift_study_test.py"
 )
 set_tests_properties(movie_drift_study_contract PROPERTIES TIMEOUT 10)
+
+add_test(
+  NAME movie_performance_study_contract
+  COMMAND
+    "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/movie_performance_study_test.py"
+)
+set_tests_properties(movie_performance_study_contract PROPERTIES TIMEOUT 10)
