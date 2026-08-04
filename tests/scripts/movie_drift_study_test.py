@@ -61,6 +61,12 @@ class MovieDriftStudyTest(unittest.TestCase):
             self.assertTrue(self.runner.is_complete_artifact(path))
             self.assertFalse(self.runner.result_is_complete("RESULT drift-study-v1 status=failed"))
             self.assertFalse(self.runner.result_is_complete(""))
+            self.assertTrue(
+                self.runner.result_is_complete(
+                    "RESULT drift-study-v1 status=complete accepted_samples=0 "
+                    "rejected_samples=0 received_reports=0"
+                )
+            )
 
     def test_artifact_hash_and_output_root_refuse_escape_or_existing_targets(self):
         with tempfile.TemporaryDirectory() as directory:

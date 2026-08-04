@@ -557,7 +557,12 @@ void RtcDemoController::runDriftScenario() {
   for (const auto& event : drift_scenario_->advance(elapsed_ms)) {
     if (event.action == shareme::tools::DriftScenarioAction::complete) {
       drift_scenario_timer_.stop();
-      std::cout << "RESULT drift-study-v1 status=complete" << std::endl;
+      drift_aggregator_.complete_run();
+      const auto summary = drift_aggregator_.summary();
+      std::cout << "RESULT drift-study-v1 status=complete accepted_samples="
+                << summary.accepted_samples << " rejected_samples="
+                << summary.rejected_samples << " received_reports="
+                << drift_report_messages_ << std::endl;
       QCoreApplication::exit(EXIT_SUCCESS);
       return;
     }
@@ -607,8 +612,12 @@ void RtcDemoController::failDriftScenario(const QString& category) {
   drift_scenario_failed_ = true;
   drift_scenario_timer_.stop();
   setStatus(QStringLiteral("drift-scenario-failed: ") + category);
+  const auto summary = drift_aggregator_.summary();
   std::cout << "RESULT drift-study-v1 status=failed category="
-            << category.toStdString() << std::endl;
+            << category.toStdString() << " accepted_samples="
+            << summary.accepted_samples << " rejected_samples="
+            << summary.rejected_samples << " received_reports="
+            << drift_report_messages_ << std::endl;
   QCoreApplication::exit(EXIT_FAILURE);
 }
 
@@ -745,6 +754,8 @@ void RtcDemoController::receiveControlMessage(std::string message) {
     return;
   const auto timeline = movie_timeline_->snapshot();
   const auto report = shareme::tools::decode_playout_report(bytes, room_id_);
+  if (report)
+    ++drift_report_messages_;
   if (!timeline || !report ||
       !playout_report_tracker_.accept(*report, timeline->generation))
     return;

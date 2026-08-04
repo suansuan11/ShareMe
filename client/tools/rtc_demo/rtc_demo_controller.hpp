@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <filesystem>
@@ -154,6 +155,7 @@ private:
   shareme::core::DriftPhase drift_phase_{shareme::core::DriftPhase::warmup};
   bool drift_scenario_started_{false};
   bool drift_scenario_failed_{false};
+  std::size_t drift_report_messages_{0};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};

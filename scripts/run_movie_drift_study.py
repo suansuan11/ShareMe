@@ -136,7 +136,7 @@ def redact_diagnostic(text: str, secrets: list[str]) -> str:
 
 
 def result_is_complete(output: str) -> bool:
-    return any(line.strip() == COMPLETE_RESULT for line in output.splitlines())
+    return any(line.strip().startswith(COMPLETE_RESULT) for line in output.splitlines())
 
 
 def is_complete_artifact(path: Path) -> bool:
