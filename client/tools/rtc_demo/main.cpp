@@ -60,6 +60,14 @@ int main(int argc, char **argv) {
       QStringList{QStringLiteral("metrics-jsonl")},
       QStringLiteral("Host-only sanitized drift JSONL output"),
       QStringLiteral("path"));
+  QCommandLineOption scenario_option(
+      QStringList{QStringLiteral("drift-scenario")},
+      QStringLiteral("Host-only scripted drift profile (drift-study-v1)"),
+      QStringLiteral("name"));
+  QCommandLineOption duration_option(
+      QStringList{QStringLiteral("measurement-duration-seconds")},
+      QStringLiteral("Frozen drift-study duration in seconds (300)"),
+      QStringLiteral("seconds"));
   QCommandLineOption validate_option(QStringList{QStringLiteral("validate")},
                                      QStringLiteral("Validate configuration and exit"));
   parser.addOption(server_option);
@@ -69,6 +77,8 @@ int main(int argc, char **argv) {
   parser.addOption(movie_option);
   parser.addOption(movie_audio_option);
   parser.addOption(metrics_option);
+  parser.addOption(scenario_option);
+  parser.addOption(duration_option);
   parser.addOption(validate_option);
   if (!parser.parse(app.arguments())) {
     std::cerr << parser.errorText().toStdString() << std::endl;
@@ -83,6 +93,9 @@ int main(int argc, char **argv) {
   const auto source_text = parser.value(source_option);
   const auto movie_path = local_path(parser.value(movie_option));
   const auto metrics_path = local_path(parser.value(metrics_option));
+  bool duration_ok = false;
+  const auto duration_seconds =
+      parser.value(duration_option).toLongLong(&duration_ok);
   auto normalized_path = [](const std::filesystem::path &path) {
     std::error_code error;
     return std::filesystem::absolute(path, error).lexically_normal();
@@ -91,6 +104,14 @@ int main(int argc, char **argv) {
       parser.isSet(metrics_option) && parser.isSet(movie_option) &&
       !metrics_path.empty() && !movie_path.empty() &&
       normalized_path(metrics_path) == normalized_path(movie_path);
+  const auto scenario_set = parser.isSet(scenario_option);
+  const auto duration_set = parser.isSet(duration_option);
+  const auto scenario_valid =
+      (!scenario_set && !duration_set) ||
+      (scenario_set && duration_set && role_text == QStringLiteral("host") &&
+       source_text == QStringLiteral("movie") &&
+       parser.value(scenario_option) == QStringLiteral("drift-study-v1") &&
+       duration_ok && duration_seconds == 300);
   if (!parser.isSet(server_option) ||
       (role_text != QStringLiteral("host") &&
        role_text != QStringLiteral("viewer")) ||
@@ -106,10 +127,12 @@ int main(int argc, char **argv) {
       (parser.isSet(metrics_option) &&
        (role_text != QStringLiteral("host") ||
         source_text != QStringLiteral("movie") || metrics_path.empty() ||
-        metrics_matches_movie))) {
+        metrics_matches_movie)) ||
+      !scenario_valid) {
     std::cerr << "required: --server URL --role host|viewer "
                  "[--room ROOM] [--source test|desktop|movie] [--movie PATH] [--movie-audio] "
-                 "[--metrics-jsonl PATH]"
+                 "[--metrics-jsonl PATH] [--drift-scenario drift-study-v1 "
+                 "--measurement-duration-seconds 300]"
               << std::endl;
     exit_cli(2);
   }
@@ -135,7 +158,8 @@ int main(int argc, char **argv) {
                                parser.value(room_option),
                                source_text == QStringLiteral("desktop"),
                                movie_path, parser.isSet(movie_audio_option),
-                               parser.value(metrics_option));
+                               parser.value(metrics_option),
+                               parser.value(scenario_option), duration_seconds);
   QQmlApplicationEngine engine;
   engine.setInitialProperties(
       {{QStringLiteral("controller"), QVariant::fromValue(&controller)}});

@@ -47,6 +47,14 @@ ApplicationWindow {
 
         Label {
             Layout.fillWidth: true
+            visible: !window.controller.viewer
+                     && window.controller.driftScenarioActive
+            text: "Drift study phase: " + window.controller.driftScenarioPhase
+            color: "#e7c77a"
+        }
+
+        Label {
+            Layout.fillWidth: true
             visible: window.controller.viewer
                      && window.controller.viewerRenderedAvailable
             text: "Rendered movie: "

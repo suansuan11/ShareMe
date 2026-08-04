@@ -5,6 +5,7 @@
 #include "playback_state.hpp"
 #include "playout_report.hpp"
 #include "shareme/core/drift_metrics.hpp"
+#include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
@@ -46,12 +47,15 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(qint64 hostViewerDeltaMs READ hostViewerDeltaMs NOTIFY playoutReportChanged)
   Q_PROPERTY(QString hostSyncAction READ hostSyncAction NOTIFY playoutReportChanged)
   Q_PROPERTY(bool viewerRenderedAvailable READ viewerRenderedAvailable NOTIFY playoutReportChanged)
+  Q_PROPERTY(QString driftScenarioPhase READ driftScenarioPhase NOTIFY driftScenarioChanged)
+  Q_PROPERTY(bool driftScenarioActive READ driftScenarioActive NOTIFY driftScenarioChanged)
 
 public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
                     QString requested_room, bool desktop_source,
                     std::filesystem::path movie_path, bool movie_audio,
-                    QString metrics_jsonl_path,
+                    QString metrics_jsonl_path, QString drift_scenario_name,
+                    qint64 measurement_duration_seconds,
                     QObject *parent = nullptr);
   ~RtcDemoController() override;
 
@@ -73,6 +77,8 @@ public:
   [[nodiscard]] qint64 hostViewerDeltaMs() const noexcept;
   [[nodiscard]] QString hostSyncAction() const;
   [[nodiscard]] bool viewerRenderedAvailable() const noexcept;
+  [[nodiscard]] QString driftScenarioPhase() const;
+  [[nodiscard]] bool driftScenarioActive() const noexcept;
 
   Q_INVOKABLE void setVideoSink(QVideoSink *sink);
   Q_INVOKABLE void start();
@@ -86,6 +92,7 @@ signals:
   void remotePlaybackChanged();
   void hostPlaybackChanged();
   void playoutReportChanged();
+  void driftScenarioChanged();
 
 private:
   bool createPeer();
@@ -101,6 +108,8 @@ private:
   void receiveControlMessage(std::string message);
   void flushDriftMetrics();
   void stopDriftMetrics() noexcept;
+  void runDriftScenario();
+  void failDriftScenario(const QString& category);
 
   QUrl server_url_;
   shareme::rtc::SignaledRole role_;
@@ -109,6 +118,8 @@ private:
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
   QString metrics_jsonl_path_;
+  QString drift_scenario_name_;
+  qint64 measurement_duration_seconds_{0};
   std::shared_ptr<shareme::rtc::MovieTimeline> movie_timeline_;
   webrtc::scoped_refptr<shareme::rtc::MovieVideoSource> movie_video_source_;
   QString status_{QStringLiteral("idle")};
@@ -123,6 +134,7 @@ private:
   QTimer playback_state_timer_;
   QTimer playout_report_timer_;
   QTimer drift_metrics_flush_timer_;
+  QTimer drift_scenario_timer_;
   std::uint64_t playback_sequence_{1};
   shareme::tools::PlaybackStateTracker playback_tracker_;
   shareme::tools::PlayoutReportTracker playout_report_tracker_;
@@ -137,6 +149,11 @@ private:
   std::unique_ptr<shareme::tools::DriftMetricsJsonlWriter>
       drift_metrics_writer_;
   bool drift_capture_enabled_{false};
+  std::optional<shareme::tools::DriftScenario> drift_scenario_;
+  std::chrono::steady_clock::time_point drift_scenario_started_at_{};
+  shareme::core::DriftPhase drift_phase_{shareme::core::DriftPhase::warmup};
+  bool drift_scenario_started_{false};
+  bool drift_scenario_failed_{false};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};
