@@ -27,6 +27,9 @@ Movie-audio transport isolation is merged on `main` through `2d806a5`.
 Receiver native movie-audio playout is merged on `main` through `46710c7`.
 Host-authoritative movie pause, resume, and seek remain the merged baseline
 through `48e4d27`.
+Sender local-track movie preview is delivered on
+`codex/sender-local-preview`; integration into `main` is pending this stage's
+merge.
 
 Delivered behavior:
 
@@ -42,6 +45,9 @@ Delivered behavior:
   track with ADM recording disabled;
 - the Qt viewer uses a native playout-only ADM for the dedicated movie track;
   host and headless probe paths retain the deterministic discard renderer;
+- the Qt host observes its own local WebRTC video track while the viewer
+  observes the remote track, preventing the viewer's grayscale test source from
+  replacing the sender's movie preview;
 - client and server signaling allowlists route dedicated SDP and ICE messages
   in the same room without changing primary relay types;
 - builds without MovieRTC keep compiling and test a stable unsupported result.
@@ -68,9 +74,11 @@ for exact proof and evidence boundaries.
   model is recorded separately from that unobservable runtime detail.
 - **Verified — cache preservation:** the repository-external Darwin arm64
   libwebrtc cache was used read-only; it was not cleaned, rewritten, or staged.
-- **Partial — GUI:** the supplied 4K HEVC/FLAC movie kept a macOS host/viewer
-  GUI session connected with native output initialization and no RTC error;
-  audible speaker confirmation remains a human acceptance step.
+- **Verified — receiver sound:** the user confirmed native movie-audio output
+  with the supplied 4K HEVC/FLAC movie on macOS.
+- **Partial — sender preview GUI:** the local-track callback and role routing
+  pass native tests, and a real-movie host/viewer GUI session connected without
+  RTC error; exact on-screen movie content still needs human visual confirmation.
 - **Environment-dependent — Windows:** rerun native movie-call build/tests and
   GUI/media acceptance after pulling the merged `main`.
 - **Unimplemented:** viewer playout reports, generation-aware receiver buffer

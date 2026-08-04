@@ -34,6 +34,7 @@ struct SignaledPeerConfig {
   SignaledAudioMode audio_mode{SignaledAudioMode::synthetic};
   SignaledVideoMode video_mode{SignaledVideoMode::synthetic};
   LocalVideoSourceFactory video_source_factory;
+  RemoteVideoFrameCallback local_video_frame;
   RemoteVideoFrameCallback remote_video_frame;
   ControlMessageCallback control_message;
 };
