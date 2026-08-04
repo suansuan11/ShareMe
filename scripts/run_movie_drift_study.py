@@ -139,6 +139,19 @@ def result_is_complete(output: str) -> bool:
     return any(line.strip().startswith(COMPLETE_RESULT) for line in output.splitlines())
 
 
+def parse_result_counters(output: str) -> dict[str, int]:
+    for line in output.splitlines():
+        if not line.startswith(COMPLETE_RESULT):
+            continue
+        values = dict(re.findall(r"(accepted_samples|rejected_samples|received_reports)=(\d+)", line))
+        return {
+            "acceptedSamples": int(values.get("accepted_samples", 0)),
+            "rejectedSamples": int(values.get("rejected_samples", 0)),
+            "receivedReports": int(values.get("received_reports", 0)),
+        }
+    return {}
+
+
 def is_complete_artifact(path: Path) -> bool:
     if not path.is_file():
         return False
@@ -339,7 +352,9 @@ def run_one(
         host.wait(timeout=10)
         if not is_complete_artifact(output_path):
             raise DriftStudyError("incomplete-artifact")
-        return summarize_artifact(output_path)
+        report = summarize_artifact(output_path)
+        report.update(parse_result_counters(output))
+        return report
     except (DriftStudyError, OSError, TimeoutError):
         if output_path.exists():
             return {"artifact": output_path.name, "complete": False}
@@ -389,7 +404,12 @@ def run_study(args: argparse.Namespace) -> dict[str, Any]:
                 args.timeout_seconds, {"QT_QPA_PLATFORM": args.qt_platform},
             )
             if not report.get("acceptedSamples"):
-                raise DriftStudyError("run-not-complete")
+                raise DriftStudyError(
+                    "run-not-complete-accepted-{}-received-{}".format(
+                        report.get("acceptedSamples", 0),
+                        report.get("receivedReports", 0),
+                    )
+                )
             reports.append(report)
         result = combine_reports(reports)
         summary_path = root / "combined-summary.json"

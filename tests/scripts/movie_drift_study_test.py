@@ -67,6 +67,12 @@ class MovieDriftStudyTest(unittest.TestCase):
                     "rejected_samples=0 received_reports=0"
                 )
             )
+            counters = self.runner.parse_result_counters(
+                "RESULT drift-study-v1 status=complete accepted_samples=4 "
+                "rejected_samples=2 received_reports=7"
+            )
+            self.assertEqual(counters["acceptedSamples"], 4)
+            self.assertEqual(counters["receivedReports"], 7)
 
     def test_artifact_hash_and_output_root_refuse_escape_or_existing_targets(self):
         with tempfile.TemporaryDirectory() as directory:
