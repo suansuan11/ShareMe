@@ -117,6 +117,12 @@ class MovieDriftStudyTest(unittest.TestCase):
         self.assertNotIn("/private/demo", diagnostic)
         self.assertIn("<redacted>", diagnostic)
 
+    def test_native_qt_platform_is_not_overridden_unless_explicit(self):
+        native = self.runner.build_demo_environment({"QT_QPA_PLATFORM": "native"}, None)
+        self.assertNotIn("QT_QPA_PLATFORM", native)
+        offscreen = self.runner.build_demo_environment({}, "offscreen")
+        self.assertEqual(offscreen["QT_QPA_PLATFORM"], "offscreen")
+
 
 if __name__ == "__main__":
     unittest.main()

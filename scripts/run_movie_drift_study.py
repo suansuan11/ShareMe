@@ -135,6 +135,17 @@ def redact_diagnostic(text: str, secrets: list[str]) -> str:
     return redacted
 
 
+def build_demo_environment(
+    base: dict[str, str], qt_platform: Optional[str]
+) -> dict[str, str]:
+    environment = dict(base)
+    if qt_platform:
+        environment["QT_QPA_PLATFORM"] = qt_platform
+    else:
+        environment.pop("QT_QPA_PLATFORM", None)
+    return environment
+
+
 def result_is_complete(output: str) -> bool:
     return any(line.strip().startswith(COMPLETE_RESULT) for line in output.splitlines())
 
@@ -401,7 +412,8 @@ def run_study(args: argparse.Namespace) -> dict[str, Any]:
             output_path = root / f"run-{index:02d}.jsonl"
             report = run_one(
                 args.demo, args.server_url, args.movie, output_path,
-                args.timeout_seconds, {"QT_QPA_PLATFORM": args.qt_platform},
+                args.timeout_seconds,
+                build_demo_environment(os.environ.copy(), args.qt_platform),
             )
             if not report.get("acceptedSamples"):
                 raise DriftStudyError(
@@ -437,7 +449,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--run-count", type=int, default=3)
     parser.add_argument("--timeout-seconds", type=float, default=390.0)
-    parser.add_argument("--qt-platform", default="offscreen")
+    parser.add_argument("--qt-platform")
     args = parser.parse_args(argv)
     try:
         result = run_study(args)
