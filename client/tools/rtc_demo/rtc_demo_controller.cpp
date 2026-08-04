@@ -644,12 +644,17 @@ void RtcDemoController::failDriftScenario(const QString& category) {
 void RtcDemoController::recordDriftError(std::string category,
                                          bool notify_viewer) {
   drift_aggregator_.record_error(category);
-  if (!notify_viewer || !viewer() || !peer_ || room_id_.isEmpty())
+  if (!viewer())
     return;
-  const auto encoded = shareme::tools::encode_drift_failure(
-      QString::fromStdString(category));
-  if (encoded.isEmpty() || !peer_->send_control_message(encoded.toStdString()))
+  bool sent = false;
+  if (notify_viewer && peer_ && !room_id_.isEmpty()) {
+    const auto encoded = shareme::tools::encode_drift_failure(
+        QString::fromStdString(category));
+    sent = !encoded.isEmpty() && peer_->send_control_message(encoded.toStdString());
+  }
+  if (!sent)
     drift_aggregator_.record_error("drift-error-send-failure");
+  QCoreApplication::exit(EXIT_FAILURE);
 }
 
 void RtcDemoController::publishPlaybackState() {

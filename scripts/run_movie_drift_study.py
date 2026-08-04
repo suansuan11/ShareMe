@@ -150,6 +150,10 @@ def viewer_is_alive(process: Any) -> bool:
     return process.poll() is None
 
 
+def complete_result_requires_viewer(output: str, viewer: Any) -> bool:
+    return result_is_complete(output) and viewer_is_alive(viewer)
+
+
 def result_is_complete(output: str) -> bool:
     return any(line.strip().startswith(COMPLETE_RESULT) for line in output.splitlines())
 
@@ -364,9 +368,13 @@ def run_one(
             if event.strip().startswith("RESULT drift-study-v1"):
                 break
         output = "".join(result_lines + host_reader.lines[len(result_lines):])
-        if not result_is_complete(output):
+        if not complete_result_requires_viewer(output, viewer):
+            if not viewer_is_alive(viewer):
+                raise DriftStudyError("viewer-exited-before-result")
             raise DriftStudyError("measurement-failed")
         host.wait(timeout=10)
+        if not viewer_is_alive(viewer):
+            raise DriftStudyError("viewer-exited-after-result")
         if not is_complete_artifact(output_path):
             raise DriftStudyError("incomplete-artifact")
         report = summarize_artifact(output_path)

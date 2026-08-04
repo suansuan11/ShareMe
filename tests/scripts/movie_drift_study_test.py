@@ -133,6 +133,16 @@ class MovieDriftStudyTest(unittest.TestCase):
 
         self.assertTrue(self.runner.viewer_is_alive(Process(None)))
         self.assertFalse(self.runner.viewer_is_alive(Process(1)))
+        self.assertTrue(
+            self.runner.complete_result_requires_viewer(
+                "RESULT drift-study-v1 status=complete", Process(None)
+            )
+        )
+        self.assertFalse(
+            self.runner.complete_result_requires_viewer(
+                "RESULT drift-study-v1 status=complete", Process(1)
+            )
+        )
 
 
 if __name__ == "__main__":
