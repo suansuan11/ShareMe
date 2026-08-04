@@ -135,6 +135,21 @@ if(TARGET ShareMe::QtSignaling)
   target_link_libraries(shareme_playback_state_test PRIVATE Qt6::Core)
   shareme_set_project_warnings(shareme_playback_state_test)
   add_test(NAME playback_state COMMAND shareme_playback_state_test)
+
+  add_executable(
+    shareme_playout_report_test
+    playout_report_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/playout_report.cpp"
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/playback_state.cpp"
+  )
+  target_include_directories(
+    shareme_playout_report_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_playout_report_test PRIVATE cxx_std_20)
+  target_link_libraries(shareme_playout_report_test PRIVATE Qt6::Core)
+  shareme_set_project_warnings(shareme_playout_report_test)
+  add_test(NAME playout_report COMMAND shareme_playout_report_test)
 endif()
 
 if(WIN32)
