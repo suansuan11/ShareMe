@@ -340,6 +340,10 @@ bool RtcDemoController::createPeer() {
         Qt::QueuedConnection);
   };
   shareme::rtc::SignaledPeerConfig config{.role = role_};
+  config.video_direction =
+      role_ == shareme::rtc::SignaledRole::host
+          ? shareme::rtc::SignaledVideoDirection::send_only
+          : shareme::rtc::SignaledVideoDirection::receive_only;
 #if defined(SHAREME_HAS_DESKTOP_CAPTURE)
   if (desktop_source_) {
     config.video_mode = shareme::rtc::SignaledVideoMode::injected;

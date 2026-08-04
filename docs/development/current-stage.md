@@ -90,6 +90,15 @@ measurement and conversion-cleanup slice is complete with outcome
   `signaled_peer` lifecycles, Go race/vet, workflow 8/8, the skill validator,
   and `git diff --check`; Windows and human visual/audio/thermal evidence remain
   environment-dependent or unperformed.
+- the follow-up thermal investigation now makes the movie host video
+  transceiver send-only and the viewer transceiver receive-only. The viewer no
+  longer creates or encodes an unused outbound test-pattern track, while the
+  host still renders its local movie preview and the viewer still receives the
+  movie. A real peer integration regression verifies the directional contract.
+  Experimental P010 pass-through, 10-bit conversion, and forced macOS H.264
+  paths were rejected after either producing solid-green frames or failing the
+  CPU/RSS gate; none of those hardware experiments remain in the committed
+  source. The stage therefore remains `blocked-on-quality-preserving-boundary`.
 
 See [Movie Playback Performance Verification](../verification/movie-playback-performance.md).
 The branch must not merge to `main` or resume drift/hard-resync work until the

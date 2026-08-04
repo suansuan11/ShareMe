@@ -19,6 +19,7 @@ namespace shareme::rtc {
 enum class SignaledRole { host, viewer };
 enum class SignaledAudioMode { synthetic, microphone };
 enum class SignaledVideoMode { synthetic, injected };
+enum class SignaledVideoDirection { send_receive, send_only, receive_only };
 
 using LocalVideoSourceFactory =
     std::function<webrtc::scoped_refptr<LocalVideoSource>(
@@ -33,6 +34,8 @@ struct SignaledPeerConfig {
   SignaledRole role{SignaledRole::host};
   SignaledAudioMode audio_mode{SignaledAudioMode::synthetic};
   SignaledVideoMode video_mode{SignaledVideoMode::synthetic};
+  SignaledVideoDirection video_direction{
+      SignaledVideoDirection::send_receive};
   LocalVideoSourceFactory video_source_factory;
   RemoteVideoFrameCallback local_video_frame;
   RemoteVideoFrameCallback remote_video_frame;

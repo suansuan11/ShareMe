@@ -16,6 +16,7 @@
 #include "api/ref_counted_base.h"
 #include "api/rtp_parameters.h"
 #include "api/rtp_receiver_interface.h"
+#include "api/rtp_transceiver_interface.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtc_stats_report.h"
 #include "api/stats/rtcstats_objects.h"
@@ -131,10 +132,17 @@ bool valid_signaled_peer_config(const SignaledPeerConfig &config) noexcept {
       config.role == SignaledRole::host || config.role == SignaledRole::viewer;
   const auto valid_audio = config.audio_mode == SignaledAudioMode::synthetic ||
                            config.audio_mode == SignaledAudioMode::microphone;
-  const auto valid_video = config.video_mode == SignaledVideoMode::synthetic ||
-                           (config.video_mode == SignaledVideoMode::injected &&
-                            static_cast<bool>(config.video_source_factory));
-  return valid_role && valid_audio && valid_video;
+  const auto valid_direction =
+      config.video_direction == SignaledVideoDirection::send_receive ||
+      config.video_direction == SignaledVideoDirection::send_only ||
+      config.video_direction == SignaledVideoDirection::receive_only;
+  const auto sends_video =
+      config.video_direction != SignaledVideoDirection::receive_only;
+  const auto valid_video =
+      !sends_video || config.video_mode == SignaledVideoMode::synthetic ||
+      (config.video_mode == SignaledVideoMode::injected &&
+       static_cast<bool>(config.video_source_factory));
+  return valid_role && valid_audio && valid_direction && valid_video;
 }
 bool valid_remote_candidate(std::string_view mid, int line,
                             std::string_view candidate) noexcept {
@@ -210,21 +218,23 @@ public:
       return false;
     }
     queues_ = webrtc::CreateDefaultTaskQueueFactory();
-    if (config_.video_mode == SignaledVideoMode::injected)
-      video_source_ = config_.video_source_factory(*queues_);
-    else
-      video_source_ = TestPatternSource::create(*queues_, 640, 360, 30);
-    if (!video_source_) {
-      fail("video-source-unavailable");
-      return false;
+    if (config_.video_direction != SignaledVideoDirection::receive_only) {
+      if (config_.video_mode == SignaledVideoMode::injected)
+        video_source_ = config_.video_source_factory(*queues_);
+      else
+        video_source_ = TestPatternSource::create(*queues_, 640, 360, 30);
+      if (!video_source_) {
+        fail("video-source-unavailable");
+        return false;
+      }
     }
     return runtime_->signaling_thread()->BlockingCall(
         [this] { return setup(); });
   }
   bool start() {
-    if (!runtime_ || !peer_ || !video_source_)
+    if (!runtime_ || !peer_)
       return false;
-    if (!video_source_->start()) {
+    if (video_source_ && !video_source_->start()) {
       const auto source_error = video_source_->error();
       fail(source_error.empty() ? "video-source-start-failed" : source_error);
       return false;
@@ -274,7 +284,7 @@ public:
     while (std::chrono::steady_clock::now() < deadline) {
       if (wait_cancelled_.load(std::memory_order_acquire))
         break;
-      const auto source_error = video_source_->error();
+      const auto source_error = video_source_ ? video_source_->error() : "";
       if (!source_error.empty()) {
         fail(source_error);
         break;
@@ -283,8 +293,10 @@ public:
         std::lock_guard lock(mu_);
         if (!result_.error.empty())
           break;
-        if (result_.connected && remote_video_sink_.frame_count() > 0 &&
-            !media_ready)
+        const auto remote_video_ready =
+            config_.video_direction == SignaledVideoDirection::send_only ||
+            remote_video_sink_.frame_count() > 0;
+        if (result_.connected && remote_video_ready && !media_ready)
           media_ready = std::chrono::steady_clock::now();
       }
       if (media_ready && std::chrono::steady_clock::now() - *media_ready >=
@@ -304,7 +316,8 @@ public:
     populate_media_result();
     if (!result_.connected && result_.error.empty())
       result_.error = "signaled call timed out";
-    if (result_.video_frames_received == 0 && result_.error.empty())
+    if (config_.video_direction != SignaledVideoDirection::send_only &&
+        result_.video_frames_received == 0 && result_.error.empty())
       result_.error = "no remote video received";
     if ((result_.audio_packets_sent == 0 ||
          result_.audio_packets_received == 0) &&
@@ -421,10 +434,12 @@ private:
     }
     peer_ = std::move(created.value());
     peer_->SetAudioPlayout(false);
-    video_track_ =
-        runtime_->factory()->CreateVideoTrack(video_source_, "movie-video");
-    if (video_track_)
-      video_track_->AddOrUpdateSink(&local_video_sink_, {});
+    if (video_source_) {
+      video_track_ =
+          runtime_->factory()->CreateVideoTrack(video_source_, "movie-video");
+      if (video_track_)
+        video_track_->AddOrUpdateSink(&local_video_sink_, {});
+    }
     const auto policy = signaled_audio_policy(config_.audio_mode);
     const auto audio_kind = policy.processing_enabled
                                 ? AudioSourceKind::microphone
@@ -434,21 +449,34 @@ private:
     audio_track_ = runtime_->factory()->CreateAudioTrack(
         role_ == SignaledRole::host ? "host-voice" : "viewer-voice",
         audio_source_.get());
-    if (!video_track_ || !audio_track_) {
+    if (!audio_track_) {
       fail("adding test tracks failed");
       return false;
     }
-    auto video_sender = peer_->AddTrack(video_track_, {"shareme-test"});
+    webrtc::RtpTransceiverInit video_init;
+    if (video_track_)
+      video_init.stream_ids = {"shareme-test"};
+    video_init.direction =
+        config_.video_direction == SignaledVideoDirection::send_only
+            ? webrtc::RtpTransceiverDirection::kSendOnly
+        : config_.video_direction == SignaledVideoDirection::receive_only
+            ? webrtc::RtpTransceiverDirection::kRecvOnly
+            : webrtc::RtpTransceiverDirection::kSendRecv;
+    auto video_transceiver = video_track_
+                                 ? peer_->AddTransceiver(video_track_, video_init)
+                                 : peer_->AddTransceiver(webrtc::MediaType::VIDEO,
+                                                         video_init);
     auto audio_sender = peer_->AddTrack(audio_track_, {"shareme-test"});
-    if (!video_sender.ok() || !audio_sender.ok()) {
+    if (!video_transceiver.ok() || !audio_sender.ok()) {
       fail("adding test tracks failed");
       return false;
     }
-    if (config_.preserve_video_quality) {
-      auto parameters = video_sender.value()->GetParameters();
+    if (config_.preserve_video_quality && video_track_) {
+      auto parameters = video_transceiver.value()->sender()->GetParameters();
       parameters.degradation_preference =
           webrtc::DegradationPreference::MAINTAIN_FRAMERATE_AND_RESOLUTION;
-      const auto error = video_sender.value()->SetParameters(parameters);
+      const auto error =
+          video_transceiver.value()->sender()->SetParameters(parameters);
       if (!error.ok()) {
         fail("preserving video quality failed: " +
              std::string(error.message()));

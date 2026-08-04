@@ -188,6 +188,26 @@ performance-and-quality result. Its CPU reduction cannot be traded for the
 cadence regression, and it must not be merged or enabled as an accepted
 quality-preserving stage until the full quality contract passes.
 
+## Follow-up directional-video checkpoint
+
+The movie-call topology previously created a synthetic outbound video source
+for the viewer even though the product flow is one-way movie video. The
+follow-up change gives the host a send-only video transceiver and the viewer a
+receive-only video transceiver. The host continues to receive voice and render
+its local movie preview; only the unused viewer-to-host test-pattern video is
+removed. The integration test establishes that the send-only host succeeds
+without remote video frames and that the receive-only viewer receives frames.
+
+Several ignored-build experiments were explicitly rejected rather than
+committed. Native Main10/P010 pass-through produced solid-green host and viewer
+frames. Correct P010-to-NV12 conversion restored the supplied movie's colors,
+but a complete 180-second H.264-preferred run averaged 191.90% host CPU and
+52.59% viewer CPU with host RSS P95 approximately 3.80 GB. Against the recorded
+software baseline, combined CPU improved only about 2.5%, so the experiment did
+not establish significant thermal improvement. It was removed from source.
+The directional-video checkpoint is a bounded waste-removal improvement, not a
+claim that the overall 30% CPU or physical-temperature gate has passed.
+
 ## Verification boundary
 
 Verified on macOS: focused C++/Python contracts, direct-I420 media tests,

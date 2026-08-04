@@ -33,6 +33,7 @@ static_assert(!HasMovieAudioFactory<shareme::rtc::SignaledPeerConfig>);
 int main() {
   using shareme::rtc::SignaledAudioMode;
   using shareme::rtc::SignaledRole;
+  using shareme::rtc::SignaledVideoDirection;
   using shareme::rtc::SignaledVideoMode;
   int remote_callback_count = 0;
   int remote_width = 0;
@@ -73,6 +74,13 @@ int main() {
   REQUIRE(shareme::rtc::valid_signaled_peer_config(
       {.role = SignaledRole::host,
        .audio_mode = SignaledAudioMode::microphone}));
+  REQUIRE(shareme::rtc::valid_signaled_peer_config(
+      {.role = SignaledRole::viewer,
+       .video_direction = SignaledVideoDirection::receive_only}));
+  REQUIRE(!shareme::rtc::valid_signaled_peer_config(
+      {.role = SignaledRole::host,
+       .video_mode = SignaledVideoMode::injected,
+       .video_direction = SignaledVideoDirection::send_only}));
   REQUIRE(!shareme::rtc::valid_signaled_peer_config(
       {.role = SignaledRole::host,
        .audio_mode = SignaledAudioMode::synthetic,
@@ -283,6 +291,55 @@ int main() {
   REQUIRE(viewer_report_future.get() == viewer_report);
   control_host->stop();
   control_viewer->stop();
+
+  std::unique_ptr<shareme::rtc::SignaledPeer> send_only_host;
+  std::unique_ptr<shareme::rtc::SignaledPeer> receive_only_viewer;
+  shareme::rtc::SignaledPeerCallbacks send_only_callbacks;
+  send_only_callbacks.description = [&](std::string type, std::string sdp) {
+    REQUIRE(receive_only_viewer->receive_description(std::move(type),
+                                                      std::move(sdp)));
+  };
+  send_only_callbacks.candidate =
+      [&](std::string mid, int line, std::string candidate) {
+        REQUIRE(receive_only_viewer->receive_candidate(
+            std::move(mid), line, std::move(candidate)));
+      };
+  shareme::rtc::SignaledPeerCallbacks receive_only_callbacks;
+  receive_only_callbacks.description = [&](std::string type, std::string sdp) {
+    REQUIRE(send_only_host->receive_description(std::move(type),
+                                                 std::move(sdp)));
+  };
+  receive_only_callbacks.candidate =
+      [&](std::string mid, int line, std::string candidate) {
+        REQUIRE(send_only_host->receive_candidate(
+            std::move(mid), line, std::move(candidate)));
+      };
+  receive_only_viewer = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::viewer,
+       .video_direction = SignaledVideoDirection::receive_only},
+      std::move(receive_only_callbacks));
+  send_only_host = shareme::rtc::SignaledPeer::create(
+      {.role = SignaledRole::host,
+       .video_direction = SignaledVideoDirection::send_only},
+      std::move(send_only_callbacks));
+  REQUIRE(receive_only_viewer != nullptr);
+  REQUIRE(send_only_host != nullptr);
+  REQUIRE(receive_only_viewer->start());
+  REQUIRE(send_only_host->start());
+  auto host_result = std::async(std::launch::async, [&] {
+    return send_only_host->wait(std::chrono::seconds(10));
+  });
+  auto viewer_result = std::async(std::launch::async, [&] {
+    return receive_only_viewer->wait(std::chrono::seconds(10));
+  });
+  const auto directional_host_result = host_result.get();
+  const auto directional_viewer_result = viewer_result.get();
+  REQUIRE(directional_host_result.error.empty());
+  REQUIRE(directional_host_result.video_frames_received == 0);
+  REQUIRE(directional_viewer_result.error.empty());
+  REQUIRE(directional_viewer_result.video_frames_received > 0);
+  send_only_host->stop();
+  receive_only_viewer->stop();
 
   auto viewer_only = shareme::rtc::SignaledPeer::create(
       {.role = SignaledRole::viewer}, {});
