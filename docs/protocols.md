@@ -127,7 +127,9 @@ later use a separate unordered channel; it is not part of the foundation.
     "mediaPtsMs": 125000,
     "effectiveAtHostTimeMs": 9864891,
     "rate": 1.0,
-    "generation": 4
+    "generation": 4,
+    "videoAnchorMediaPtsMs": 124967,
+    "videoRtpTimestamp": 4294967280
   }
 }
 ```
@@ -135,6 +137,18 @@ later use a separate unordered channel; it is not part of the foundation.
 `state` is `playing` or `paused`. Seek increments `generation`; messages from an
 older generation are ignored. `rate` is in `[0.5, 2.0]` for validation, though
 automatic correction uses only `[0.98, 1.02]`.
+
+`videoAnchorMediaPtsMs` and `videoRtpTimestamp` come from the same emitted
+movie-video frame and the same `generation`. The viewer uses their signed
+modulo-32-bit RTP delta at 90 kHz to map a rendered frame back to absolute movie
+PTS. It rejects samples more than 10 seconds from the anchor. `mediaPtsMs`
+remains the host timeline position at publication time and is not replaced by
+the frame anchor.
+
+Both anchor fields are optional as a pair for version-1 compatibility. A newer
+viewer accepts a legacy state without them and continues to show host state,
+but predictably suppresses playout reports until an anchored state arrives. A
+message containing only one anchor field is malformed.
 
 ### Viewer Playout Report
 
@@ -157,6 +171,12 @@ The viewer sends a report every 250 ms while media is active. Positions and
 times are signed 64-bit milliseconds. `bufferMs` must be in `[0, 10000]`.
 `receiveTimeMs` comes from a monotonic local clock and is used only with other
 samples from the same peer.
+
+After a seek, the viewer discards its prior rendered sample. It resumes reports
+only after a frame at or after the same-generation anchor is submitted to the
+renderer. The host accepts only increasing report sequences whose generation
+equals its current timeline generation. Reports feed the synchronization
+decision observer; this protocol does not imply that a correction was applied.
 
 ### Sync Decision
 

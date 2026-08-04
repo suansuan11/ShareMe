@@ -27,9 +27,10 @@ Movie-audio transport isolation is merged on `main` through `2d806a5`.
 Receiver native movie-audio playout is merged on `main` through `46710c7`.
 Host-authoritative movie pause, resume, and seek remain the merged baseline
 through `48e4d27`.
-Sender local-track movie preview is delivered on
-`codex/sender-local-preview`; integration into `main` is pending this stage's
-merge.
+Sender local-track movie preview is merged on `main` through `b931a2f`.
+Receiver playout reporting and generation-aware reconciliation are delivered on
+`codex/receiver-playout-reports`; integration into `main` is pending this
+stage's merge.
 
 Delivered behavior:
 
@@ -48,6 +49,9 @@ Delivered behavior:
 - the Qt host observes its own local WebRTC video track while the viewer
   observes the remote track, preventing the viewer's grayscale test source from
   replacing the sender's movie preview;
+- the host publishes a same-frame movie PTS/RTP/generation anchor; the viewer
+  reports actually submitted render frames, and both sides reject stale
+  generations without applying an automatic correction;
 - client and server signaling allowlists route dedicated SDP and ICE messages
   in the same room without changing primary relay types;
 - builds without MovieRTC keep compiling and test a stable unsupported result.
@@ -81,16 +85,21 @@ for exact proof and evidence boundaries.
   RTC error; exact on-screen movie content still needs human visual confirmation.
 - **Environment-dependent — Windows:** rerun native movie-call build/tests and
   GUI/media acceptance after pulling the merged `main`.
-- **Unimplemented:** viewer playout reports, generation-aware receiver buffer
-  reconciliation, bounded hard resync, TURN/public network acceptance,
+- **Verified — playout-report core:** macOS tests cover 32-bit RTP wrap,
+  same-generation movie anchors, stale rendered-frame/report rejection, and
+  host sync-decision observation.
+- **Partial — playout telemetry GUI:** a supplied-movie host/viewer call stayed
+  connected without RTC/media error; visible values and long-run drift remain
+  human or instrumented acceptance.
+- **Unimplemented:** correction application, bounded hard resync, TURN/public network acceptance,
   process-loopback audio, and measured performance.
 
 ## Next recommended stage
 
-After manual audible macOS confirmation, add receiver playout reports and
-generation-aware reconciliation before a bounded host hard-resync command.
-This supplies the missing evidence and buffer semantics needed to correct drift
-without faking synchronization.
+Measure playout-report drift over pause/resume, forward/backward seek, and a
+bounded long-running movie sample. Use that distribution to define and test the
+first bounded hard-resync command without changing the existing correction
+thresholds by assumption.
 
 ## Git handoff
 
