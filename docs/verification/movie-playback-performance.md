@@ -21,9 +21,10 @@ The branch now provides:
   tested observable RGBA fallback;
 - a bounded one-frame Qt planar-YUV preview adapter with an observable ARGB
   fallback and sink-submission counters; and
-- explicit `--video-acceleration auto|software` validation. No hardware
-  adapter was added because the captured evidence did not attribute the
-  remaining cost to a codec boundary strongly enough to justify one.
+- explicit `--video-acceleration auto|software` validation, with a profiling-
+  gated macOS HEVC VideoToolbox decode path and software fallback. The
+  hardware candidate is recorded below but is not a verified deliverable
+  because its quality gate failed. No Windows hardware adapter was executed.
 
 No resolution, cadence target, bitrate, codec quality configuration, audio
 path, MovieTimeline behavior, queue capacity, drop policy, or SyncController
@@ -91,12 +92,12 @@ The earlier same-binary software/auto comparison is invalidated and is not
 used as evidence. This baseline is the first comparison with distinct
 executable identities and measurement-window-only process statistics.
 
-## Three-run auto candidate and gates
+## Historical three-run software `auto` candidate and gates
 
-All three auto runs completed 180 seconds with 120 process samples per role in
-the formal measurement window. The current `auto` mode has no platform
-hardware adapter and therefore remains the unchanged quality-preserving
-software path. Its executable SHA-256 is
+All three historical auto runs completed 180 seconds with 120 process samples
+per role in the formal measurement window. This was captured before the
+profiling-gated macOS hardware candidate below; that executable used the
+unchanged software path. Its executable SHA-256 is
 `0ef2bf6aebe8bee6ebdbc835e67eed94aa880a074ba86c560a4370712d6e18b9`.
 The candidate measurement-chain fixes are recorded in local commit `4eecb83`.
 Candidate artifact SHA-256 values are:
@@ -137,16 +138,67 @@ missing PSNR/SSIM, paused-probe, and human audio/pause/seek confirmation. The
 current data does not justify claiming a 30% CPU reduction or claiming reduced
 physical temperature.
 
+## Profiling-gated macOS hardware candidate
+
+The post-cleanup macOS stack sample established a codec boundary before this
+candidate was attempted. In the host process, the `ShareMeWorker` playback
+thread appeared in approximately 1,135 of 1,401 collected samples under
+`FfmpegMediaSource::read_next`; its child stacks included FFmpeg
+`libswscale` and `libavcodec` HEVC work. Qt sink submission appeared only as a
+small application-layer portion of the sample. The sample files remain
+ignored local evidence and are not committed.
+
+The candidate then enabled VideoToolbox only for HEVC when `auto` is selected,
+reported `path=hardware` in host counters, and fell back to software for the
+generated unsupported mpeg4 fixture. It preserved the 3840×2160 dimensions and
+recorded zero coalescing in all six measured host/viewer roles. The candidate
+executable SHA-256 is
+`2c8c28968a68180f49cebb27849fb98e672937eb7d46285b44bfcb64502ed3e2`.
+The raw candidate artifacts remain in an ignored output directory:
+
+```text
+run-01.jsonl  9061b3fbe30d0bd14adca5f3cbd06f04796327594307b114c36dcdfe0cea8a69
+run-02.jsonl  8de7f8b890a2b18fc0a86d95e5c6c61942c9029944868e93916d8bd94dc3dde8
+run-03.jsonl  66f7ab8bf524f2898de18d5c795069cab13d095d511facc4fe3ae722bbfa9fe9
+```
+
+| Run | Host average CPU | Viewer average CPU | Host CPU P95 | Viewer CPU P95 | Host RSS P95 | Viewer RSS P95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 01 | 112.13% | 23.40% | 154.0% | 33.2% | 660,799,488 | 266,649,600 |
+| 02 | 110.80% | 23.29% | 151.0% | 33.6% | 835,452,928 | 289,521,664 |
+| 03 | 113.38% | 23.97% | 154.6% | 33.5% | 823,443,456 | 289,636,352 |
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Complete 180-second lifecycle | verified | 3/3 artifacts complete; each has 358 counter records and failure is null |
+| Exact dimensions and metadata | failed | host pixel aspect remained 1/1 versus baseline 0/1; viewer dimensions differed from baseline in runs 01 and 02 |
+| Cadence ≥99% of baseline | failed | minimum per-run/per-role submitted ratio was 70.20% in run 02 viewer |
+| No additional drops/coalescing | verified | all candidate roles reported dropped=0 and coalesced=0; max_pending=1 |
+| PSNR ≥45 dB | failed / missing | no same-timestamp decoded-frame pair was recorded |
+| SSIM ≥0.995 | failed / missing | no same-timestamp decoded-frame pair was recorded |
+| Combined average CPU reduction ≥30% | verified / insufficient | median-of-three reduction was 30.04%, but the candidate fails quality gates |
+| CPU P95 non-regression | verified | combined candidate P95 change was -125.1 percentage points |
+| RSS P95 growth ≤10% | verified | median-of-three growth was -20.58% |
+| Paused CPU reduction ≥70% | failed / missing | dedicated paused probe was not executed |
+| One-frame GUI backlog bound | verified / application-layer | all six role/run summaries reported max_pending=1; no display scanout proof |
+| Preview/audio/pause/seek human checks | environment-dependent | no human GUI/audio confirmation was captured |
+
+This hardware candidate is therefore **partial evidence**, not a verified
+performance-and-quality result. Its CPU reduction cannot be traded for the
+cadence regression, and it must not be merged or enabled as an accepted
+quality-preserving stage until the full quality contract passes.
+
 ## Verification boundary
 
 Verified on macOS: focused C++/Python contracts, direct-I420 media tests,
 preview-adapter test, playback demo build, 3×180-second software baseline, and
-3×180-second auto candidate lifecycle. Windows is environment-dependent and
-unverified. Full-suite, lifecycle-repeat, Go, workflow, validator, final
-read-only review, and human GUI/audio acceptance are recorded separately at the
-stage handoff and are not inferred from this measurement document. Qt sink
-submission remains application-layer evidence only; it does not verify display
-scanout, acoustic A/V synchronization, or physical screen presentation.
+3×180-second hardware-path candidate lifecycle. Windows is
+environment-dependent and unverified. Full-suite, lifecycle-repeat, Go,
+workflow, validator, final read-only review, and human GUI/audio acceptance
+are recorded separately at the stage handoff and are not inferred from this
+measurement document. Qt sink submission remains application-layer evidence
+only; it does not verify display scanout, acoustic A/V synchronization, or
+physical screen presentation.
 
 ## Stage verification
 

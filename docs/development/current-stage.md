@@ -70,14 +70,18 @@ measurement and conversion-cleanup slice is complete with outcome
   software baseline, and three-run `auto` candidate are implemented and were
   executed on macOS with the supplied movie under the phase-correct scenario;
 - direct FFmpeg-to-I420 frames and the bounded planar-YUV Qt preview adapter are
-  implemented and covered by focused tests; and
-- the candidate did not pass the frozen gate: the worst per-run/per-role
-  submitted-counter cadence was 85.23%, combined CPU reduction was 24.17%
-  against an independently built pre-cleanup baseline, CPU P95 improved by
-  119.0 percentage points, RSS P95 changed by -29.59%, and exact dimensions,
-  metadata, and no-additional-coalescing checks also failed. PSNR/SSIM plus the
-  paused probe were not recorded. No hardware adapter was added because the
-  evidence did not establish a codec boundary as dominant.
+  implemented and covered by focused tests;
+- movie senders explicitly request maintained framerate and resolution, and
+  the Qt planar adapter holds ref-counted I420 planes instead of copying every
+  frame; and
+- macOS profiling established FFmpeg HEVC decode/conversion as a dominant host
+  boundary, so an auto-only HEVC VideoToolbox path with software fallback was
+  measured. It reached 30.04% combined average CPU reduction, -20.58% RSS P95
+  growth, zero drops/coalescing, and host `path=hardware`, but failed the
+  quality gate: worst viewer cadence was 70.20%, dimensions/metadata were not
+  exact against the independent baseline, and PSNR/SSIM plus the paused probe
+  were not recorded. The hardware path is therefore partial evidence, not a
+  verified deliverable.
 - the earlier 7.47% same-binary software/auto result is invalidated; the
   corrected evidence uses distinct baseline/candidate executable identities and
   measurement-window-only CPU/RSS samples for every run and role.
@@ -137,22 +141,24 @@ resolved.
   recorded sink submissions but no report encode attempt. See
   [Movie Drift Study Verification](../verification/movie-drift-study.md).
 - **Partial — movie playback performance:** measurement tooling, three-run
-  software/auto lifecycle evidence, direct-I420 conversion cleanup, planar
-  preview tests, and the final macOS regression suite are verified. The frozen
-  performance/quality gate is failed as documented; Windows, PSNR/SSIM, paused
-  probe, human GUI/audio acceptance, display scanout, and physical thermal
-  evidence remain unverified.
-- **Unimplemented:** correction application, bounded hard resync, TURN/public
-  network acceptance, process-loopback audio, platform hardware video
-  adapters, and all hard-resync tasks blocked by the failed drift gate.
+  software baseline, sender quality preference, direct-I420 conversion cleanup,
+  planar preview lifetime path, profiling, and a three-run macOS HEVC hardware
+  candidate are evidenced. The frozen performance/quality gate is failed as
+  documented; Windows, PSNR/SSIM, paused probe, human GUI/audio acceptance,
+  display scanout, and physical thermal evidence remain unverified.
+- **Unimplemented as an accepted delivery:** correction application, bounded
+  hard resync, TURN/public network acceptance, process-loopback audio, a
+  quality-passing platform hardware adapter, and all hard-resync tasks blocked
+  by the failed drift gate.
 
 ## Next recommended stage
 
-The next stage should add the missing sampled PSNR/SSIM/timestamp evidence and
-paused-probe measurement, then use profiling to choose the next
-quality-preserving codec/copy boundary. Do not lower quality, tune thresholds,
-add an unmeasured hardware adapter, resume viewer reportability repair, or
-start hard-resync until the frozen performance gate is genuinely satisfied.
+The next stage should determine why the maintained-4K hardware path delivers
+only 70.20% of the baseline viewer cadence, then add same-timestamp PSNR/SSIM
+and paused-probe evidence. Do not lower quality, tune thresholds, resume
+viewer reportability repair, or start hard-resync until the frozen performance
+gate is genuinely satisfied. Windows hardware validation remains a separate,
+environment-dependent stage.
 
 ## Git handoff
 
