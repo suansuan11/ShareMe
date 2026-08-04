@@ -60,3 +60,11 @@ if(TARGET shareme_rtc_demo)
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;QT_QPA_PLATFORM=set:offscreen"
   )
 endif()
+
+add_test(
+  NAME movie_drift_study_contract
+  COMMAND
+    "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/movie_drift_study_test.py"
+)
+set_tests_properties(movie_drift_study_contract PROPERTIES TIMEOUT 10)
