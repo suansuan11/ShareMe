@@ -93,15 +93,25 @@ for exact proof and evidence boundaries.
 - **Partial — playout telemetry GUI:** a supplied-movie host/viewer call stayed
   connected without RTC/media error; visible values and long-run drift remain
   human or instrumented acceptance.
+- **Verified — drift-study tooling:** the Qt-free sample aggregator, sanitized
+  JSONL writer, deterministic `drift-study-v1` scheduler, and fixed three-run
+  runner contracts are covered by focused tests and the current macOS build.
+- **Partial — drift-study measurement:** the required movie session reached the
+  scripted 300-second host completion, but the formal run produced zero valid
+  host-received playout reports. The same result reproduced once with Qt
+  `offscreen` and once with native macOS Cocoa. See
+  [Movie Drift Study Verification](../verification/movie-drift-study.md).
 - **Unimplemented:** correction application, bounded hard resync, TURN/public
-  network acceptance, process-loopback audio, and measured performance.
+  network acceptance, process-loopback audio, measured performance, and all
+  hard-resync tasks blocked by the failed drift gate.
 
 ## Next recommended stage
 
-Measure playout-report drift over pause/resume, forward/backward seek, and a
-bounded long-running movie sample. Use that distribution to define and test the
-first bounded hard-resync command without changing the existing correction
-thresholds by assumption.
+First instrument the viewer-side frame-submission and DataChannel report-send
+boundaries with sanitized counters, then rerun the exact three-run
+`drift-study-v1` gate after a valid report stream is demonstrated. Keep
+automatic hard-resync unimplemented until all frozen gates pass; do not inject
+artificial offsets or change existing correction thresholds.
 
 ## Git handoff
 
