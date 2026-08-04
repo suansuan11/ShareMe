@@ -1,8 +1,10 @@
 #pragma once
 
 #include "qt_signaling_client.hpp"
+#include "drift_metrics_jsonl.hpp"
 #include "playback_state.hpp"
 #include "playout_report.hpp"
+#include "shareme/core/drift_metrics.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
@@ -16,6 +18,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <memory>
 #include <filesystem>
 #include <optional>
@@ -48,6 +51,7 @@ public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
                     QString requested_room, bool desktop_source,
                     std::filesystem::path movie_path, bool movie_audio,
+                    QString metrics_jsonl_path,
                     QObject *parent = nullptr);
   ~RtcDemoController() override;
 
@@ -95,6 +99,8 @@ private:
   void publishPlayoutReport();
   void refreshHostPlayback();
   void receiveControlMessage(std::string message);
+  void flushDriftMetrics();
+  void stopDriftMetrics() noexcept;
 
   QUrl server_url_;
   shareme::rtc::SignaledRole role_;
@@ -102,6 +108,7 @@ private:
   bool desktop_source_{false};
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
+  QString metrics_jsonl_path_;
   std::shared_ptr<shareme::rtc::MovieTimeline> movie_timeline_;
   webrtc::scoped_refptr<shareme::rtc::MovieVideoSource> movie_video_source_;
   QString status_{QStringLiteral("idle")};
@@ -115,6 +122,7 @@ private:
   std::atomic_bool video_delivery_pending_{false};
   QTimer playback_state_timer_;
   QTimer playout_report_timer_;
+  QTimer drift_metrics_flush_timer_;
   std::uint64_t playback_sequence_{1};
   shareme::tools::PlaybackStateTracker playback_tracker_;
   shareme::tools::PlayoutReportTracker playout_report_tracker_;
@@ -123,6 +131,12 @@ private:
   std::chrono::steady_clock::time_point viewer_anchor_received_at_{};
   std::int64_t rendered_sample_time_ms_{0};
   std::uint64_t playout_report_sequence_{1};
+  std::uint64_t drift_sample_index_{0};
+  std::deque<shareme::core::DriftSample> pending_drift_samples_;
+  shareme::core::DriftAggregator drift_aggregator_;
+  std::unique_ptr<shareme::tools::DriftMetricsJsonlWriter>
+      drift_metrics_writer_;
+  bool drift_capture_enabled_{false};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};

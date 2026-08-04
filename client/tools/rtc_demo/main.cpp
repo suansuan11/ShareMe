@@ -56,6 +56,10 @@ int main(int argc, char **argv) {
                                   QStringLiteral("path"));
   QCommandLineOption movie_audio_option(QStringList{QStringLiteral("movie-audio")},
                                         QStringLiteral("Send independent movie audio"));
+  QCommandLineOption metrics_option(
+      QStringList{QStringLiteral("metrics-jsonl")},
+      QStringLiteral("Host-only sanitized drift JSONL output"),
+      QStringLiteral("path"));
   QCommandLineOption validate_option(QStringList{QStringLiteral("validate")},
                                      QStringLiteral("Validate configuration and exit"));
   parser.addOption(server_option);
@@ -64,6 +68,7 @@ int main(int argc, char **argv) {
   parser.addOption(source_option);
   parser.addOption(movie_option);
   parser.addOption(movie_audio_option);
+  parser.addOption(metrics_option);
   parser.addOption(validate_option);
   if (!parser.parse(app.arguments())) {
     std::cerr << parser.errorText().toStdString() << std::endl;
@@ -76,6 +81,16 @@ int main(int argc, char **argv) {
 
   const auto role_text = parser.value(role_option);
   const auto source_text = parser.value(source_option);
+  const auto movie_path = local_path(parser.value(movie_option));
+  const auto metrics_path = local_path(parser.value(metrics_option));
+  auto normalized_path = [](const std::filesystem::path &path) {
+    std::error_code error;
+    return std::filesystem::absolute(path, error).lexically_normal();
+  };
+  const auto metrics_matches_movie =
+      parser.isSet(metrics_option) && parser.isSet(movie_option) &&
+      !metrics_path.empty() && !movie_path.empty() &&
+      normalized_path(metrics_path) == normalized_path(movie_path);
   if (!parser.isSet(server_option) ||
       (role_text != QStringLiteral("host") &&
        role_text != QStringLiteral("viewer")) ||
@@ -87,9 +102,14 @@ int main(int argc, char **argv) {
        source_text != QStringLiteral("test")) ||
       (source_text == QStringLiteral("movie") && !parser.isSet(movie_option)) ||
       (source_text != QStringLiteral("movie") && parser.isSet(movie_option)) ||
-      (parser.isSet(movie_audio_option) && source_text != QStringLiteral("movie"))) {
+      (parser.isSet(movie_audio_option) && source_text != QStringLiteral("movie")) ||
+      (parser.isSet(metrics_option) &&
+       (role_text != QStringLiteral("host") ||
+        source_text != QStringLiteral("movie") || metrics_path.empty() ||
+        metrics_matches_movie))) {
     std::cerr << "required: --server URL --role host|viewer "
-                 "[--room ROOM] [--source test|desktop|movie] [--movie PATH] [--movie-audio]"
+                 "[--room ROOM] [--source test|desktop|movie] [--movie PATH] [--movie-audio] "
+                 "[--metrics-jsonl PATH]"
               << std::endl;
     exit_cli(2);
   }
@@ -114,8 +134,8 @@ int main(int argc, char **argv) {
   RtcDemoController controller(QUrl(parser.value(server_option)), role,
                                parser.value(room_option),
                                source_text == QStringLiteral("desktop"),
-                               local_path(parser.value(movie_option)),
-                               parser.isSet(movie_audio_option));
+                               movie_path, parser.isSet(movie_audio_option),
+                               parser.value(metrics_option));
   QQmlApplicationEngine engine;
   engine.setInitialProperties(
       {{QStringLiteral("controller"), QVariant::fromValue(&controller)}});

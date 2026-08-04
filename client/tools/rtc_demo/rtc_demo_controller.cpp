@@ -63,11 +63,12 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                      QString requested_room,
                                      bool desktop_source,
                                      std::filesystem::path movie_path,
-                                     bool movie_audio, QObject *parent)
+                                     bool movie_audio, QString metrics_jsonl_path,
+                                     QObject *parent)
     : QObject(parent), server_url_(std::move(server_url)), role_(role),
       requested_room_(std::move(requested_room)),
       desktop_source_(desktop_source), movie_path_(std::move(movie_path)),
-      movie_audio_(movie_audio) {
+      movie_audio_(movie_audio), metrics_jsonl_path_(std::move(metrics_jsonl_path)) {
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
           &RtcDemoController::publishPlaybackState);
@@ -84,6 +85,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
             else
               signaling_.joinRoom(requested_room_);
           });
+  drift_metrics_flush_timer_.setInterval(1'000);
+  connect(&drift_metrics_flush_timer_, &QTimer::timeout, this,
+          &RtcDemoController::flushDriftMetrics);
   connect(&signaling_, &QtSignalingClient::roomReady, this,
           [this](const QString &room) {
             setRoomId(room);
@@ -379,6 +383,19 @@ void RtcDemoController::startPeer() {
     });
   }
   setStatus(QStringLiteral("negotiating"));
+  if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty() &&
+      !metrics_jsonl_path_.isEmpty()) {
+    drift_metrics_writer_ = std::make_unique<shareme::tools::DriftMetricsJsonlWriter>(
+        metrics_jsonl_path_);
+    if (drift_metrics_writer_->open()) {
+      drift_capture_enabled_ = true;
+      drift_metrics_flush_timer_.start();
+    } else {
+      setStatus(QStringLiteral("drift-capture-disabled: ") +
+                drift_metrics_writer_->failure_category());
+      drift_metrics_writer_.reset();
+    }
+  }
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
     refreshHostPlayback();
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
@@ -404,6 +421,7 @@ void RtcDemoController::startPeer() {
 void RtcDemoController::stopPeer() noexcept {
   playback_state_timer_.stop();
   playout_report_timer_.stop();
+  stopDriftMetrics();
   if (peer_)
     peer_->cancel_wait();
   if (movie_peer_)
@@ -418,6 +436,41 @@ void RtcDemoController::stopPeer() noexcept {
     peer_->stop();
   peer_.reset();
   movie_peer_.reset();
+}
+
+void RtcDemoController::flushDriftMetrics() {
+  if (!drift_capture_enabled_ || !drift_metrics_writer_)
+    return;
+  while (!pending_drift_samples_.empty()) {
+    if (!drift_metrics_writer_->append(pending_drift_samples_.front())) {
+      drift_capture_enabled_ = false;
+      pending_drift_samples_.clear();
+      setStatus(QStringLiteral("drift-capture-disabled: ") +
+                drift_metrics_writer_->failure_category());
+      return;
+    }
+    pending_drift_samples_.pop_front();
+  }
+}
+
+void RtcDemoController::stopDriftMetrics() noexcept {
+  drift_metrics_flush_timer_.stop();
+  if (!drift_metrics_writer_)
+    return;
+  if (!drift_capture_enabled_) {
+    drift_metrics_writer_.reset();
+    pending_drift_samples_.clear();
+    return;
+  }
+  flushDriftMetrics();
+  if (!drift_capture_enabled_)
+    return;
+  drift_aggregator_.complete_run();
+  if (!drift_metrics_writer_->finalize(drift_aggregator_.summary())) {
+    drift_capture_enabled_ = false;
+    setStatus(QStringLiteral("drift-capture-disabled: ") +
+              drift_metrics_writer_->failure_category());
+  }
 }
 
 void RtcDemoController::publishPlaybackState() {
@@ -561,6 +614,33 @@ void RtcDemoController::receiveControlMessage(std::string message) {
   host_sync_action_ = sync_action_name(decision.action);
   viewer_rendered_available_ = true;
   emit playoutReportChanged();
+  if (drift_metrics_writer_ && drift_capture_enabled_) {
+    if (pending_drift_samples_.size() >= 64) {
+      drift_aggregator_.record_rejection();
+    } else {
+      const auto capture_time_ms = std::chrono::duration_cast<
+          std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+      shareme::core::DriftSample sample{
+          .capture_time_ms = capture_time_ms,
+          .sample_index = drift_sample_index_++,
+          .report_sequence = report->sequence,
+          .generation = report->generation,
+          .host_pts_ms = timeline->media_pts_ms,
+          .viewer_pts_ms = static_cast<std::int64_t>(report->rendered_pts_ms),
+          .delta_ms = *delta,
+          .buffer_ms = report->buffer_ms,
+          .playing = timeline->state == shareme::rtc::MovieTimelineState::playing,
+          .action = decision.action,
+          .phase = shareme::core::DriftPhase::steady,
+          .selected_candidate_type = {},
+      };
+      if (drift_aggregator_.accept(sample)) {
+        pending_drift_samples_.push_back(std::move(sample));
+        if (pending_drift_samples_.size() == 64)
+          flushDriftMetrics();
+      }
+    }
+  }
 #endif
 }
 

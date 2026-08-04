@@ -73,6 +73,7 @@ struct DriftSummary {
 class DriftAggregator {
 public:
   [[nodiscard]] bool accept(DriftSample sample);
+  void record_rejection() noexcept;
   void complete_run() noexcept;
   [[nodiscard]] DriftSummary summary() const;
 

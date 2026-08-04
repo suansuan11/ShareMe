@@ -170,6 +170,12 @@ void computes_overflow_safe_absolute_value_and_nearest_rank_percentiles() {
   REQUIRE(summary.absolute_max_ms == minimum_magnitude);
 }
 
+void counts_samples_rejected_by_an_external_capture_bound() {
+  shareme::core::DriftAggregator aggregator;
+  aggregator.record_rejection();
+  REQUIRE(aggregator.summary().rejected_samples == 1);
+}
+
 }  // namespace
 
 int main() {
@@ -178,5 +184,6 @@ int main() {
   rejects_regressions_counts_generation_changes_and_excludes_pause_gap();
   recovers_only_after_three_consecutive_current_generation_samples();
   computes_overflow_safe_absolute_value_and_nearest_rank_percentiles();
+  counts_samples_rejected_by_an_external_capture_bound();
   return EXIT_SUCCESS;
 }

@@ -122,6 +122,8 @@ bool DriftAggregator::accept(DriftSample sample) {
   return true;
 }
 
+void DriftAggregator::record_rejection() noexcept { ++rejected_samples_; }
+
 void DriftAggregator::complete_run() noexcept {
   complete_ = true;
   finish_candidate();
