@@ -6,6 +6,7 @@ add_library(
   src/probe_contract.cpp
   src/sync_controller.cpp
   src/signaling_session.cpp
+  src/video_quality_contract.cpp
 )
 add_library(ShareMe::Core ALIAS shareme_core)
 
