@@ -28,6 +28,7 @@ public:
   MediaEvent read_next(std::uint64_t generation) override;
   void seek(std::int64_t target_ms) override;
   void close() noexcept override;
+  [[nodiscard]] MediaSourceMetrics metrics() const noexcept override;
 
 private:
   class Impl;

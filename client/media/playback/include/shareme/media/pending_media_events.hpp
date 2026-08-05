@@ -33,6 +33,8 @@ class PendingMediaEvents final {
     return audio_size_ < audio_capacity;
   }
 
+  void note_backpressure() noexcept { ++backpressure_events_; }
+
   [[nodiscard]] bool push(MediaEvent&& event) {
     const auto* const video = std::get_if<VideoFrame>(&event);
     const auto* const audio = std::get_if<AudioFrame>(&event);

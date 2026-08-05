@@ -204,6 +204,66 @@ void decodes_video_without_audio(const std::filesystem::path& movie_path) {
   REQUIRE(saw_video);
 }
 
+void pending_metrics_stay_bounded_and_tail_is_present(
+    const std::filesystem::path& movie_path) {
+  using shareme::media::EndOfStream;
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoFrame;
+
+  FfmpegMediaSource source{FfmpegMediaSourceOptions{
+      .decode_video = true,
+      .decode_audio = false,
+  }};
+  static_cast<void>(source.open(movie_path));
+
+  std::size_t video_count = 0;
+  while (true) {
+    const auto metrics = source.metrics();
+    REQUIRE(metrics.pending_events <= 3);
+    REQUIRE(metrics.pending_bytes <= metrics.peak_pending_bytes);
+    const auto event = source.read_next(23);
+    if (std::holds_alternative<EndOfStream>(event)) {
+      break;
+    }
+    REQUIRE(std::holds_alternative<VideoFrame>(event));
+    ++video_count;
+  }
+
+  REQUIRE(video_count == 30);
+  const auto final_metrics = source.metrics();
+  REQUIRE(final_metrics.decoded_video_frames == video_count);
+  REQUIRE(final_metrics.peak_pending_events > 0);
+  REQUIRE(final_metrics.peak_pending_bytes > 0);
+  REQUIRE(final_metrics.pending_events == 0);
+}
+
+void seek_clears_pending_metrics(const std::filesystem::path& movie_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoFrame;
+
+  FfmpegMediaSource source{FfmpegMediaSourceOptions{
+      .decode_video = true,
+      .decode_audio = false,
+  }};
+  static_cast<void>(source.open(movie_path));
+  static_cast<void>(source.read_next(24));
+  source.seek(500);
+  REQUIRE(source.metrics().pending_events == 0);
+  REQUIRE(source.metrics().pending_bytes == 0);
+
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    const auto event = source.read_next(24);
+    if (const auto* const video = std::get_if<VideoFrame>(&event)) {
+      REQUIRE(video->pts_ms >= 500);
+      REQUIRE(video->generation == 24);
+      return;
+    }
+  }
+  REQUIRE(false);
+}
+
 void seeks_audio_without_video(const std::filesystem::path& movie_path) {
   using shareme::media::AudioFrame;
   using shareme::media::EndOfStream;
@@ -517,6 +577,8 @@ int main(int argc, char** argv) {
   seeks_to_requested_region(argv[1]);
   decodes_audio_without_video(argv[1]);
   decodes_video_without_audio(argv[1]);
+  pending_metrics_stay_bounded_and_tail_is_present(argv[2]);
+  seek_clears_pending_metrics(argv[2]);
   seeks_audio_without_video(argv[1]);
   rejects_video_only_media_for_audio_decode(argv[2]);
   decodes_real_audio_only_media(argv[3]);

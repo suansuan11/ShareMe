@@ -1,11 +1,11 @@
 #include "shareme/media/ffmpeg_media_source.hpp"
 
 #include "shareme/media/media_time.hpp"
+#include "shareme/media/pending_media_events.hpp"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -184,6 +184,9 @@ public:
 
   MediaInfo open(const std::filesystem::path& path) {
     close();
+    pending_events_ = PendingMediaEvents{};
+    decoded_video_frames_ = 0;
+    decoded_audio_frames_ = 0;
 
     auto* opened_format = static_cast<AVFormatContext*>(nullptr);
     const auto open_result =
@@ -301,10 +304,13 @@ public:
     while (pending_events_.empty()) {
       if (input_finished_) {
         flush_decoders(generation);
-        if (pending_events_.empty()) {
+        if (pending_events_.empty() && decoders_fully_drained()) {
           return EndOfStream{};
         }
-        break;
+        if (!pending_events_.empty()) {
+          break;
+        }
+        continue;
       }
 
       const auto read_result = av_read_frame(format_context_, packet_);
@@ -331,9 +337,11 @@ public:
       av_packet_unref(packet_);
     }
 
-    auto event = std::move(pending_events_.front());
-    pending_events_.pop_front();
-    return event;
+    auto event = pending_events_.pop();
+    if (!event.has_value()) {
+      throw std::logic_error{"Pending media event disappeared"};
+    }
+    return std::move(*event);
   }
 
   void seek(std::int64_t target_ms) {
@@ -373,7 +381,10 @@ public:
 
     pending_events_.clear();
     input_finished_ = false;
-    decoders_flushed_ = false;
+    video_flush_sent_ = false;
+    audio_flush_sent_ = false;
+    video_flush_complete_ = false;
+    audio_flush_complete_ = false;
     resampler_drained_ = false;
     last_video_pts_ms_ = target_ms - 1;
     last_audio_pts_ms_ = target_ms - 1;
@@ -413,7 +424,10 @@ public:
     video_stream_index_ = -1;
     audio_stream_index_ = -1;
     input_finished_ = false;
-    decoders_flushed_ = false;
+    video_flush_sent_ = false;
+    audio_flush_sent_ = false;
+    video_flush_complete_ = false;
+    audio_flush_complete_ = false;
     resampler_drained_ = false;
     last_video_pts_ms_ = -1;
     last_audio_pts_ms_ = -1;
@@ -423,7 +437,25 @@ public:
     video_acceleration_path_ = "software";
   }
 
+  [[nodiscard]] MediaSourceMetrics metrics() const noexcept {
+    const auto pending = pending_events_.metrics();
+    return {
+        .decoded_video_frames = decoded_video_frames_,
+        .decoded_audio_frames = decoded_audio_frames_,
+        .pending_events = pending.size,
+        .pending_bytes = pending.bytes,
+        .peak_pending_events = pending.peak_size,
+        .peak_pending_bytes = pending.peak_bytes,
+        .backpressure_events = pending.backpressure_events,
+    };
+  }
+
 private:
+  enum class DrainResult {
+    exhausted,
+    pending_full,
+  };
+
   void ensure_open() const {
     if (format_context_ == nullptr ||
         (video_codec_context_ == nullptr && audio_codec_context_ == nullptr)) {
@@ -439,20 +471,34 @@ private:
     if (send_result < 0) {
       throw ffmpeg_error("Could not send packet to decoder", send_result);
     }
-    drain(codec_context, is_video, generation);
+    static_cast<void>(drain(codec_context, is_video, generation));
   }
 
-  void drain(
+  DrainResult drain(
       AVCodecContext* codec_context,
       bool is_video,
       std::uint64_t generation) {
     while (true) {
+      const auto can_push =
+          is_video ? pending_events_.can_push_video()
+                   : pending_events_.can_push_audio();
+      if (!can_push) {
+        pending_events_.note_backpressure();
+        return DrainResult::pending_full;
+      }
+
       const auto receive_result = avcodec_receive_frame(codec_context, frame_);
       if (receive_result == AVERROR(EAGAIN) || receive_result == AVERROR_EOF) {
-        return;
+        return DrainResult::exhausted;
       }
       if (receive_result < 0) {
         throw ffmpeg_error("Could not receive decoded frame", receive_result);
+      }
+
+      if (is_video) {
+        ++decoded_video_frames_;
+      } else {
+        ++decoded_audio_frames_;
       }
 
       try {
@@ -461,14 +507,20 @@ private:
           if (!video_discard_before_ms_.has_value() ||
               video.pts_ms >= *video_discard_before_ms_) {
             video_discard_before_ms_.reset();
-            pending_events_.emplace_back(std::move(video));
+            MediaEvent event{std::move(video)};
+            if (!pending_events_.push(std::move(event))) {
+              throw std::logic_error{"Video pending queue capacity changed"};
+            }
           }
         } else {
           auto audio = convert_audio(generation);
           if (!audio_discard_before_ms_.has_value() ||
               audio.pts_ms >= *audio_discard_before_ms_) {
             audio_discard_before_ms_.reset();
-            pending_events_.emplace_back(std::move(audio));
+            MediaEvent event{std::move(audio)};
+            if (!pending_events_.push(std::move(event))) {
+              throw std::logic_error{"Audio pending queue capacity changed"};
+            }
           }
         }
       } catch (...) {
@@ -638,38 +690,63 @@ private:
   }
 
   void flush_decoders(std::uint64_t generation) {
-    if (decoders_flushed_) {
-      return;
-    }
-    decoders_flushed_ = true;
-
     auto flush_one = [this, generation](
-                         AVCodecContext* codec_context, bool is_video) {
+                         AVCodecContext* codec_context,
+                         bool is_video,
+                         bool& flush_sent,
+                         bool& flush_complete) {
       if (codec_context == nullptr) {
+        flush_complete = true;
         return;
       }
-      const auto send_result = avcodec_send_packet(codec_context, nullptr);
-      if (send_result < 0 && send_result != AVERROR_EOF) {
-        throw ffmpeg_error("Could not flush decoder", send_result);
+      if (!flush_sent) {
+        const auto send_result = avcodec_send_packet(codec_context, nullptr);
+        if (send_result < 0 && send_result != AVERROR_EOF) {
+          throw ffmpeg_error("Could not flush decoder", send_result);
+        }
+        flush_sent = true;
       }
-      drain(codec_context, is_video, generation);
+      if (flush_complete) {
+        return;
+      }
+      if (drain(codec_context, is_video, generation) == DrainResult::exhausted) {
+        flush_complete = true;
+      }
     };
 
-    flush_one(video_codec_context_, true);
-    flush_one(audio_codec_context_, false);
-    drain_resampler(generation);
-  }
-
-  void drain_resampler(std::uint64_t generation) {
-    if (resampler_drained_) {
+    flush_one(
+        video_codec_context_, true, video_flush_sent_, video_flush_complete_);
+    if (!video_flush_complete_) {
       return;
     }
-    resampler_drained_ = true;
-    if (swr_context_ == nullptr) {
+    flush_one(
+        audio_codec_context_, false, audio_flush_sent_, audio_flush_complete_);
+    if (!audio_flush_complete_) {
       return;
+    }
+    static_cast<void>(drain_resampler(generation));
+  }
+
+  [[nodiscard]] bool decoders_fully_drained() const noexcept {
+    return (video_codec_context_ == nullptr || video_flush_complete_) &&
+           (audio_codec_context_ == nullptr || audio_flush_complete_) &&
+           resampler_drained_;
+  }
+
+  [[nodiscard]] bool drain_resampler(std::uint64_t generation) {
+    if (resampler_drained_) {
+      return true;
+    }
+    if (swr_context_ == nullptr) {
+      resampler_drained_ = true;
+      return true;
     }
 
     while (swr_get_delay(swr_context_, 48'000) > 0) {
+      if (!pending_events_.can_push_audio()) {
+        pending_events_.note_backpressure();
+        return false;
+      }
       const auto output_sample_capacity =
           swr_get_out_samples(swr_context_, 0);
       if (output_sample_capacity < 0) {
@@ -678,7 +755,8 @@ private:
             output_sample_capacity);
       }
       if (output_sample_capacity == 0) {
-        return;
+        resampler_drained_ = true;
+        return true;
       }
 
       AudioFrame output;
@@ -708,7 +786,8 @@ private:
             "Could not drain resampled audio", converted_samples);
       }
       if (converted_samples == 0) {
-        return;
+        resampler_drained_ = true;
+        return true;
       }
 
       output.interleaved_samples.resize(
@@ -723,9 +802,14 @@ private:
       if (!audio_discard_before_ms_.has_value() ||
           output.pts_ms >= *audio_discard_before_ms_) {
         audio_discard_before_ms_.reset();
-        pending_events_.emplace_back(std::move(output));
+        MediaEvent event{std::move(output)};
+        if (!pending_events_.push(std::move(event))) {
+          throw std::logic_error{"Audio pending queue capacity changed"};
+        }
       }
     }
+    resampler_drained_ = true;
+    return true;
   }
 
   AVFormatContext* format_context_{nullptr};
@@ -739,15 +823,20 @@ private:
   int video_stream_index_{-1};
   int audio_stream_index_{-1};
   bool input_finished_{false};
-  bool decoders_flushed_{false};
+  bool video_flush_sent_{false};
+  bool audio_flush_sent_{false};
+  bool video_flush_complete_{false};
+  bool audio_flush_complete_{false};
   bool resampler_drained_{false};
+  std::uint64_t decoded_video_frames_{0};
+  std::uint64_t decoded_audio_frames_{0};
   std::int64_t last_video_pts_ms_{-1};
   std::int64_t last_audio_pts_ms_{-1};
   std::optional<std::int64_t> next_audio_output_pts_ms_;
   std::optional<std::int64_t> video_discard_before_ms_;
   std::optional<std::int64_t> audio_discard_before_ms_;
   std::string video_acceleration_path_{"software"};
-  std::deque<MediaEvent> pending_events_;
+  PendingMediaEvents pending_events_;
   const FfmpegMediaSourceOptions options_;
 };
 
@@ -775,6 +864,10 @@ void FfmpegMediaSource::seek(std::int64_t target_ms) {
 
 void FfmpegMediaSource::close() noexcept {
   impl_->close();
+}
+
+MediaSourceMetrics FfmpegMediaSource::metrics() const noexcept {
+  return impl_->metrics();
 }
 
 }  // namespace shareme::media
