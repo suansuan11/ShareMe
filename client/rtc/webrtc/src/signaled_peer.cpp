@@ -872,6 +872,11 @@ private:
       std::make_shared<std::atomic_bool>(true)};
 };
 
+VideoCodecReport
+SignaledPeer::video_codec_report() {
+  return {};
+}
+
 std::unique_ptr<SignaledPeer>
 SignaledPeer::create(SignaledPeerConfig config,
                      SignaledPeerCallbacks callbacks) {

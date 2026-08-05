@@ -45,7 +45,8 @@ ALLOWED_KEYS = {
     "encoded", "received", "callback", "submitted", "coalesced", "dropped",
     "conversion_failures", "width", "height", "cadence_num", "cadence_den",
     "pixel_aspect_num", "pixel_aspect_den", "color_range", "color_space",
-    "codec", "profile", "path", "state", "candidate", "fallback_copies",
+    "codec", "profile", "requested_mode", "decoder_path", "webrtc_encoder",
+    "hardware_encoder_status", "state", "candidate", "fallback_copies",
     "max_pending", "source_pending", "source_pending_bytes",
     "source_peak_pending", "source_peak_pending_bytes",
     "session_video_pending", "session_video_bytes", "session_audio_pending",
@@ -56,7 +57,10 @@ ALLOWED_KEYS = {
 ENUMS = {
     "role": {"host", "viewer"},
     "color_range": {"limited", "full", "unknown"},
-    "path": {"software", "hardware", "auto", "unknown"},
+    "requested_mode": {"software", "auto"},
+    "decoder_path": {"software", "hardware", "fallback"},
+    "webrtc_encoder": {"vp8-software"},
+    "hardware_encoder_status": {"unavailable-locked-abi"},
     "state": {"playing", "paused", "seeking", "stopped", "unknown"},
     "candidate": {"host", "srflx", "relay", "unknown"},
 }
@@ -295,7 +299,12 @@ def summarize_performance_artifact(path: Path) -> dict:
             "colorSpace": last.get("color_space", "unknown"),
             "codec": last.get("codec", "unknown"),
             "profile": last.get("profile", "unknown"),
-            "path": last.get("path", "unknown"),
+            "requestedMode": last.get("requested_mode", "unknown"),
+            "decoderPath": last.get("decoder_path", "unknown"),
+            "webrtcEncoder": last.get("webrtc_encoder", "unknown"),
+            "hardwareEncoderStatus": last.get(
+                "hardware_encoder_status", "unknown"
+            ),
             "maxPending": int(last["max_pending"]),
             "cpuAverage": sum(cpu) / len(cpu) if cpu else 0.0,
             "cpuP95": _nearest_rank(cpu, 95),

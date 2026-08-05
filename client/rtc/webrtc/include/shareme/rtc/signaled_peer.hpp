@@ -13,6 +13,7 @@
 #include "api/video/video_frame.h"
 #include "shareme/rtc/local_audio_source.hpp"
 #include "shareme/rtc/local_video_source.hpp"
+#include "shareme/rtc/video_codec_report.hpp"
 
 namespace shareme::rtc {
 
@@ -98,6 +99,7 @@ is_expected_voice_rtp_track(SignaledRole role, bool outbound,
 
 class SignaledPeer final {
 public:
+  [[nodiscard]] static VideoCodecReport video_codec_report();
   static std::unique_ptr<SignaledPeer> create(SignaledPeerConfig config,
                                               SignaledPeerCallbacks callbacks);
   static std::unique_ptr<SignaledPeer> create(SignaledRole role,
