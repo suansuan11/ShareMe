@@ -8,6 +8,20 @@ target_link_libraries(shareme_pcm_chunker_test PRIVATE ShareMe::Playback)
 
 add_test(NAME pcm_chunker COMMAND shareme_pcm_chunker_test)
 
+add_executable(
+  shareme_pending_media_events_test
+  pending_media_events_test.cpp
+)
+target_link_libraries(
+  shareme_pending_media_events_test
+  PRIVATE ShareMe::Playback
+)
+
+add_test(
+  NAME pending_media_events
+  COMMAND shareme_pending_media_events_test
+)
+
 find_program(SHAREME_FFMPEG_EXECUTABLE ffmpeg REQUIRED)
 set(SHAREME_GENERATED_MEDIA "${CMAKE_CURRENT_BINARY_DIR}/generated-playback.mp4")
 set(
