@@ -66,3 +66,14 @@ add_test(
   NAME movie_audio_pts_mapper
   COMMAND shareme_movie_audio_pts_mapper_test
 )
+
+add_executable(
+  shareme_movie_audio_renderer_test
+  movie_audio_renderer_test.cpp
+)
+target_link_libraries(shareme_movie_audio_renderer_test PRIVATE ShareMe::Core)
+
+add_test(
+  NAME movie_audio_renderer
+  COMMAND shareme_movie_audio_renderer_test
+)

@@ -3,6 +3,7 @@ add_library(
   STATIC
   src/movie_audio_clock.cpp
   src/movie_audio_pts_mapper.cpp
+  src/movie_audio_renderer.cpp
   src/playback_failure.cpp
   src/drift_metrics.cpp
   src/probe_cli.cpp
