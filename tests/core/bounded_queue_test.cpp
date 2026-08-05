@@ -1,5 +1,6 @@
 #include "shareme/core/bounded_queue.hpp"
 
+#include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -19,6 +20,15 @@ void require(bool condition, const char* expression, int line) {
 
 #define REQUIRE(expression) require((expression), #expression, __LINE__)
 #define REQUIRE_FALSE(expression) require(!(expression), "!(" #expression ")", __LINE__)
+
+struct SizedItem {
+  int value;
+  std::size_t bytes;
+};
+
+std::size_t sized_item_bytes(const SizedItem& item) noexcept {
+  return item.bytes;
+}
 
 void rejects_zero_capacity() {
   bool threw = false;
@@ -78,6 +88,27 @@ void preserves_fifo_order_and_clear_metrics() {
   REQUIRE(queue.dropped_count() == 1);
 }
 
+void accounts_current_peak_and_dropped_bytes() {
+  using shareme::core::BoundedQueue;
+  using shareme::core::OverflowPolicy;
+
+  BoundedQueue<SizedItem> queue{2, OverflowPolicy::drop_oldest,
+                                &sized_item_bytes};
+  REQUIRE(queue.push({1, 10}));
+  REQUIRE(queue.push({2, 20}));
+  REQUIRE(queue.bytes() == 30);
+  REQUIRE(queue.peak_bytes() == 30);
+  REQUIRE(queue.push({3, 40}));
+  REQUIRE(queue.bytes() == 60);
+  REQUIRE(queue.dropped_bytes() == 10);
+  REQUIRE(queue.peak_bytes() == 60);
+  REQUIRE(queue.pop()->value == 2);
+  REQUIRE(queue.bytes() == 40);
+  queue.clear();
+  REQUIRE(queue.bytes() == 0);
+  REQUIRE(queue.peak_bytes() == 60);
+}
+
 }  // namespace
 
 int main() {
@@ -85,5 +116,6 @@ int main() {
   drops_oldest_video_item();
   rejects_newest_audio_item();
   preserves_fifo_order_and_clear_metrics();
+  accounts_current_peak_and_dropped_bytes();
   return EXIT_SUCCESS;
 }
