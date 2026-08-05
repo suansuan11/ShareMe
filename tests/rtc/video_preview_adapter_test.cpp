@@ -45,10 +45,18 @@ void submits_planar_frame_and_keeps_one_in_flight(QGuiApplication& app) {
   REQUIRE(first.submitted);
   REQUIRE(first.path == shareme::tools::PreviewPath::planar_yuv);
   REQUIRE(second.path == shareme::tools::PreviewPath::coalesced);
+  const auto pending = adapter.counters();
+  REQUIRE(pending.pending_callbacks == 1);
+  REQUIRE(pending.pending_callback_bytes > 0);
+  REQUIRE(pending.pending_callback_bytes <=
+          pending.peak_pending_callback_bytes);
   app.processEvents();
-  REQUIRE(adapter.counters().submissions == 1);
-  REQUIRE(adapter.counters().coalesced == 1);
-  REQUIRE(adapter.counters().max_pending_depth == 1);
+  const auto completed = adapter.counters();
+  REQUIRE(completed.submissions == 1);
+  REQUIRE(completed.coalesced == 1);
+  REQUIRE(completed.max_pending_depth == 1);
+  REQUIRE(completed.pending_callbacks == 0);
+  REQUIRE(completed.pending_callback_bytes == 0);
   REQUIRE(sink.videoFrame().isValid());
   REQUIRE(sink.videoFrame().startTime() == 42);
   REQUIRE(sink.videoFrame().pixelFormat() ==

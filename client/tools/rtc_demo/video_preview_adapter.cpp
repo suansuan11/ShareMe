@@ -20,6 +20,7 @@ namespace {
 struct PreparedFrame {
   QVideoFrame frame;
   PreviewPath path{PreviewPath::rejected};
+  std::size_t owned_bytes{0};
 };
 
 class I420VideoBuffer final : public QAbstractVideoBuffer {
@@ -64,7 +65,15 @@ PreparedFrame make_planar_frame(
     const QVideoFrameFormat format{
         QSize(width, height), QVideoFrameFormat::Format_YUV420P};
     QVideoFrame planar{new I420VideoBuffer(buffer, format), format};
-    return {std::move(planar), PreviewPath::planar_yuv};
+    const auto chroma_height = (height + 1) / 2;
+    const auto owned_bytes =
+        static_cast<std::size_t>(buffer->StrideY()) *
+            static_cast<std::size_t>(height) +
+        static_cast<std::size_t>(buffer->StrideU()) *
+            static_cast<std::size_t>(chroma_height) +
+        static_cast<std::size_t>(buffer->StrideV()) *
+            static_cast<std::size_t>(chroma_height);
+    return {std::move(planar), PreviewPath::planar_yuv, owned_bytes};
   } catch (const std::bad_alloc&) {
     mapping_failures.fetch_add(1, std::memory_order_relaxed);
   }
@@ -79,7 +88,8 @@ PreparedFrame make_planar_frame(
     return {};
   }
   fallback_copies.fetch_add(1, std::memory_order_relaxed);
-  return {QVideoFrame(image.copy()), PreviewPath::argb_fallback};
+  return {QVideoFrame(image.copy()), PreviewPath::argb_fallback,
+          static_cast<std::size_t>(image.sizeInBytes())};
 }
 
 }  // namespace
@@ -96,7 +106,19 @@ struct VideoPreviewAdapter::State {
   std::atomic<std::uint64_t> fallback_copies{0};
   std::atomic<std::uint64_t> mapping_failures{0};
   std::atomic<std::uint64_t> max_pending_depth{0};
+  std::atomic<std::uint64_t> pending_callback_bytes{0};
+  std::atomic<std::uint64_t> peak_pending_callback_bytes{0};
 };
+
+void update_peak(
+    std::atomic<std::uint64_t>& peak,
+    std::uint64_t value) noexcept {
+  auto observed = peak.load(std::memory_order_relaxed);
+  while (observed < value &&
+         !peak.compare_exchange_weak(
+             observed, value, std::memory_order_relaxed)) {
+  }
+}
 
 VideoPreviewAdapter::VideoPreviewAdapter(QObject* queue_target)
     : state_(std::make_shared<State>(queue_target)) {}
@@ -131,17 +153,25 @@ VideoPreviewResult VideoPreviewAdapter::submit(const webrtc::VideoFrame& source)
   const auto source_buffer = source.video_frame_buffer();
   const auto i420 = source_buffer ? source_buffer->ToI420() : nullptr;
   if (!i420) {
+    state_->pending_callback_bytes.store(0, std::memory_order_release);
     state_->pending.store(false, std::memory_order_release);
     return result;
   }
   auto prepared = make_planar_frame(
       i420, state_->mapping_failures, state_->fallback_copies);
   if (!prepared.frame.isValid()) {
+    state_->pending_callback_bytes.store(0, std::memory_order_release);
     state_->pending.store(false, std::memory_order_release);
     return result;
   }
   result.submitted = true;
   result.path = prepared.path;
+  state_->pending_callback_bytes.store(
+      static_cast<std::uint64_t>(prepared.owned_bytes),
+      std::memory_order_release);
+  update_peak(
+      state_->peak_pending_callback_bytes,
+      static_cast<std::uint64_t>(prepared.owned_bytes));
   const auto timestamp = result.rtp_timestamp;
   const auto start_time_us = source.timestamp_us();
   const auto state = state_;
@@ -157,9 +187,11 @@ VideoPreviewResult VideoPreviewAdapter::submit(const webrtc::VideoFrame& source)
               if (state->submitted_callback)
                 state->submitted_callback(timestamp);
             }
-            state->pending.store(false, std::memory_order_release);
+             state->pending_callback_bytes.store(0, std::memory_order_release);
+             state->pending.store(false, std::memory_order_release);
           },
           Qt::QueuedConnection)) {
+    state->pending_callback_bytes.store(0, std::memory_order_release);
     state->pending.store(false, std::memory_order_release);
     result.submitted = false;
     result.path = PreviewPath::rejected;
@@ -177,6 +209,12 @@ VideoPreviewCounters VideoPreviewAdapter::counters() const noexcept {
           state_->mapping_failures.load(std::memory_order_relaxed),
       .max_pending_depth =
           state_->max_pending_depth.load(std::memory_order_relaxed),
+      .pending_callbacks =
+          state_->pending.load(std::memory_order_acquire) ? 1U : 0U,
+      .pending_callback_bytes =
+          state_->pending_callback_bytes.load(std::memory_order_acquire),
+      .peak_pending_callback_bytes =
+          state_->peak_pending_callback_bytes.load(std::memory_order_relaxed),
   };
 }
 
