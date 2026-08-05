@@ -81,7 +81,13 @@ class MovieAudioClock {
   void reset() noexcept;
 
  private:
+  struct CorrelationSequence {
+    std::uint64_t source_sequence = 0;
+    std::uint64_t decoded_sequence = 0;
+  };
+
   void set_confidence(ClockConfidence confidence) noexcept;
+  void begin_relock() noexcept;
   void mark_invalid() noexcept;
   [[nodiscard]] bool increment_renderer_clock_epoch() noexcept;
 
@@ -104,6 +110,7 @@ class MovieAudioClock {
 
   std::optional<AudioClockAnchor> anchor_ = std::nullopt;
   std::optional<CorrelationResult> last_correlation_ = std::nullopt;
+  std::optional<CorrelationSequence> relock_floor_ = std::nullopt;
 
   bool have_playout_pts_ = false;
   std::int64_t last_playout_pts_ms_ = 0;

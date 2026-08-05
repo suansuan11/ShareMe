@@ -102,15 +102,15 @@ constexpr std::int64_t kMaximumCorrelationResidualMs = 80;
 struct CorrelationCheck {
   bool supplied = false;
   bool valid = false;
-  bool fresh = false;
 };
 
 [[nodiscard]] CorrelationCheck validate_correlation(
     const CorrelationResult& correlation, const AudioClockAnchor& anchor,
     std::uint64_t playback_generation, std::uint64_t audio_epoch,
     std::uint32_t sample_rate, bool requires_relock,
-    const std::optional<CorrelationResult>& previous) noexcept {
-  CorrelationCheck check{true, false, false};
+    const std::optional<std::uint64_t>& relock_floor_source,
+    const std::optional<std::uint64_t>& relock_floor_decoded) noexcept {
+  CorrelationCheck check{true, false};
   if (!correlation.valid ||
       correlation.reason != CorrelationRejectionReason::none ||
       !is_approved_correlation_provenance(correlation.provenance) ||
@@ -135,16 +135,12 @@ struct CorrelationCheck {
           static_cast<std::uint64_t>(kMaximumCorrelationResidualMs)) {
     return check;
   }
-  if (requires_relock && previous.has_value()) {
-    if (!previous->source_sequence.has_value() ||
-        !previous->decoded_sequence.has_value() ||
-        *correlation.source_sequence <= *previous->source_sequence ||
-        *correlation.decoded_sequence <= *previous->decoded_sequence) {
+  if (requires_relock &&
+      (relock_floor_source.has_value() != relock_floor_decoded.has_value() ||
+       (relock_floor_source.has_value() &&
+        (*correlation.source_sequence <= *relock_floor_source ||
+         *correlation.decoded_sequence <= *relock_floor_decoded)))) {
       return check;
-    }
-    check.fresh = true;
-  } else if (requires_relock) {
-    check.fresh = true;
   }
   check.valid = true;
   return check;
@@ -214,8 +210,7 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
     if (observation.renderer_clock_epoch > renderer_clock_epoch_) {
       renderer_clock_epoch_ = observation.renderer_clock_epoch;
       renderer_clock_epoch_locally_advanced_ = false;
-      requires_relock_ = true;
-      media_scope_changed = true;
+      begin_relock();
     } else if (observation.renderer_clock_epoch == renderer_clock_epoch_) {
       renderer_clock_epoch_locally_advanced_ = false;
     }
@@ -223,16 +218,14 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
     if (observation.playback_generation > playback_generation_) {
       playback_generation_ = observation.playback_generation;
       media_scope_changed = true;
-      requires_relock_ = true;
     }
     if (observation.host_audio_epoch > host_audio_epoch_) {
       host_audio_epoch_ = observation.host_audio_epoch;
       media_scope_changed = true;
-      requires_relock_ = true;
     }
     if (observation.route_generation > route_generation_) {
       route_generation_ = observation.route_generation;
-      requires_relock_ = true;
+      begin_relock();
     }
     if (observation.sample_rate != sample_rate_) {
       return reject();
@@ -240,20 +233,21 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
     if (media_scope_changed) {
       anchor_.reset();
       last_correlation_.reset();
+      relock_floor_.reset();
       relock_correlation_ready_ = false;
+      requires_relock_ = true;
       have_playout_pts_ = false;
     }
   }
 
   if (!observation.consumption_known) {
     if (!consumption_unknown_) {
+      begin_relock();
       if (!increment_renderer_clock_epoch()) {
         consumption_unknown_ = true;
         renderer_clock_epoch_overflowed_ = true;
-        requires_relock_ = true;
       } else {
         consumption_unknown_ = true;
-        requires_relock_ = true;
       }
     }
     snapshot_.output_latency_frames = observation.output_latency_frames;
@@ -302,13 +296,14 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
       return reject();
     }
     if (anchor_.has_value() && !media_scope_changed &&
-        candidate_anchor.control_sequence < anchor_->control_sequence) {
+        (candidate_anchor.control_sequence <= anchor_->control_sequence ||
+         candidate_anchor.host_source_sequence <
+             anchor_->host_source_sequence)) {
       return reject();
     }
     if (anchor_.has_value() && !media_scope_changed &&
         candidate_anchor.control_sequence != anchor_->control_sequence) {
-      requires_relock_ = true;
-      relock_correlation_ready_ = false;
+      begin_relock();
     }
     anchor_ = candidate_anchor;
   }
@@ -369,7 +364,14 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
       correlation_check = validate_correlation(
           *observation.correlation, *anchor_, playback_generation_,
           host_audio_epoch_, sample_rate_, requires_relock_,
-          last_correlation_);
+          relock_floor_.has_value()
+              ? std::optional<std::uint64_t>{
+                    relock_floor_->source_sequence}
+              : std::nullopt,
+          relock_floor_.has_value()
+              ? std::optional<std::uint64_t>{
+                    relock_floor_->decoded_sequence}
+              : std::nullopt);
     }
     if (was_unknown && !correlation_check.valid) {
       return reject();
@@ -444,6 +446,7 @@ void MovieAudioClock::reset() noexcept {
   sample_rate_ = 0;
   anchor_.reset();
   last_correlation_.reset();
+  relock_floor_.reset();
   have_playout_pts_ = false;
   last_playout_pts_ms_ = 0;
   pts_playback_generation_ = 0;
@@ -456,8 +459,22 @@ void MovieAudioClock::set_confidence(ClockConfidence confidence) noexcept {
   snapshot_.clock_confidence = confidence;
 }
 
-void MovieAudioClock::mark_invalid() noexcept {
+void MovieAudioClock::begin_relock() noexcept {
+  if (last_correlation_.has_value() &&
+      last_correlation_->source_sequence.has_value() &&
+      last_correlation_->decoded_sequence.has_value()) {
+    relock_floor_ = CorrelationSequence{
+        *last_correlation_->source_sequence,
+        *last_correlation_->decoded_sequence,
+    };
+  }
+  last_correlation_.reset();
+  relock_correlation_ready_ = false;
   requires_relock_ = true;
+}
+
+void MovieAudioClock::mark_invalid() noexcept {
+  begin_relock();
   set_confidence(ClockConfidence::invalid);
   snapshot_.logical_consumed_frames = logical_consumed_frames_;
   snapshot_.playback_generation = playback_generation_;
