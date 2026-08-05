@@ -168,6 +168,13 @@ std::uint64_t MovieVideoSource::conversion_failure_count() const noexcept {
   return conversion_failure_count_.load(std::memory_order_relaxed);
 }
 
+media::PlaybackSessionMetrics MovieVideoSource::playback_metrics() const noexcept {
+  if (!session_) {
+    return {};
+  }
+  return session_->metrics();
+}
+
 std::string MovieVideoSource::error() const {
   std::lock_guard lock(error_mutex_);
   return error_;

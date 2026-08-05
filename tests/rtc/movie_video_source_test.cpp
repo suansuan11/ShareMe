@@ -52,6 +52,11 @@ void decodes_and_paces_movie_frames(const std::filesystem::path &movie_path) {
   REQUIRE(source->video_format()->height == 180);
   REQUIRE(source->video_format()->video_acceleration == "software");
   REQUIRE(source->conversion_failure_count() == 0);
+  const auto playback = source->playback_metrics();
+  REQUIRE(playback.source.pending_events <= 3);
+  REQUIRE(playback.video_queue_size <= playback.video_queue_capacity);
+  REQUIRE(playback.video_queue_bytes <= playback.video_queue_peak_bytes);
+  REQUIRE(playback.source.decoded_video_frames >= sink.frame_count());
 }
 
 void missing_movie_is_typed_failure(const std::filesystem::path &directory) {

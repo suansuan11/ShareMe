@@ -1,5 +1,6 @@
 #pragma once
 
+#include "shareme/media/playback_session.hpp"
 #include "shareme/rtc/local_video_source.hpp"
 
 #include <atomic>
@@ -15,7 +16,6 @@
 #include "api/scoped_refptr.h"
 
 namespace shareme::media {
-class PlaybackSession;
 enum class VideoAccelerationMode;
 struct VideoFrame;
 } // namespace shareme::media
@@ -79,6 +79,8 @@ public:
   [[nodiscard]] std::optional<MovieVideoFormat>
   video_format() const;
   [[nodiscard]] std::uint64_t conversion_failure_count() const noexcept;
+  [[nodiscard]] media::PlaybackSessionMetrics
+  playback_metrics() const noexcept;
   [[nodiscard]] std::string error() const override;
 
   [[nodiscard]] bool is_screencast() const override;
