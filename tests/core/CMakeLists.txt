@@ -42,3 +42,27 @@ add_test(NAME probe_cli COMMAND shareme_probe_cli_test)
 add_executable(shareme_signaling_session_test signaling_session_test.cpp)
 target_link_libraries(shareme_signaling_session_test PRIVATE ShareMe::Core)
 add_test(NAME signaling_session COMMAND shareme_signaling_session_test)
+
+add_executable(shareme_playback_failure_test playback_failure_test.cpp)
+target_link_libraries(shareme_playback_failure_test PRIVATE ShareMe::Core)
+
+add_test(NAME playback_failure COMMAND shareme_playback_failure_test)
+
+add_executable(shareme_audio_output_contract_test audio_output_contract_test.cpp)
+target_link_libraries(shareme_audio_output_contract_test PRIVATE ShareMe::Core)
+
+add_test(
+  NAME audio_output_contract
+  COMMAND shareme_audio_output_contract_test
+)
+
+add_executable(
+  shareme_movie_audio_pts_mapper_test
+  movie_audio_pts_mapper_test.cpp
+)
+target_link_libraries(shareme_movie_audio_pts_mapper_test PRIVATE ShareMe::Core)
+
+add_test(
+  NAME movie_audio_pts_mapper
+  COMMAND shareme_movie_audio_pts_mapper_test
+)
