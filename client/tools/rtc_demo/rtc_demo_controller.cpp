@@ -562,15 +562,36 @@ void RtcDemoController::emitPerformanceCounters() {
   if (!performance_counters_enabled_)
     return;
 
-  std::uint64_t decoded = 0;
+  std::optional<std::uint64_t> decoded;
+  std::optional<std::uint64_t> encoded;
+  std::optional<std::uint64_t> received;
+  std::uint64_t offered = 0;
   std::uint64_t dropped = 0;
   std::uint64_t conversion_failures =
       performance_conversion_failures_.load(std::memory_order_relaxed);
-  const auto fallback_copies =
-      performance_fallback_copies_.load(std::memory_order_relaxed);
-  const auto max_pending = video_preview_adapter_
-                               ? video_preview_adapter_->counters().max_pending_depth
-                               : 0;
+  const auto preview = video_preview_adapter_
+                           ? video_preview_adapter_->counters()
+                           : shareme::tools::VideoPreviewCounters{};
+  const auto fallback_copies = preview.fallback_copies;
+  const auto max_pending = preview.max_pending_depth;
+  const auto render_queue = preview.pending_callbacks;
+  const auto pending_callback_bytes = preview.pending_callback_bytes;
+  const auto add_bytes = [](std::size_t lhs, std::size_t rhs) {
+    return rhs > std::numeric_limits<std::size_t>::max() - lhs
+               ? std::numeric_limits<std::size_t>::max()
+               : lhs + rhs;
+  };
+  std::size_t source_pending = 0;
+  std::size_t source_pending_bytes = 0;
+  std::size_t source_peak_pending = 0;
+  std::size_t source_peak_pending_bytes = 0;
+  std::size_t session_video_pending = 0;
+  std::size_t session_video_bytes = 0;
+  std::size_t session_audio_pending = 0;
+  std::size_t session_audio_bytes = 0;
+  std::size_t owned_bytes = pending_callback_bytes;
+  std::size_t owned_peak_bytes = preview.peak_pending_callback_bytes;
+  std::uint64_t backpressure_events = 0;
   int width = 0;
   int height = 0;
   int cadence_num = 0;
@@ -590,9 +611,29 @@ void RtcDemoController::emitPerformanceCounters() {
     height = performance_frame_height_.load(std::memory_order_relaxed);
   }
   if (movie_video_source_) {
-    decoded = movie_video_source_->generated_count();
+    const auto playback = movie_video_source_->playback_metrics();
+    decoded = playback.source.decoded_video_frames;
+    offered = movie_video_source_->generated_count();
     dropped = movie_video_source_->dropped_count();
     conversion_failures += movie_video_source_->conversion_failure_count();
+    source_pending = playback.source.pending_events;
+    source_pending_bytes = playback.source.pending_bytes;
+    source_peak_pending = playback.source.peak_pending_events;
+    source_peak_pending_bytes = playback.source.peak_pending_bytes;
+    session_video_pending = playback.video_queue_size;
+    session_video_bytes = playback.video_queue_bytes;
+    session_audio_pending = playback.audio_queue_size;
+    session_audio_bytes = playback.audio_queue_bytes;
+    owned_bytes = add_bytes(owned_bytes, source_pending_bytes);
+    owned_bytes = add_bytes(owned_bytes, session_video_bytes);
+    owned_bytes = add_bytes(owned_bytes, session_audio_bytes);
+    owned_peak_bytes = add_bytes(
+        owned_peak_bytes, source_peak_pending_bytes);
+    owned_peak_bytes = add_bytes(
+        owned_peak_bytes, playback.video_queue_peak_bytes);
+    owned_peak_bytes = add_bytes(
+        owned_peak_bytes, playback.audio_queue_peak_bytes);
+    backpressure_events = playback.source.backpressure_events;
     if (const auto format = movie_video_source_->video_format()) {
       width = format->width;
       height = format->height;
@@ -620,12 +661,30 @@ void RtcDemoController::emitPerformanceCounters() {
                   : "playing";
     }
   }
+  const auto video_stats = peer_
+                               ? peer_->video_stats()
+                               : shareme::rtc::SignaledVideoStats{
+                                     .unavailable = true};
+  if (viewer()) {
+    decoded = video_stats.frames_decoded;
+    received = video_stats.frames_received;
+    dropped = video_stats.frames_dropped.value_or(0);
+  } else {
+    encoded = video_stats.frames_encoded;
+    received = performance_callback_count_.load(std::memory_order_relaxed);
+  }
+  const auto stats_unavailable = video_stats.unavailable ? 1U : 0U;
   std::cout << "PERF_COUNTERS version=1 role="
             << (viewer() ? "viewer" : "host")
-            << " cpu_percent=0 rss_bytes=0 decoded=" << decoded
-            << " offered=" << decoded << " received="
-            << performance_callback_count_.load(std::memory_order_relaxed)
-            << " callback="
+            << " cpu_percent=0 rss_bytes=0";
+  if (decoded.has_value())
+    std::cout << " decoded=" << *decoded;
+  std::cout << " offered=" << offered;
+  if (encoded.has_value())
+    std::cout << " encoded=" << *encoded;
+  if (received.has_value())
+    std::cout << " received=" << *received;
+  std::cout << " callback="
             << performance_callback_count_.load(std::memory_order_relaxed)
             << " submitted="
             << performance_sink_submissions_.load(std::memory_order_relaxed)
@@ -635,6 +694,21 @@ void RtcDemoController::emitPerformanceCounters() {
             << " conversion_failures=" << conversion_failures
             << " fallback_copies=" << fallback_copies
             << " max_pending=" << max_pending
+            << " source_pending=" << source_pending
+            << " source_pending_bytes=" << source_pending_bytes
+            << " source_peak_pending=" << source_peak_pending
+            << " source_peak_pending_bytes=" << source_peak_pending_bytes
+            << " session_video_pending=" << session_video_pending
+            << " session_video_bytes=" << session_video_bytes
+            << " session_audio_pending=" << session_audio_pending
+            << " session_audio_bytes=" << session_audio_bytes
+            << " render_queue=" << render_queue
+            << " pending_callbacks=" << preview.pending_callbacks
+            << " pending_callback_bytes=" << pending_callback_bytes
+            << " owned_bytes=" << owned_bytes
+            << " owned_peak_bytes=" << owned_peak_bytes
+            << " backpressure_events=" << backpressure_events
+            << " stats_unavailable=" << stats_unavailable
             << " width=" << width << " height=" << height
             << " cadence_num=" << cadence_num
             << " cadence_den=" << cadence_den

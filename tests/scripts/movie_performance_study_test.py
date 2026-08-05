@@ -51,10 +51,34 @@ class MoviePerformanceStudyTest(unittest.TestCase):
         self.assertEqual(parsed["path"], "software")
         self.assertEqual(parsed["dropped"], 0)
         self.assertEqual(parsed["max_pending"], 1)
+        bounded = self.runner.parse_perf_counters(
+            "PERF_COUNTERS version=1 role=host cpu_percent=1 rss_bytes=2 "
+            "decoded=3 offered=4 encoded=5 received=6 callback=7 submitted=8 "
+            "coalesced=0 dropped=0 conversion_failures=0 fallback_copies=0 "
+            "max_pending=1 source_pending=2 source_pending_bytes=30 "
+            "source_peak_pending=3 source_peak_pending_bytes=40 "
+            "session_video_pending=1 session_video_bytes=20 "
+            "session_audio_pending=0 session_audio_bytes=0 render_queue=1 "
+            "pending_callbacks=1 pending_callback_bytes=10 owned_bytes=60 "
+            "owned_peak_bytes=70 backpressure_events=2 stats_unavailable=0 "
+            "width=3840 height=2160 cadence_num=24000 cadence_den=1001 "
+            "pixel_aspect_num=1 pixel_aspect_den=1 color_range=limited "
+            "color_space=unknown codec=hevc profile=main10 path=software "
+            "state=playing candidate=host"
+        )
+        self.assertIsNotNone(bounded)
+        self.assertEqual(bounded["source_pending_bytes"], 30)
+        self.assertEqual(bounded["pending_callbacks"], 1)
+        self.assertEqual(bounded["owned_peak_bytes"], 70)
         self.assertEqual(self.runner.parse_perf_counters("ROOM ABC234"), None)
         self.assertEqual(
             self.runner.parse_perf_counters("PERF_COUNTERS version=1 path=/private/movie"),
             None,
+        )
+        self.assertIsNone(
+            self.runner.parse_perf_counters(
+                "PERF_COUNTERS version=1 role=host source_pending_bytes=-1"
+            )
         )
 
     def test_atomic_complete_artifact_and_sanitized_failure(self):

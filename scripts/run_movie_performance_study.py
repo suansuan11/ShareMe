@@ -46,7 +46,12 @@ ALLOWED_KEYS = {
     "conversion_failures", "width", "height", "cadence_num", "cadence_den",
     "pixel_aspect_num", "pixel_aspect_den", "color_range", "color_space",
     "codec", "profile", "path", "state", "candidate", "fallback_copies",
-    "max_pending",
+    "max_pending", "source_pending", "source_pending_bytes",
+    "source_peak_pending", "source_peak_pending_bytes",
+    "session_video_pending", "session_video_bytes", "session_audio_pending",
+    "session_audio_bytes", "render_queue", "pending_callbacks",
+    "pending_callback_bytes", "owned_bytes", "owned_peak_bytes",
+    "backpressure_events", "stats_unavailable",
 }
 ENUMS = {
     "role": {"host", "viewer"},
@@ -58,7 +63,11 @@ ENUMS = {
 INTEGER_KEYS = {
     "version", "rss_bytes", "decoded", "offered", "encoded", "received",
     "callback", "submitted", "coalesced", "dropped", "conversion_failures",
-    "fallback_copies", "max_pending",
+    "fallback_copies", "max_pending", "source_pending", "source_pending_bytes",
+    "source_peak_pending", "source_peak_pending_bytes", "session_video_pending",
+    "session_video_bytes", "session_audio_pending", "session_audio_bytes",
+    "render_queue", "pending_callbacks", "pending_callback_bytes", "owned_bytes",
+    "owned_peak_bytes", "backpressure_events", "stats_unavailable",
     "width", "height", "cadence_num", "cadence_den", "pixel_aspect_num",
     "pixel_aspect_den",
 }
