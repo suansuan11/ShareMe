@@ -5,27 +5,7 @@
 namespace shareme::core {
 namespace {
 
-[[nodiscard]] std::optional<std::uint64_t> frames_to_milliseconds(
-    std::uint64_t frames, std::uint32_t sample_rate) noexcept {
-  if (sample_rate == 0) {
-    return std::nullopt;
-  }
-
-  const auto whole_seconds = frames / sample_rate;
-  const auto remainder = frames % sample_rate;
-  constexpr auto max = std::numeric_limits<std::uint64_t>::max();
-  if (whole_seconds > max / 1'000U) {
-    return std::nullopt;
-  }
-
-  const auto whole_ms = whole_seconds * 1'000U;
-  const auto fractional_ms =
-      (remainder * 1'000U) / static_cast<std::uint64_t>(sample_rate);
-  if (whole_ms > max - fractional_ms) {
-    return std::nullopt;
-  }
-  return whole_ms + fractional_ms;
-}
+constexpr std::int64_t kMaximumCorrelationResidualMs = 80;
 
 [[nodiscard]] std::uint64_t negative_magnitude(std::int64_t value) noexcept {
   return static_cast<std::uint64_t>(-(value + 1)) + 1U;
@@ -101,37 +81,73 @@ namespace {
   return true;
 }
 
-[[nodiscard]] bool choose_anchor(
-    const AudioClockObservation& observation, std::int64_t& pts_ms,
-    std::uint64_t& consumed_frames, bool& present) noexcept {
-  if (observation.media_pts_ms.has_value()) {
-    pts_ms = *observation.media_pts_ms;
-    consumed_frames = observation.media_pts_frame.value_or(
-        observation.logical_consumed_frames);
-    present = true;
-    return true;
+[[nodiscard]] std::optional<std::int64_t> checked_frame_duration_ms(
+    std::uint64_t frames, std::uint32_t sample_rate) noexcept {
+  const auto duration_ms = audio_duration_ms(frames, sample_rate);
+  if (!duration_ms.has_value() ||
+      *duration_ms >
+          static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+    return std::nullopt;
   }
-  if (observation.anchor_pts_ms.has_value()) {
-    pts_ms = *observation.anchor_pts_ms;
-    consumed_frames = observation.anchor_consumed_frames.value_or(
-        observation.logical_consumed_frames);
-    present = true;
-    return true;
-  }
-  present = false;
-  return true;
+  return static_cast<std::int64_t>(*duration_ms);
 }
 
-[[nodiscard]] bool has_lock_evidence(
-    const AudioClockObservation& observation) noexcept {
-  return observation.correlation_valid || observation.correlation_locked ||
-      observation.correlation_confidence == ClockConfidence::locked;
+[[nodiscard]] std::uint64_t magnitude(std::int64_t value) noexcept {
+  if (value >= 0) {
+    return static_cast<std::uint64_t>(value);
+  }
+  return negative_magnitude(value);
 }
 
-[[nodiscard]] bool has_degraded_evidence(
-    const AudioClockObservation& observation) noexcept {
-  return observation.discontinuity || observation.underrun ||
-      observation.correlation_confidence == ClockConfidence::degraded;
+struct CorrelationCheck {
+  bool supplied = false;
+  bool valid = false;
+  bool fresh = false;
+};
+
+[[nodiscard]] CorrelationCheck validate_correlation(
+    const CorrelationResult& correlation, const AudioClockAnchor& anchor,
+    std::uint64_t playback_generation, std::uint64_t audio_epoch,
+    std::uint32_t sample_rate, bool requires_relock,
+    const std::optional<CorrelationResult>& previous) noexcept {
+  CorrelationCheck check{true, false, false};
+  if (!correlation.valid ||
+      correlation.reason != CorrelationRejectionReason::none ||
+      !is_approved_correlation_provenance(correlation.provenance) ||
+      !correlation.anchor_control_sequence.has_value() ||
+      !correlation.source_sequence.has_value() ||
+      !correlation.decoded_sequence.has_value() ||
+      !correlation.playback_generation.has_value() ||
+      !correlation.audio_epoch.has_value() ||
+      !correlation.sample_rate.has_value() ||
+      !correlation.channel_count.has_value()) {
+    return check;
+  }
+  if (*correlation.anchor_control_sequence != anchor.control_sequence ||
+      *correlation.source_sequence != anchor.host_source_sequence ||
+      *correlation.playback_generation != playback_generation ||
+      *correlation.audio_epoch != audio_epoch ||
+      *correlation.sample_rate != sample_rate ||
+      *correlation.sample_rate != anchor.sample_rate ||
+      *correlation.channel_count != anchor.channel_count ||
+      anchor.channel_count == 0 ||
+      magnitude(correlation.residual_ms) >
+          static_cast<std::uint64_t>(kMaximumCorrelationResidualMs)) {
+    return check;
+  }
+  if (requires_relock && previous.has_value()) {
+    if (!previous->source_sequence.has_value() ||
+        !previous->decoded_sequence.has_value() ||
+        *correlation.source_sequence <= *previous->source_sequence ||
+        *correlation.decoded_sequence <= *previous->decoded_sequence) {
+      return check;
+    }
+    check.fresh = true;
+  } else if (requires_relock) {
+    check.fresh = true;
+  }
+  check.valid = true;
+  return check;
 }
 
 }  // namespace
@@ -143,83 +159,20 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
     mark_invalid();
     return snapshot_;
   }
+
+  const auto previous = *this;
   last_observation_time_ = monotonic_now;
   have_observation_time_ = true;
 
-  if (!initialized_) {
-    initialized_ = true;
-    playback_generation_ = observation.playback_generation;
-    host_audio_epoch_ = observation.host_audio_epoch;
-    route_generation_ = observation.route_generation;
-    renderer_clock_epoch_ = observation.renderer_clock_epoch;
-    logical_consumed_frames_ = observation.consumption_known
-        ? observation.logical_consumed_frames
-        : 0;
-    consumption_unknown_ = !observation.consumption_known;
-    sample_rate_ = observation.sample_rate;
-  } else {
-    if (observation.playback_generation < playback_generation_ ||
-        observation.host_audio_epoch < host_audio_epoch_ ||
-        observation.route_generation < route_generation_) {
-      mark_invalid();
-      return snapshot_;
-    }
-
-    if (observation.renderer_clock_epoch < renderer_clock_epoch_ &&
-        !consumption_unknown_ && !renderer_clock_epoch_locally_advanced_) {
-      mark_invalid();
-      return snapshot_;
-    }
-    if (observation.renderer_clock_epoch > renderer_clock_epoch_) {
-      renderer_clock_epoch_ = observation.renderer_clock_epoch;
-      renderer_clock_epoch_locally_advanced_ = false;
-      have_playout_pts_ = false;
-      requires_relock_ = true;
-    } else if (observation.renderer_clock_epoch == renderer_clock_epoch_) {
-      renderer_clock_epoch_locally_advanced_ = false;
-    }
-
-    if (observation.playback_generation > playback_generation_ ||
-        observation.host_audio_epoch > host_audio_epoch_) {
-      if (observation.playback_generation > playback_generation_) {
-        playback_generation_ = observation.playback_generation;
-      }
-      if (observation.host_audio_epoch > host_audio_epoch_) {
-        host_audio_epoch_ = observation.host_audio_epoch;
-      }
-      have_anchor_ = false;
-      have_playout_pts_ = false;
-      requires_relock_ = true;
-    }
-    if (observation.route_generation > route_generation_) {
-      route_generation_ = observation.route_generation;
-      requires_relock_ = true;
-    }
-    if (observation.sample_rate != 0) {
-      if (sample_rate_ != 0 && observation.sample_rate != sample_rate_) {
-        mark_invalid();
-        return snapshot_;
-      }
-      sample_rate_ = observation.sample_rate;
-    }
-  }
-
-  if (!initialized_) {
+  if (observation.sample_rate == 0) {
     mark_invalid();
     return snapshot_;
   }
-
-  if (!observation.consumption_known) {
-    if (!consumption_unknown_) {
-      if (!increment_renderer_clock_epoch()) {
-        mark_invalid();
-        return snapshot_;
-      }
-    }
+  if (renderer_clock_epoch_overflowed_) {
     consumption_unknown_ = true;
     requires_relock_ = true;
-    snapshot_.logical_consumed_frames = logical_consumed_frames_;
     snapshot_.output_latency_frames = observation.output_latency_frames;
+    snapshot_.logical_consumed_frames = logical_consumed_frames_;
     snapshot_.playback_generation = playback_generation_;
     snapshot_.host_audio_epoch = host_audio_epoch_;
     snapshot_.renderer_clock_epoch = renderer_clock_epoch_;
@@ -229,58 +182,164 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
     return snapshot_;
   }
 
-  if (consumption_unknown_) {
-    consumption_unknown_ = false;
-  }
-  if (observation.logical_consumed_frames < logical_consumed_frames_) {
+  const auto reject = [&]() noexcept {
+    *this = previous;
+    last_observation_time_ = monotonic_now;
+    have_observation_time_ = true;
     mark_invalid();
     return snapshot_;
+  };
+
+  const bool was_unknown = consumption_unknown_;
+  bool media_scope_changed = false;
+
+  if (!initialized_) {
+    initialized_ = true;
+    playback_generation_ = observation.playback_generation;
+    host_audio_epoch_ = observation.host_audio_epoch;
+    route_generation_ = observation.route_generation;
+    renderer_clock_epoch_ = observation.renderer_clock_epoch;
+    logical_consumed_frames_ = 0;
+    sample_rate_ = observation.sample_rate;
+  } else {
+    if (observation.playback_generation < playback_generation_ ||
+        observation.host_audio_epoch < host_audio_epoch_ ||
+        observation.route_generation < route_generation_) {
+      return reject();
+    }
+    if (observation.renderer_clock_epoch < renderer_clock_epoch_ &&
+        !renderer_clock_epoch_locally_advanced_) {
+      return reject();
+    }
+    if (observation.renderer_clock_epoch > renderer_clock_epoch_) {
+      renderer_clock_epoch_ = observation.renderer_clock_epoch;
+      renderer_clock_epoch_locally_advanced_ = false;
+      requires_relock_ = true;
+      media_scope_changed = true;
+    } else if (observation.renderer_clock_epoch == renderer_clock_epoch_) {
+      renderer_clock_epoch_locally_advanced_ = false;
+    }
+
+    if (observation.playback_generation > playback_generation_) {
+      playback_generation_ = observation.playback_generation;
+      media_scope_changed = true;
+      requires_relock_ = true;
+    }
+    if (observation.host_audio_epoch > host_audio_epoch_) {
+      host_audio_epoch_ = observation.host_audio_epoch;
+      media_scope_changed = true;
+      requires_relock_ = true;
+    }
+    if (observation.route_generation > route_generation_) {
+      route_generation_ = observation.route_generation;
+      requires_relock_ = true;
+    }
+    if (observation.sample_rate != sample_rate_) {
+      return reject();
+    }
+    if (media_scope_changed) {
+      anchor_.reset();
+      last_correlation_.reset();
+      relock_correlation_ready_ = false;
+      have_playout_pts_ = false;
+    }
+  }
+
+  if (!observation.consumption_known) {
+    if (!consumption_unknown_) {
+      if (!increment_renderer_clock_epoch()) {
+        consumption_unknown_ = true;
+        renderer_clock_epoch_overflowed_ = true;
+        requires_relock_ = true;
+      } else {
+        consumption_unknown_ = true;
+        requires_relock_ = true;
+      }
+    }
+    snapshot_.output_latency_frames = observation.output_latency_frames;
+    snapshot_.logical_consumed_frames = logical_consumed_frames_;
+    snapshot_.playback_generation = playback_generation_;
+    snapshot_.host_audio_epoch = host_audio_epoch_;
+    snapshot_.renderer_clock_epoch = renderer_clock_epoch_;
+    snapshot_.route_generation = route_generation_;
+    snapshot_.consumption_known = false;
+    snapshot_.has_playout_pts = have_playout_pts_;
+    if (have_playout_pts_) {
+      snapshot_.estimated_playout_pts_ms = last_playout_pts_ms_;
+      snapshot_.audio_playout_pts_ms = last_playout_pts_ms_;
+      snapshot_.playout_pts_ms = last_playout_pts_ms_;
+    }
+    set_confidence(ClockConfidence::invalid);
+    return snapshot_;
+  }
+
+  if (renderer_clock_epoch_overflowed_) {
+    consumption_unknown_ = true;
+    requires_relock_ = true;
+    snapshot_.output_latency_frames = observation.output_latency_frames;
+    snapshot_.logical_consumed_frames = logical_consumed_frames_;
+    snapshot_.playback_generation = playback_generation_;
+    snapshot_.host_audio_epoch = host_audio_epoch_;
+    snapshot_.renderer_clock_epoch = renderer_clock_epoch_;
+    snapshot_.route_generation = route_generation_;
+    snapshot_.consumption_known = false;
+    set_confidence(ClockConfidence::invalid);
+    return snapshot_;
+  }
+
+  if (observation.logical_consumed_frames < logical_consumed_frames_) {
+    return reject();
   }
   logical_consumed_frames_ = observation.logical_consumed_frames;
 
-  std::int64_t anchor_pts_ms = 0;
-  std::uint64_t anchor_consumed_frames = 0;
-  bool has_new_anchor = false;
-  if (!choose_anchor(observation, anchor_pts_ms, anchor_consumed_frames,
-                     has_new_anchor)) {
-    mark_invalid();
-    return snapshot_;
-  }
-  if (has_new_anchor) {
-    if (anchor_consumed_frames > logical_consumed_frames_) {
-      mark_invalid();
-      return snapshot_;
+  if (observation.anchor.has_value()) {
+    const auto& candidate_anchor = *observation.anchor;
+    if (candidate_anchor.playback_generation != playback_generation_ ||
+        candidate_anchor.audio_epoch != host_audio_epoch_ ||
+        candidate_anchor.sample_rate != sample_rate_ ||
+        candidate_anchor.channel_count == 0 ||
+        candidate_anchor.consumed_frames > logical_consumed_frames_) {
+      return reject();
     }
-    anchor_pts_ms_ = anchor_pts_ms;
-    anchor_consumed_frames_ = anchor_consumed_frames;
-    have_anchor_ = true;
+    if (anchor_.has_value() && !media_scope_changed &&
+        candidate_anchor.control_sequence < anchor_->control_sequence) {
+      return reject();
+    }
+    if (anchor_.has_value() && !media_scope_changed &&
+        candidate_anchor.control_sequence != anchor_->control_sequence) {
+      requires_relock_ = true;
+      relock_correlation_ready_ = false;
+    }
+    anchor_ = candidate_anchor;
   }
 
   std::optional<std::int64_t> calculated_pts_ms;
-  if (have_anchor_) {
-    if (sample_rate_ == 0 || logical_consumed_frames_ < anchor_consumed_frames_) {
-      mark_invalid();
-      return snapshot_;
+  if (anchor_.has_value()) {
+    if (logical_consumed_frames_ < anchor_->consumed_frames) {
+      return reject();
     }
-    const auto elapsed_frames = logical_consumed_frames_ - anchor_consumed_frames_;
-    const auto elapsed_ms = frames_to_milliseconds(elapsed_frames, sample_rate_);
+    const auto elapsed_frames =
+        logical_consumed_frames_ - anchor_->consumed_frames;
+    const auto elapsed_ms =
+        checked_frame_duration_ms(elapsed_frames, sample_rate_);
     if (!elapsed_ms.has_value()) {
-      mark_invalid();
-      return snapshot_;
+      return reject();
     }
 
     auto pts_ms = std::int64_t{0};
-    if (!checked_add_unsigned(anchor_pts_ms_, *elapsed_ms, pts_ms)) {
-      mark_invalid();
-      return snapshot_;
+    if (!checked_add_unsigned(anchor_->media_pts_ms,
+                              static_cast<std::uint64_t>(*elapsed_ms),
+                              pts_ms)) {
+      return reject();
     }
     if (observation.output_latency_frames.has_value()) {
-      const auto latency_ms = frames_to_milliseconds(
+      const auto latency_ms = checked_frame_duration_ms(
           *observation.output_latency_frames, sample_rate_);
       if (!latency_ms.has_value() ||
-          !checked_subtract_unsigned(pts_ms, *latency_ms, pts_ms)) {
-        mark_invalid();
-        return snapshot_;
+          !checked_subtract_unsigned(pts_ms,
+                                     static_cast<std::uint64_t>(*latency_ms),
+                                     pts_ms)) {
+        return reject();
       }
     }
     calculated_pts_ms = pts_ms;
@@ -290,17 +349,40 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
     const bool new_pts_epoch =
         !have_playout_pts_ ||
         pts_playback_generation_ != playback_generation_ ||
+        pts_host_audio_epoch_ != host_audio_epoch_ ||
         pts_renderer_clock_epoch_ != renderer_clock_epoch_;
     if (!new_pts_epoch && *calculated_pts_ms < last_playout_pts_ms_) {
-      mark_invalid();
-      return snapshot_;
+      return reject();
     }
     last_playout_pts_ms_ = *calculated_pts_ms;
     pts_playback_generation_ = playback_generation_;
+    pts_host_audio_epoch_ = host_audio_epoch_;
     pts_renderer_clock_epoch_ = renderer_clock_epoch_;
     have_playout_pts_ = true;
   }
 
+  CorrelationCheck correlation_check;
+  if (observation.correlation.has_value()) {
+    if (!anchor_.has_value()) {
+      correlation_check.supplied = true;
+    } else {
+      correlation_check = validate_correlation(
+          *observation.correlation, *anchor_, playback_generation_,
+          host_audio_epoch_, sample_rate_, requires_relock_,
+          last_correlation_);
+    }
+    if (was_unknown && !correlation_check.valid) {
+      return reject();
+    }
+    if (correlation_check.valid) {
+      last_correlation_ = observation.correlation;
+      if (requires_relock_) {
+        relock_correlation_ready_ = true;
+      }
+    }
+  }
+
+  consumption_unknown_ = false;
   snapshot_.logical_consumed_frames = logical_consumed_frames_;
   snapshot_.output_latency_frames = observation.output_latency_frames;
   snapshot_.playback_generation = playback_generation_;
@@ -316,18 +398,20 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
   }
 
   const bool was_locked = snapshot_.confidence == ClockConfidence::locked;
-  if (observation.correlation_confidence == ClockConfidence::invalid) {
-    set_confidence(ClockConfidence::invalid);
-  } else if (has_degraded_evidence(observation)) {
+  const bool supplied_invalid_correlation =
+      correlation_check.supplied && !correlation_check.valid;
+  if (observation.discontinuity || observation.underrun ||
+      supplied_invalid_correlation) {
     set_confidence(ClockConfidence::degraded);
   } else if (!have_playout_pts_) {
     set_confidence(ClockConfidence::unavailable);
-  } else if (has_lock_evidence(observation) &&
-             observation.output_latency_frames.has_value() &&
-             (!requires_relock_ || observation.correlation_valid ||
-              observation.correlation_locked)) {
+  } else if (observation.output_latency_frames.has_value() &&
+             (correlation_check.valid || relock_correlation_ready_ ||
+              (last_correlation_.has_value() && !requires_relock_) ||
+              (was_locked && !requires_relock_))) {
     set_confidence(ClockConfidence::locked);
     requires_relock_ = false;
+    relock_correlation_ready_ = false;
   } else if (was_locked && !requires_relock_ &&
              observation.output_latency_frames.has_value()) {
     set_confidence(ClockConfidence::locked);
@@ -347,7 +431,9 @@ void MovieAudioClock::reset() noexcept {
   initialized_ = false;
   consumption_unknown_ = false;
   renderer_clock_epoch_locally_advanced_ = false;
+  renderer_clock_epoch_overflowed_ = false;
   requires_relock_ = false;
+  relock_correlation_ready_ = false;
   have_observation_time_ = false;
   last_observation_time_ = {};
   logical_consumed_frames_ = 0;
@@ -356,12 +442,12 @@ void MovieAudioClock::reset() noexcept {
   host_audio_epoch_ = 0;
   route_generation_ = 0;
   sample_rate_ = 0;
-  have_anchor_ = false;
-  anchor_pts_ms_ = 0;
-  anchor_consumed_frames_ = 0;
+  anchor_.reset();
+  last_correlation_.reset();
   have_playout_pts_ = false;
   last_playout_pts_ms_ = 0;
   pts_playback_generation_ = 0;
+  pts_host_audio_epoch_ = 0;
   pts_renderer_clock_epoch_ = 0;
 }
 
@@ -371,13 +457,14 @@ void MovieAudioClock::set_confidence(ClockConfidence confidence) noexcept {
 }
 
 void MovieAudioClock::mark_invalid() noexcept {
+  requires_relock_ = true;
   set_confidence(ClockConfidence::invalid);
   snapshot_.logical_consumed_frames = logical_consumed_frames_;
   snapshot_.playback_generation = playback_generation_;
   snapshot_.host_audio_epoch = host_audio_epoch_;
   snapshot_.renderer_clock_epoch = renderer_clock_epoch_;
   snapshot_.route_generation = route_generation_;
-  snapshot_.consumption_known = !consumption_unknown_;
+  snapshot_.consumption_known = false;
   snapshot_.has_playout_pts = have_playout_pts_;
   if (have_playout_pts_) {
     snapshot_.estimated_playout_pts_ms = last_playout_pts_ms_;
@@ -392,7 +479,6 @@ bool MovieAudioClock::increment_renderer_clock_epoch() noexcept {
   }
   ++renderer_clock_epoch_;
   renderer_clock_epoch_locally_advanced_ = true;
-  have_playout_pts_ = false;
   return true;
 }
 

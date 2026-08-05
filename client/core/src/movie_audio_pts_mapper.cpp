@@ -34,11 +34,6 @@ constexpr std::int64_t kMaximumCorrelationResidualMs = 80;
   return true;
 }
 
-[[nodiscard]] bool is_unspecified_or_equal(
-    std::uint64_t value, std::uint64_t expected) noexcept {
-  return value == 0 || value == expected;
-}
-
 }  // namespace
 
 AnchorResult MovieAudioPtsMapper::accept_anchor(AudioAnchor anchor) noexcept {
@@ -63,13 +58,21 @@ AnchorResult MovieAudioPtsMapper::accept_anchor(AudioAnchor anchor) noexcept {
       return {false, AnchorRejectionReason::audio_epoch_regression,
               confidence_};
     }
+    if (anchor.playback_generation == last_anchor_.playback_generation &&
+        anchor.audio_epoch == last_anchor_.audio_epoch &&
+        anchor.host_source_sequence < last_anchor_.host_source_sequence) {
+      invalidate();
+      return {false, AnchorRejectionReason::host_source_sequence_regression,
+              confidence_};
+    }
     if (anchor.sample_rate != last_anchor_.sample_rate ||
         anchor.channel_count != last_anchor_.channel_count) {
       invalidate();
       return {false, AnchorRejectionReason::format_change, confidence_};
     }
 
-    if (anchor.playback_generation == last_anchor_.playback_generation) {
+    if (anchor.playback_generation == last_anchor_.playback_generation &&
+        anchor.audio_epoch == last_anchor_.audio_epoch) {
       if (anchor.media_pts_ms < last_anchor_.media_pts_ms) {
         invalidate();
         return {false, AnchorRejectionReason::pts_regression, confidence_};
@@ -84,12 +87,13 @@ AnchorResult MovieAudioPtsMapper::accept_anchor(AudioAnchor anchor) noexcept {
     }
   }
 
-  const bool generation_changed =
+  const bool correlation_scope_changed =
       !have_anchor_ ||
-      anchor.playback_generation != last_anchor_.playback_generation;
+      anchor.playback_generation != last_anchor_.playback_generation ||
+      anchor.audio_epoch != last_anchor_.audio_epoch;
   last_anchor_ = anchor;
   have_anchor_ = true;
-  if (generation_changed) {
+  if (correlation_scope_changed) {
     have_correlation_ = false;
     last_correlation_ = {};
   }
@@ -101,6 +105,15 @@ AnchorResult MovieAudioPtsMapper::accept_anchor(AudioAnchor anchor) noexcept {
 CorrelationResult MovieAudioPtsMapper::observe_correlation(
     CorrelationObservation observation) noexcept {
   CorrelationResult result;
+  result.anchor_control_sequence = observation.anchor_control_sequence;
+  result.source_sequence = observation.source_sequence;
+  result.decoded_sequence = observation.decoded_sequence;
+  result.playback_generation = observation.playback_generation;
+  result.audio_epoch = observation.audio_epoch;
+  result.sample_rate = observation.sample_rate;
+  result.channel_count = observation.channel_count;
+  result.residual_ms = observation.residual_ms;
+  result.provenance = observation.provenance;
   result.confidence = confidence_;
 
   if (!have_anchor_) {
@@ -110,6 +123,12 @@ CorrelationResult MovieAudioPtsMapper::observe_correlation(
     return result;
   }
 
+  if (!observation.anchor_control_sequence.has_value()) {
+    result.reason = CorrelationRejectionReason::missing_anchor_identity;
+    retain_nonlocked_confidence();
+    result.confidence = confidence_;
+    return result;
+  }
   if (!observation.source_sequence.has_value()) {
     result.reason = CorrelationRejectionReason::missing_source_sequence;
     retain_nonlocked_confidence();
@@ -123,9 +142,32 @@ CorrelationResult MovieAudioPtsMapper::observe_correlation(
     return result;
   }
 
-  result.source_sequence = *observation.source_sequence;
-  result.decoded_sequence = *observation.decoded_sequence;
-  result.residual_ms = observation.residual_ms;
+  if (!observation.playback_generation.has_value()) {
+    result.reason = CorrelationRejectionReason::missing_playback_generation;
+    retain_nonlocked_confidence();
+    result.confidence = confidence_;
+    return result;
+  }
+  if (!observation.audio_epoch.has_value()) {
+    result.reason = CorrelationRejectionReason::missing_audio_epoch;
+    retain_nonlocked_confidence();
+    result.confidence = confidence_;
+    return result;
+  }
+  if (!observation.sample_rate.has_value() ||
+      !observation.channel_count.has_value()) {
+    result.reason = CorrelationRejectionReason::format_change;
+    retain_nonlocked_confidence();
+    result.confidence = confidence_;
+    return result;
+  }
+
+  if (!is_approved_correlation_provenance(observation.provenance)) {
+    result.reason = CorrelationRejectionReason::provenance_not_approved;
+    retain_nonlocked_confidence();
+    result.confidence = confidence_;
+    return result;
+  }
 
   if (!observation.valid) {
     result.reason = CorrelationRejectionReason::invalid_observation;
@@ -134,39 +176,39 @@ CorrelationResult MovieAudioPtsMapper::observe_correlation(
     return result;
   }
 
-  if (observation.playback_generation != 0 &&
-      observation.playback_generation < last_anchor_.playback_generation) {
+  if (*observation.playback_generation < last_anchor_.playback_generation) {
     result.reason = CorrelationRejectionReason::playback_generation_regression;
     retain_nonlocked_confidence();
     result.confidence = confidence_;
     return result;
   }
-  if (!is_unspecified_or_equal(
-          observation.playback_generation,
-          last_anchor_.playback_generation)) {
+  if (*observation.playback_generation != last_anchor_.playback_generation) {
     result.reason = CorrelationRejectionReason::playback_generation_mismatch;
     retain_nonlocked_confidence();
     result.confidence = confidence_;
     return result;
   }
-  if (observation.audio_epoch != 0 &&
-      observation.audio_epoch < last_anchor_.audio_epoch) {
+  if (*observation.audio_epoch < last_anchor_.audio_epoch) {
     result.reason = CorrelationRejectionReason::audio_epoch_regression;
     retain_nonlocked_confidence();
     result.confidence = confidence_;
     return result;
   }
-  if (!is_unspecified_or_equal(observation.audio_epoch,
-                              last_anchor_.audio_epoch)) {
+  if (*observation.audio_epoch != last_anchor_.audio_epoch) {
     result.reason = CorrelationRejectionReason::audio_epoch_mismatch;
     retain_nonlocked_confidence();
     result.confidence = confidence_;
     return result;
   }
-  if ((observation.sample_rate != 0 &&
-       observation.sample_rate != last_anchor_.sample_rate) ||
-      (observation.channel_count != 0 &&
-       observation.channel_count != last_anchor_.channel_count)) {
+  if (*observation.anchor_control_sequence != last_anchor_.control_sequence ||
+      *observation.source_sequence != last_anchor_.host_source_sequence) {
+    result.reason = CorrelationRejectionReason::anchor_identity_mismatch;
+    retain_nonlocked_confidence();
+    result.confidence = confidence_;
+    return result;
+  }
+  if (*observation.sample_rate != last_anchor_.sample_rate ||
+      *observation.channel_count != last_anchor_.channel_count) {
     result.reason = CorrelationRejectionReason::format_change;
     retain_nonlocked_confidence();
     result.confidence = confidence_;
@@ -180,8 +222,10 @@ CorrelationResult MovieAudioPtsMapper::observe_correlation(
     return result;
   }
   if (have_correlation_ &&
-      (*observation.source_sequence < last_correlation_.source_sequence ||
-       *observation.decoded_sequence < last_correlation_.decoded_sequence)) {
+      (!last_correlation_.source_sequence.has_value() ||
+       !last_correlation_.decoded_sequence.has_value() ||
+       *observation.source_sequence <= *last_correlation_.source_sequence ||
+       *observation.decoded_sequence <= *last_correlation_.decoded_sequence)) {
     result.reason = CorrelationRejectionReason::sequence_regression;
     retain_nonlocked_confidence();
     result.confidence = confidence_;
