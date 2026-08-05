@@ -60,6 +60,15 @@ struct SignaledPeerResult {
   std::string error;
 };
 
+struct SignaledVideoStats {
+  std::optional<std::uint64_t> frames_encoded;
+  std::optional<std::uint64_t> frames_sent;
+  std::optional<std::uint64_t> frames_received;
+  std::optional<std::uint64_t> frames_decoded;
+  std::optional<std::uint64_t> frames_dropped;
+  bool unavailable{false};
+};
+
 struct SignaledPeerCallbacks {
   std::function<void(std::string type, std::string sdp)> description;
   std::function<void(std::string mid, int line, std::string candidate)>
@@ -102,6 +111,7 @@ public:
                                        std::string candidate);
   [[nodiscard]] bool send_control_message(std::string message);
   [[nodiscard]] SignaledPeerResult wait(std::chrono::milliseconds timeout);
+  [[nodiscard]] SignaledVideoStats video_stats() const noexcept;
   void cancel_wait() noexcept;
   void stop() noexcept;
 

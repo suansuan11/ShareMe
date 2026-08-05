@@ -275,8 +275,74 @@ public:
           if (!control_channel_ || control_channel_->state() !=
                                        webrtc::DataChannelInterface::kOpen)
             return false;
-          return control_channel_->Send(webrtc::DataBuffer(message));
-        });
+           return control_channel_->Send(webrtc::DataBuffer(message));
+         });
+  }
+  SignaledVideoStats video_stats() const noexcept {
+    SignaledVideoStats result;
+    try {
+      if (!runtime_ || !peer_ || !runtime_->signaling_thread() ||
+          !runtime_->signaling_thread()->RunningForTest()) {
+        result.unavailable = true;
+        return result;
+      }
+
+      auto callback = webrtc::scoped_refptr<StatsObserver>(new StatsObserver());
+      runtime_->signaling_thread()->BlockingCall(
+          [&] { peer_->GetStats(callback.get()); });
+      const auto report = callback->wait();
+      if (!report) {
+        result.unavailable = true;
+        return result;
+      }
+
+      bool found_video_stats = false;
+      bool missing_video_field = false;
+      for (const auto* const stats :
+           report->GetStatsOfType<webrtc::RTCOutboundRtpStreamStats>()) {
+        if (stats->kind != std::optional<std::string>{"video"}) {
+          continue;
+        }
+        found_video_stats = true;
+        if (stats->frames_encoded) {
+          result.frames_encoded = *stats->frames_encoded;
+        } else {
+          missing_video_field = true;
+        }
+        if (stats->frames_sent) {
+          result.frames_sent = *stats->frames_sent;
+        } else {
+          missing_video_field = true;
+        }
+      }
+      for (const auto* const stats :
+           report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>()) {
+        if (stats->kind != std::optional<std::string>{"video"}) {
+          continue;
+        }
+        found_video_stats = true;
+        if (stats->frames_received) {
+          result.frames_received = *stats->frames_received;
+        } else {
+          missing_video_field = true;
+        }
+        if (stats->frames_decoded) {
+          result.frames_decoded = *stats->frames_decoded;
+        } else {
+          missing_video_field = true;
+        }
+        if (stats->frames_dropped) {
+          result.frames_dropped = *stats->frames_dropped;
+        } else {
+          missing_video_field = true;
+        }
+      }
+      result.unavailable = !found_video_stats || missing_video_field;
+    } catch (...) {
+      result = {};
+      result.unavailable = true;
+    }
+    return result;
   }
   SignaledPeerResult wait(std::chrono::milliseconds timeout) {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -735,6 +801,9 @@ bool SignaledPeer::send_control_message(std::string message) {
 }
 SignaledPeerResult SignaledPeer::wait(std::chrono::milliseconds timeout) {
   return impl_->wait(timeout);
+}
+SignaledVideoStats SignaledPeer::video_stats() const noexcept {
+  return impl_->video_stats();
 }
 void SignaledPeer::cancel_wait() noexcept { impl_->cancel_wait(); }
 void SignaledPeer::stop() noexcept { impl_->stop(); }

@@ -338,6 +338,16 @@ int main() {
   REQUIRE(directional_host_result.video_frames_received == 0);
   REQUIRE(directional_viewer_result.error.empty());
   REQUIRE(directional_viewer_result.video_frames_received > 0);
+  const auto host_video_stats = send_only_host->video_stats();
+  const auto viewer_video_stats = receive_only_viewer->video_stats();
+  REQUIRE(!host_video_stats.unavailable);
+  REQUIRE(host_video_stats.frames_encoded.has_value());
+  REQUIRE(*host_video_stats.frames_encoded > 0);
+  REQUIRE(!viewer_video_stats.unavailable);
+  REQUIRE(viewer_video_stats.frames_received.has_value());
+  REQUIRE(*viewer_video_stats.frames_received > 0);
+  REQUIRE(viewer_video_stats.frames_decoded.has_value());
+  REQUIRE(*viewer_video_stats.frames_decoded > 0);
   send_only_host->stop();
   receive_only_viewer->stop();
 
