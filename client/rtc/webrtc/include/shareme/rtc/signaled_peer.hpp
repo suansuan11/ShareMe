@@ -99,7 +99,7 @@ is_expected_voice_rtp_track(SignaledRole role, bool outbound,
 
 class SignaledPeer final {
 public:
-  [[nodiscard]] static VideoCodecReport video_codec_report();
+  [[nodiscard]] static VideoCodecReport video_codec_report() noexcept;
   static std::unique_ptr<SignaledPeer> create(SignaledPeerConfig config,
                                               SignaledPeerCallbacks callbacks);
   static std::unique_ptr<SignaledPeer> create(SignaledRole role,
