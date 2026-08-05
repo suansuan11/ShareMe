@@ -60,6 +60,36 @@ See [Movie Audio Isolation Verification](../verification/movie-audio-isolation.m
 and [Receiver Playout Reports Verification](../verification/receiver-playout-reports.md)
 for exact proof and evidence boundaries.
 
+### Movie Playback Boundary Stage 1 Handoff
+
+The safe video-path boundary is accepted on `codex/movie-playback-stage1` at
+code SHA `96795e2`.
+
+Verified on macOS arm64:
+
+- the locked software movie-video default and explicit auto/fallback report;
+- typed decoder-path propagation through `MediaInfo` and `MovieVideoFormat`;
+- fixed WebRTC capability reporting as `vp8-software` with
+  `unavailable-locked-abi` hardware status;
+- separate sanitized `requested_mode`, `decoder_path`, `webrtc_encoder`, and
+  `hardware_encoder_status` fields with fail-closed parser and artifact gates;
+- fresh configure, build, focused CTest 25/25, full CTest 50/50, the three
+  registered Stage 1 contract tests, Python performance-contract tests 11/11,
+  and `git diff --check`;
+- repository-external WebRTC checkout and depot-tools worktrees remained clean.
+
+Selected VideoToolbox decoder behavior remains environment-dependent/partial:
+the available fixture verified software and explicit-auto fallback, but not an
+actual selected hardware decode. Windows native build/media evidence and all
+hardware WebRTC encoding behavior remain unverified. The direct controller
+performance-line contract test is a deferred non-blocking Minor from the
+frozen Stage 1 test scope.
+
+The next implementation boundary is Stage 2A from code SHA `96795e2`:
+app-owned movie audio renderer, provisional audio clock/PTS contracts, and an
+observational video scheduler. Correction remains candidate-only and Stage 2B
+must not start unless the planned correlation checkpoint is satisfied.
+
 ### Current performance-stage handoff
 
 On `codex/movie-playback-performance`, the quality-preserving performance
