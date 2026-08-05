@@ -113,6 +113,7 @@ void defaults_to_software_decoder_path(
   const auto explicit_info = explicit_source.open(movie_path);
   REQUIRE(explicit_info.video_path.requested == VideoAccelerationMode::software);
   REQUIRE(explicit_info.video_path.decoder == VideoDecoderPath::software);
+  REQUIRE(explicit_info.video_acceleration == "software");
 }
 
 void explicit_auto_reports_decoder_path_without_encoder_claim(
