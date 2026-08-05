@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <string_view>
+#include <type_traits>
 
 namespace {
 
@@ -25,6 +26,9 @@ void exposes_the_complete_stable_failure_taxonomy() {
   using shareme::core::PlaybackImpact;
   using shareme::core::playback_category_impact;
   using shareme::core::playback_category_name;
+
+  static_assert(std::is_enum_v<PlaybackCategory>);
+  static_assert(std::is_enum_v<PlaybackImpact>);
 
   struct Expected {
     PlaybackCategory category;
