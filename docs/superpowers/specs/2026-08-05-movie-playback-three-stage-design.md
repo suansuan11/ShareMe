@@ -260,7 +260,10 @@ active
 Per-call `accepted_frames` is never confused with cumulative
 `accepted_frames_total`. `device_consumed_frames_total` is monotonic only within
 one output-device instance and route generation. It describes backend
-consumption, not guaranteed acoustic presentation.
+consumption, not guaranteed acoustic presentation. Device totals reset for a
+new device instance; the renderer's `accepted_frames_total` is cumulative for
+the renderer lifetime, while `logical_consumed_frames` remains the continuous
+cross-route consumption counter.
 
 ### Renderer clock contract
 
@@ -506,7 +509,7 @@ Automated tests cover:
 - route notifications during shutdown;
 - repeated route changes;
 - immediate candidate-device loss;
-- bounded callback completion; and
+- bounded callback completion;
 - exactly-once token release; and
 - unchanged movie-audio peer identity, voice ADM identity, and voice transport
   state across every route transaction.
