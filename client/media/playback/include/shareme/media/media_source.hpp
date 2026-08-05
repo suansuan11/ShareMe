@@ -1,6 +1,7 @@
 #pragma once
 
 #include "shareme/media/media_frame.hpp"
+#include "shareme/media/video_path.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +27,7 @@ struct MediaInfo {
   std::string video_profile;
   std::string video_color_range;
   std::string video_color_space;
+  VideoPathReport video_path{};
   std::string video_acceleration{"software"};
 };
 

@@ -42,6 +42,12 @@ struct HardwareFormatSelection {
   bool selected{false};
 };
 
+struct DecoderOpenResult {
+  AVCodecContext* context{nullptr};
+  bool hardware_attempted{false};
+  bool hardware_selected{false};
+};
+
 enum AVPixelFormat select_video_pixel_format(
     AVCodecContext* codec_context, const enum AVPixelFormat* formats) {
   auto* selection =
@@ -56,14 +62,12 @@ enum AVPixelFormat select_video_pixel_format(
   return formats[0];
 }
 
-[[nodiscard]] AVCodecContext* open_decoder(
+[[nodiscard]] DecoderOpenResult open_decoder(
     AVFormatContext* format_context,
     int stream_index,
     const AVCodec* decoder,
-    bool prefer_videotoolbox,
-    bool* videotoolbox_selected) {
-  if (videotoolbox_selected != nullptr)
-    *videotoolbox_selected = false;
+    bool prefer_videotoolbox) {
+  bool hardware_selected = false;
 
   const auto open_once = [&](bool use_videotoolbox) -> AVCodecContext* {
     auto* codec_context = avcodec_alloc_context3(decoder);
@@ -125,16 +129,22 @@ enum AVPixelFormat select_video_pixel_format(
         return nullptr;
       throw ffmpeg_error("Could not open FFmpeg decoder", open_result);
     }
-    if (videotoolbox_selected != nullptr)
-      *videotoolbox_selected = format_selection.selected;
+    if (use_videotoolbox)
+      hardware_selected = format_selection.selected;
     return codec_context;
   };
 
   if (prefer_videotoolbox) {
     if (auto* codec_context = open_once(true))
-      return codec_context;
+      return {
+          .context = codec_context,
+          .hardware_attempted = true,
+          .hardware_selected = hardware_selected};
   }
-  return open_once(false);
+  return {
+      .context = open_once(false),
+      .hardware_attempted = prefer_videotoolbox,
+      .hardware_selected = false};
 }
 
 [[nodiscard]] Rational time_base_of(
@@ -216,12 +226,19 @@ public:
         if (video_stream_index_ < 0 || video_decoder == nullptr) {
           throw VideoStreamUnavailable{};
         }
-        bool videotoolbox_selected = false;
-        video_codec_context_ = open_decoder(
+        const auto video_decoder_result = open_decoder(
             format_context_, video_stream_index_, video_decoder,
-            options_.video_acceleration == VideoAccelerationMode::auto_mode,
-            &videotoolbox_selected);
-        video_acceleration_path_ = videotoolbox_selected ? "hardware" : "software";
+            options_.video_acceleration == VideoAccelerationMode::auto_mode);
+        video_codec_context_ = video_decoder_result.context;
+        video_path_ = VideoPathReport{
+            .requested = options_.video_acceleration,
+            .decoder = video_decoder_result.hardware_selected
+                           ? VideoDecoderPath::hardware
+                       : video_decoder_result.hardware_attempted
+                           ? VideoDecoderPath::fallback
+                           : VideoDecoderPath::software};
+        video_acceleration_path_ =
+            video_decoder_result.hardware_selected ? "hardware" : "software";
       }
 
       if (options_.decode_audio) {
@@ -234,10 +251,9 @@ public:
             &audio_decoder,
             0);
         if (audio_stream_index_ >= 0 && audio_decoder != nullptr) {
-          audio_codec_context_ =
-              open_decoder(
-                  format_context_, audio_stream_index_, audio_decoder, false,
-                  nullptr);
+          const auto audio_decoder_result = open_decoder(
+              format_context_, audio_stream_index_, audio_decoder, false);
+          audio_codec_context_ = audio_decoder_result.context;
         } else {
           audio_stream_index_ = -1;
           if (!options_.decode_video) {
@@ -279,6 +295,7 @@ public:
             color_range_name(video_codec_context_->color_range);
         info.video_color_space =
             color_space_name(video_codec_context_->colorspace);
+        info.video_path = video_path_;
         info.video_acceleration = video_acceleration_path_;
       }
       if (format_context_->duration != AV_NOPTS_VALUE) {
@@ -435,6 +452,7 @@ public:
     next_audio_output_pts_ms_.reset();
     video_discard_before_ms_.reset();
     audio_discard_before_ms_.reset();
+    video_path_ = VideoPathReport{};
     video_acceleration_path_ = "software";
   }
 
@@ -838,6 +856,7 @@ private:
   std::optional<std::int64_t> next_audio_output_pts_ms_;
   std::optional<std::int64_t> video_discard_before_ms_;
   std::optional<std::int64_t> audio_discard_before_ms_;
+  VideoPathReport video_path_{};
   std::string video_acceleration_path_{"software"};
   PendingMediaEvents pending_events_;
   const FfmpegMediaSourceOptions options_;
