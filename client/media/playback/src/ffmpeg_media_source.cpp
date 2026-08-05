@@ -4,6 +4,7 @@
 #include "shareme/media/pending_media_events.hpp"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -184,9 +185,9 @@ public:
 
   MediaInfo open(const std::filesystem::path& path) {
     close();
-    pending_events_ = PendingMediaEvents{};
-    decoded_video_frames_ = 0;
-    decoded_audio_frames_ = 0;
+    pending_events_.reset();
+    decoded_video_frames_.store(0, std::memory_order_relaxed);
+    decoded_audio_frames_.store(0, std::memory_order_relaxed);
 
     auto* opened_format = static_cast<AVFormatContext*>(nullptr);
     const auto open_result =
@@ -440,8 +441,10 @@ public:
   [[nodiscard]] MediaSourceMetrics metrics() const noexcept {
     const auto pending = pending_events_.metrics();
     return {
-        .decoded_video_frames = decoded_video_frames_,
-        .decoded_audio_frames = decoded_audio_frames_,
+        .decoded_video_frames =
+            decoded_video_frames_.load(std::memory_order_relaxed),
+        .decoded_audio_frames =
+            decoded_audio_frames_.load(std::memory_order_relaxed),
         .pending_events = pending.size,
         .pending_bytes = pending.bytes,
         .peak_pending_events = pending.peak_size,
@@ -828,8 +831,8 @@ private:
   bool video_flush_complete_{false};
   bool audio_flush_complete_{false};
   bool resampler_drained_{false};
-  std::uint64_t decoded_video_frames_{0};
-  std::uint64_t decoded_audio_frames_{0};
+  std::atomic<std::uint64_t> decoded_video_frames_{0};
+  std::atomic<std::uint64_t> decoded_audio_frames_{0};
   std::int64_t last_video_pts_ms_{-1};
   std::int64_t last_audio_pts_ms_{-1};
   std::optional<std::int64_t> next_audio_output_pts_ms_;

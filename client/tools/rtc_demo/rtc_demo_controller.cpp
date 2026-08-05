@@ -492,8 +492,26 @@ void RtcDemoController::startPeer() {
     playback_state_timer_.start();
   if (role_ == shareme::rtc::SignaledRole::viewer)
     playout_report_timer_.start();
-  if (performance_counters_enabled_)
+  if (performance_counters_enabled_) {
+    performance_stats_worker_ = std::jthread([this](std::stop_token stop_token) {
+      while (!stop_token.stop_requested()) {
+        const auto stats = peer_
+                               ? peer_->video_stats()
+                               : shareme::rtc::SignaledVideoStats{
+                                     .unavailable = true};
+        {
+          std::lock_guard lock(performance_stats_mutex_);
+          performance_video_stats_ = stats;
+        }
+        std::unique_lock wait_lock(performance_stats_wait_mutex_);
+        performance_stats_wait_.wait_for(
+            wait_lock, stop_token, std::chrono::seconds(1), [] {
+              return false;
+            });
+      }
+    });
     performance_timer_.start();
+  }
   if (role_ == shareme::rtc::SignaledRole::host &&
       drift_scenario_name_ == QStringLiteral("drift-study-v1")) {
     drift_scenario_.emplace();
@@ -525,6 +543,10 @@ void RtcDemoController::stopPeer() noexcept {
   playout_report_timer_.stop();
   drift_scenario_timer_.stop();
   performance_timer_.stop();
+  if (performance_stats_worker_.joinable()) {
+    performance_stats_worker_.request_stop();
+    performance_stats_worker_.join();
+  }
   stopDriftMetrics();
   if (peer_)
     peer_->cancel_wait();
@@ -661,10 +683,11 @@ void RtcDemoController::emitPerformanceCounters() {
                   : "playing";
     }
   }
-  const auto video_stats = peer_
-                               ? peer_->video_stats()
-                               : shareme::rtc::SignaledVideoStats{
-                                     .unavailable = true};
+  shareme::rtc::SignaledVideoStats video_stats;
+  {
+    std::lock_guard lock(performance_stats_mutex_);
+    video_stats = performance_video_stats_;
+  }
   if (viewer()) {
     decoded = video_stats.frames_decoded;
     received = video_stats.frames_received;
@@ -855,14 +878,41 @@ void RtcDemoController::recordDriftError(std::string category,
   drift_aggregator_.record_error(category);
   if (!viewer())
     return;
-  bool sent = false;
+  bool queued = false;
+  const auto notification_completed = std::make_shared<std::atomic_bool>(false);
   if (notify_viewer && peer_ && !room_id_.isEmpty()) {
     const auto encoded = shareme::tools::encode_drift_failure(
         QString::fromStdString(category));
-    sent = !encoded.isEmpty() && peer_->send_control_message(encoded.toStdString());
+    if (!encoded.isEmpty()) {
+      queued = peer_->queue_control_message(
+          encoded.toStdString(), [notification_completed](bool sent) {
+            if (notification_completed->exchange(true,
+                                                  std::memory_order_acq_rel))
+              return;
+            if (auto *application = QCoreApplication::instance()) {
+              QMetaObject::invokeMethod(
+                  application,
+                  [sent] {
+                    if (!sent)
+                      std::cerr << "DRIFT_ERROR category=drift-error-send-failure"
+                                << std::endl;
+                    QCoreApplication::exit(EXIT_FAILURE);
+                  },
+                  Qt::QueuedConnection);
+            }
+          });
+    }
   }
-  if (!sent)
-    drift_aggregator_.record_error("drift-error-send-failure");
+  if (queued) {
+    QTimer::singleShot(1'000, [notification_completed] {
+      if (notification_completed->exchange(true, std::memory_order_acq_rel))
+        return;
+      std::cerr << "DRIFT_ERROR category=drift-error-send-timeout" << std::endl;
+      QCoreApplication::exit(EXIT_FAILURE);
+    });
+    return;
+  }
+  drift_aggregator_.record_error("drift-error-send-failure");
   QCoreApplication::exit(EXIT_FAILURE);
 }
 
@@ -892,7 +942,7 @@ void RtcDemoController::publishPlaybackState() {
       video_sample->rtp_timestamp);
   if (!state)
     return;
-  if (!peer_->send_control_message(
+  if (!peer_->queue_control_message(
           shareme::tools::encode_playback_state(*state).toStdString()))
     return;
   ++playback_sequence_;
@@ -931,9 +981,14 @@ void RtcDemoController::publishPlayoutReport() {
     return;
   ++drift_report_encode_successes_;
   ++drift_report_send_attempts_;
-  if (!peer_->send_control_message(encoded.toStdString()))
+  const auto send_successes = drift_report_send_successes_;
+  if (!peer_->queue_control_message(
+          encoded.toStdString(),
+          [send_successes](bool sent) {
+            if (sent)
+              send_successes->fetch_add(1, std::memory_order_relaxed);
+          }))
     return;
-  ++drift_report_send_successes_;
   ++playout_report_sequence_;
 }
 
@@ -950,7 +1005,8 @@ void RtcDemoController::emitDriftDiagnostics() {
             << drift_report_encode_attempts_ << " report_encode_successes="
             << drift_report_encode_successes_ << " report_send_attempts="
             << drift_report_send_attempts_ << " report_send_successes="
-            << drift_report_send_successes_ << std::endl;
+            << drift_report_send_successes_->load(std::memory_order_relaxed)
+            << std::endl;
 }
 
 void RtcDemoController::refreshHostPlayback() {

@@ -234,6 +234,8 @@ int main() {
   std::unique_ptr<shareme::rtc::SignaledPeer> control_viewer;
   std::promise<std::string> control_message_promise;
   auto control_message_future = control_message_promise.get_future();
+  std::promise<bool> control_send_result_promise;
+  auto control_send_result_future = control_send_result_promise.get_future();
   std::promise<std::string> viewer_report_promise;
   auto viewer_report_future = viewer_report_promise.get_future();
   shareme::rtc::SignaledPeerCallbacks host_control_callbacks;
@@ -276,7 +278,10 @@ int main() {
   const std::string control_payload{"{\"type\":\"playback-state\"}"};
   bool control_sent = false;
   for (int attempt = 0; attempt < 250 && !control_sent; ++attempt) {
-    control_sent = control_host->send_control_message(control_payload);
+    control_sent = control_host->queue_control_message(
+        control_payload, [&](bool sent) {
+          control_send_result_promise.set_value(sent);
+        });
     if (!control_sent)
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
@@ -284,6 +289,9 @@ int main() {
   REQUIRE(control_message_future.wait_for(std::chrono::seconds(2)) ==
           std::future_status::ready);
   REQUIRE(control_message_future.get() == control_payload);
+  REQUIRE(control_send_result_future.wait_for(std::chrono::seconds(2)) ==
+          std::future_status::ready);
+  REQUIRE(control_send_result_future.get());
   const std::string viewer_report{"{\"type\":\"playout-report\"}"};
   REQUIRE(control_viewer->send_control_message(viewer_report));
   REQUIRE(viewer_report_future.wait_for(std::chrono::seconds(2)) ==

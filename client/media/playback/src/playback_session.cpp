@@ -175,10 +175,7 @@ public:
 
   [[nodiscard]] PlaybackSessionMetrics metrics() const noexcept {
     PlaybackSessionMetrics metrics;
-    {
-      std::scoped_lock source_lock{source_mutex_};
-      metrics.source = source_->metrics();
-    }
+    metrics.source = source_->metrics();
     metrics.video_queue_size = video_queue_.size();
     metrics.video_queue_capacity = video_queue_.capacity();
     metrics.video_queue_bytes = video_queue_.bytes();

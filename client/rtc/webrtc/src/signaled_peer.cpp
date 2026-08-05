@@ -1,5 +1,6 @@
 #include "shareme/rtc/signaled_peer.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <future>
@@ -7,6 +8,7 @@
 #include <optional>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "api/environment/environment_factory.h"
 #include "api/data_channel_interface.h"
@@ -38,6 +40,27 @@ struct PendingCandidate {
   std::string mid;
   int line{};
   std::string candidate;
+};
+
+struct ControlMessageState {
+  explicit ControlMessageState(std::function<void(bool)> completion)
+      : completion(std::move(completion)) {}
+
+  void complete(bool sent) {
+    if (!completed.exchange(true, std::memory_order_acq_rel) && completion)
+      completion(sent);
+  }
+
+  std::function<void(bool)> completion;
+  std::atomic_bool completed{false};
+};
+
+struct ControlChannelState {
+  std::atomic_bool active{true};
+  std::atomic_bool open{false};
+  webrtc::scoped_refptr<webrtc::DataChannelInterface> channel;
+  std::mutex pending_mutex;
+  std::vector<std::shared_ptr<ControlMessageState>> pending;
 };
 
 class CreateObserver final : public webrtc::CreateSessionDescriptionObserver,
@@ -275,8 +298,55 @@ public:
           if (!control_channel_ || control_channel_->state() !=
                                        webrtc::DataChannelInterface::kOpen)
             return false;
-           return control_channel_->Send(webrtc::DataBuffer(message));
-         });
+          return control_channel_->Send(webrtc::DataBuffer(message));
+        });
+  }
+  bool queue_control_message(std::string message,
+                             std::function<void(bool)> completion) {
+    if (!valid_control_message(message) || !runtime_ ||
+        !runtime_->signaling_thread() ||
+        !runtime_->signaling_thread()->RunningForTest() ||
+        !control_channel_state_->open.load(std::memory_order_acquire))
+      return false;
+    const auto state = control_channel_state_;
+    const auto message_state = std::make_shared<ControlMessageState>(
+        std::move(completion));
+    {
+      std::lock_guard lock(state->pending_mutex);
+      if (!state->active.load(std::memory_order_acquire) ||
+          !state->open.load(std::memory_order_acquire))
+        return false;
+      state->pending.push_back(message_state);
+    }
+    try {
+      runtime_->signaling_thread()->PostTask(
+          [state, message = std::move(message), message_state] {
+            bool sent = false;
+            {
+              std::lock_guard lock(state->pending_mutex);
+              if (!state->active.load(std::memory_order_acquire) ||
+                  !state->channel ||
+                  state->channel->state() !=
+                      webrtc::DataChannelInterface::kOpen) {
+                state->open.store(false, std::memory_order_release);
+              } else {
+                sent = state->channel->Send(webrtc::DataBuffer(message));
+                if (!sent)
+                  state->open.store(false, std::memory_order_release);
+              }
+              std::erase(state->pending, message_state);
+            }
+            message_state->complete(sent);
+          });
+    } catch (...) {
+      {
+        std::lock_guard lock(state->pending_mutex);
+        std::erase(state->pending, message_state);
+      }
+      message_state->complete(false);
+      return false;
+    }
+    return true;
   }
   SignaledVideoStats video_stats() const noexcept {
     SignaledVideoStats result;
@@ -288,8 +358,9 @@ public:
       }
 
       auto callback = webrtc::scoped_refptr<StatsObserver>(new StatsObserver());
-      runtime_->signaling_thread()->BlockingCall(
-          [&] { peer_->GetStats(callback.get()); });
+      const auto peer = peer_;
+      runtime_->signaling_thread()->PostTask(
+          [peer, callback] { peer->GetStats(callback.get()); });
       const auto report = callback->wait();
       if (!report) {
         result.unavailable = true;
@@ -398,6 +469,15 @@ public:
     if (stopped_.exchange(true))
       return;
     callbacks_active_->store(false, std::memory_order_release);
+    control_channel_state_->active.store(false, std::memory_order_release);
+    control_channel_state_->open.store(false, std::memory_order_release);
+    std::vector<std::shared_ptr<ControlMessageState>> pending_messages;
+    {
+      std::lock_guard lock(control_channel_state_->pending_mutex);
+      pending_messages.swap(control_channel_state_->pending);
+    }
+    for (const auto &message : pending_messages)
+      message->complete(false);
     local_video_sink_.clear_callback();
     remote_video_sink_.clear_callback();
     if (video_source_)
@@ -412,6 +492,10 @@ public:
         if (control_channel_ && control_observer_)
           control_channel_->UnregisterObserver();
         control_observer_.reset();
+        {
+          std::lock_guard lock(control_channel_state_->pending_mutex);
+          control_channel_state_->channel = nullptr;
+        }
         control_channel_ = nullptr;
         peer_ = nullptr;
         remote_video_ = nullptr;
@@ -431,7 +515,13 @@ private:
   class ControlObserver final : public webrtc::DataChannelObserver {
   public:
     explicit ControlObserver(Impl &owner) : owner_(owner) {}
-    void OnStateChange() override {}
+    void OnStateChange() override {
+      owner_.control_channel_state_->open.store(
+          owner_.control_channel_ &&
+              owner_.control_channel_->state() ==
+                  webrtc::DataChannelInterface::kOpen,
+          std::memory_order_release);
+    }
     void OnMessage(const webrtc::DataBuffer &buffer) override {
       if (!owner_.callbacks_active_->load(std::memory_order_acquire) ||
           buffer.binary || buffer.data.empty() ||
@@ -575,6 +665,13 @@ private:
     if (!channel || control_channel_)
       return;
     control_channel_ = std::move(channel);
+    {
+      std::lock_guard lock(control_channel_state_->pending_mutex);
+      control_channel_state_->channel = control_channel_;
+    }
+    control_channel_state_->open.store(
+        control_channel_->state() == webrtc::DataChannelInterface::kOpen,
+        std::memory_order_release);
     control_observer_ = std::make_unique<ControlObserver>(*this);
     control_channel_->RegisterObserver(control_observer_.get());
   }
@@ -761,6 +858,8 @@ private:
   webrtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track_,
       remote_audio_;
   webrtc::scoped_refptr<webrtc::DataChannelInterface> control_channel_;
+  std::shared_ptr<ControlChannelState> control_channel_state_{
+      std::make_shared<ControlChannelState>()};
   std::unique_ptr<ControlObserver> control_observer_;
   CandidateStager<PendingCandidate, 64> candidates_;
   bool remote_set_{};
@@ -798,6 +897,11 @@ bool SignaledPeer::receive_candidate(std::string mid, int line,
 }
 bool SignaledPeer::send_control_message(std::string message) {
   return impl_->send_control_message(std::move(message));
+}
+bool SignaledPeer::queue_control_message(
+    std::string message, std::function<void(bool)> completion) {
+  return impl_->queue_control_message(std::move(message),
+                                      std::move(completion));
 }
 SignaledPeerResult SignaledPeer::wait(std::chrono::milliseconds timeout) {
   return impl_->wait(timeout);

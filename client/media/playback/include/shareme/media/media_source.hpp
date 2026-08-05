@@ -63,6 +63,7 @@ public:
   virtual MediaEvent read_next(std::uint64_t generation) = 0;
   virtual void seek(std::int64_t target_ms) = 0;
   virtual void close() noexcept = 0;
+  // Metrics must be safe to read while read_next() is decoding.
   [[nodiscard]] virtual MediaSourceMetrics metrics() const noexcept {
     return {};
   }

@@ -6,9 +6,11 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -95,6 +97,43 @@ public:
 private:
   std::mutex mutex_;
   std::deque<shareme::media::MediaEvent> events_;
+};
+
+class BlockingMetricsSource final : public shareme::media::IMediaSource {
+public:
+  shareme::media::MediaInfo open(const std::filesystem::path&) override {
+    return {.duration_ms = 1'000, .has_video = true};
+  }
+
+  shareme::media::MediaEvent read_next(std::uint64_t) override {
+    read_started.store(true, std::memory_order_release);
+    std::unique_lock lock{mutex_};
+    released_.wait(lock, [this] { return release; });
+    return shareme::media::EndOfStream{};
+  }
+
+  void seek(std::int64_t) override {}
+
+  void close() noexcept override { release_read(); }
+
+  shareme::media::MediaSourceMetrics metrics() const noexcept override {
+    return {.decoded_video_frames = 7};
+  }
+
+  void release_read() {
+    {
+      std::lock_guard lock{mutex_};
+      release = true;
+    }
+    released_.notify_all();
+  }
+
+  std::atomic_bool read_started{false};
+
+private:
+  mutable std::mutex mutex_;
+  std::condition_variable released_;
+  bool release{false};
 };
 
 template <typename Predicate>
@@ -243,6 +282,28 @@ void reports_bounded_video_bytes() {
   REQUIRE(metrics.video_dropped_count == session.video_dropped_count());
 }
 
+void metrics_do_not_wait_for_source_decode() {
+  using shareme::media::PlaybackSession;
+
+  auto source = std::make_unique<BlockingMetricsSource>();
+  auto* observed_source = source.get();
+  PlaybackSession session{std::move(source)};
+  static_cast<void>(session.open("movie.mp4"));
+  session.play();
+  REQUIRE(wait_until([observed_source] {
+    return observed_source->read_started.load(std::memory_order_acquire);
+  }));
+
+  auto metrics = std::async(std::launch::async, [&session] {
+    return session.metrics();
+  });
+  REQUIRE(metrics.wait_for(200ms) == std::future_status::ready);
+  REQUIRE(metrics.get().source.decoded_video_frames == 7);
+  observed_source->release_read();
+  REQUIRE(wait_until(
+      [&session] { return session.state() == shareme::media::PlaybackState::ended; }));
+}
+
 void negative_start_throttles_without_dropping_audio(
     const std::filesystem::path& negative_start_path) {
   using shareme::media::FfmpegMediaSource;
@@ -314,6 +375,7 @@ int main(int argc, char** argv) {
   drops_oldest_video_when_queue_is_full();
   limits_decode_ahead_of_playhead();
   reports_bounded_video_bytes();
+  metrics_do_not_wait_for_source_decode();
   negative_start_throttles_without_dropping_audio(argv[1]);
   return EXIT_SUCCESS;
 }

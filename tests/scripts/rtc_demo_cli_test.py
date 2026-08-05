@@ -212,6 +212,43 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("performance_frame_width_.store", source)
         self.assertIn("performance_frame_height_.store", source)
 
+    def test_performance_stats_do_not_block_counter_timer(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("performance_stats_worker_", source)
+        self.assertIn("performance_stats_mutex_", source)
+        start = source.index("void RtcDemoController::emitPerformanceCounters()")
+        end = source.index("\nvoid RtcDemoController::stopDriftMetrics()", start)
+        self.assertNotIn("peer_->video_stats()", source[start:end])
+
+    def test_control_message_send_does_not_block_the_qt_thread(self):
+        source = self.peer_source.read_text(encoding="utf-8")
+        controller = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("queue_control_message(", controller)
+        self.assertIn("bool queue_control_message(", source)
+        self.assertIn("std::function<void(bool)>", source)
+        start = source.index("bool queue_control_message(")
+        end = source.index("SignaledVideoStats video_stats()", start)
+        method = source[start:end]
+        self.assertIn("PostTask", method)
+        self.assertNotIn("BlockingCall", method)
+
+    def test_video_stats_poll_does_not_block_on_stats_schedule(self):
+        source = self.peer_source.read_text(encoding="utf-8")
+        start = source.index("SignaledVideoStats video_stats()")
+        end = source.index("SignaledPeerResult wait", start)
+        method = source[start:end]
+        self.assertIn("PostTask", method)
+        self.assertNotIn("BlockingCall", method)
+
+    def test_controller_error_notification_does_not_block_before_exit(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        start = source.index("void RtcDemoController::recordDriftError")
+        end = source.index("\nvoid RtcDemoController::publishPlaybackState", start)
+        method = source[start:end]
+        self.assertIn("queue_control_message", method)
+        self.assertNotIn("send_control_message", method)
+        self.assertIn("QTimer::singleShot", method)
+
     def test_movie_sender_preserves_resolution_and_framerate(self):
         controller = self.controller_source.read_text(encoding="utf-8")
         peer = self.peer_source.read_text(encoding="utf-8")

@@ -108,8 +108,10 @@ public:
   [[nodiscard]] bool start();
   [[nodiscard]] bool receive_description(std::string type, std::string sdp);
   [[nodiscard]] bool receive_candidate(std::string mid, int line,
-                                       std::string candidate);
+                                        std::string candidate);
   [[nodiscard]] bool send_control_message(std::string message);
+  [[nodiscard]] bool queue_control_message(
+      std::string message, std::function<void(bool)> completion = {});
   [[nodiscard]] SignaledPeerResult wait(std::chrono::milliseconds timeout);
   [[nodiscard]] SignaledVideoStats video_stats() const noexcept;
   void cancel_wait() noexcept;

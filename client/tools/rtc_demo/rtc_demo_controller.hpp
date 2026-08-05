@@ -21,10 +21,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <deque>
 #include <memory>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -171,7 +173,8 @@ private:
   std::size_t drift_report_encode_attempts_{0};
   std::size_t drift_report_encode_successes_{0};
   std::size_t drift_report_send_attempts_{0};
-  std::size_t drift_report_send_successes_{0};
+  std::shared_ptr<std::atomic<std::size_t>> drift_report_send_successes_{
+      std::make_shared<std::atomic<std::size_t>>(0)};
   std::chrono::steady_clock::time_point last_drift_diagnostic_at_{};
   std::string selected_candidate_type_;
   bool drift_diagnostics_enabled_{false};
@@ -183,6 +186,12 @@ private:
   std::atomic<std::uint64_t> performance_fallback_copies_{0};
   std::atomic<int> performance_frame_width_{0};
   std::atomic<int> performance_frame_height_{0};
+  std::jthread performance_stats_worker_;
+  std::mutex performance_stats_mutex_;
+  std::mutex performance_stats_wait_mutex_;
+  std::condition_variable_any performance_stats_wait_;
+  shareme::rtc::SignaledVideoStats performance_video_stats_{
+      .unavailable = true};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};

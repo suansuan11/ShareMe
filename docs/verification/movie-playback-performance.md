@@ -59,6 +59,43 @@ was one local signaling server, one movie host with independent movie audio,
 and one viewer. The raw JSONL remained in ignored build-output directories and
 is not part of Git.
 
+## Latest Bounded-Diagnostics Rerun
+
+The final macOS working-tree binary was rerun after moving WebRTC stats polling
+off the Qt event loop, queueing periodic control messages without a signaling
+thread wait, and making playback metrics safe to read during FFmpeg decoding.
+This was a diagnostics rerun, not a baseline/candidate quality comparison.
+
+All three sequential software runs completed 180 seconds. The strict artifact
+summarizer accepted 120 process samples and 120 counter samples per role in the
+30-150 second measurement window for every run. Each artifact contained 358
+counter records, `stats_unavailable=0`, `coalesced=0`, `dropped=0`, and
+`max_pending=1` for both roles.
+
+| Run | Host average CPU | Viewer average CPU | Host CPU P95 | Viewer CPU P95 | Host RSS P95 | Viewer RSS P95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 01 | 176.48% | 21.32% | 226.9% | 30.5% | 537,477,120 | 252,985,344 |
+| 02 | 207.28% | 29.46% | 258.5% | 46.5% | 524,353,536 | 246,595,584 |
+| 03 | 215.15% | 30.22% | 274.2% | 46.0% | 605,782,016 | 251,166,720 |
+
+The host reported 3840x2160, 24000/1001, limited-range HEVC Main10 software
+decoding in all runs. Measurement-window queue maxima across the three runs
+were source pending 2 frames/24,883,200 bytes, PlaybackSession video pending 2
+frames/24,883,200 bytes, owned bytes peak 62,208,000, and backpressure events 0.
+The viewer reported 3840x2160 submitted frames and the same one-frame preview
+bound. These results verify the counter chain and bounded application-layer
+ownership on Darwin; they do not establish a 30% reduction, PSNR/SSIM quality,
+paused CPU behavior, physical thermal improvement, display scanout, acoustic
+A/V synchronization, or Windows behavior.
+
+Final artifact SHA-256 values:
+
+```text
+run-01.jsonl  2dd5443a7a3740abea67712b4ad85ce764ab20daa51f91f5b5772b23a7da1ef5
+run-02.jsonl  2a9332391070e34e7f5a8b33f7b522cdf757fac7b5ebcb3250d766731d20d531
+run-03.jsonl  53af2c36caac40c3dd9897d27b0d93a64bf1db523bacfe4c9447050eca5d2638
+```
+
 ## Three-run software baseline
 
 The review-corrected baseline is an independently built instrumented binary
@@ -211,8 +248,9 @@ claim that the overall 30% CPU or physical-temperature gate has passed.
 ## Verification boundary
 
 Verified on macOS: focused C++/Python contracts, direct-I420 media tests,
-preview-adapter test, playback demo build, 3×180-second software baseline, and
-3×180-second hardware-path candidate lifecycle. Windows is
+preview-adapter test, playback demo build, 3×180-second bounded-diagnostics
+rerun, 3×180-second software baseline, and 3×180-second hardware-path candidate
+lifecycle. Windows is
 environment-dependent and unverified. Full-suite, lifecycle-repeat, Go,
 workflow, validator, final read-only review, and human GUI/audio acceptance
 are recorded separately at the stage handoff and are not inferred from this
@@ -222,11 +260,11 @@ physical screen presentation.
 
 ## Stage verification
 
-The completed macOS verification checkpoint passed full CTest 49/49,
+The completed macOS verification checkpoint passed full CTest 50/50,
 including the standard-C++ portability regression contract, 20/20 repeated
 `signaled_peer` lifecycles, `go test -race ./...`, `go vet
-./...`, ShareMe Sol–Terra workflow tests 8/8, the ShareMe skill validator, and
+./...`, ShareMe Sol-Terra workflow tests 8/8, the ShareMe skill validator, and
 `git diff --check`. These checks establish regression and tooling health; they
-do not turn the failed performance gate into a pass. No Windows build, native
+do not turn the incomplete performance gate into a pass. No Windows build, native
 Windows media run, human preview/audio confirmation, display scanout, acoustic
 A/V, or physical thermal measurement was performed.

@@ -85,7 +85,7 @@ measurement and conversion-cleanup slice is complete with outcome
 - the earlier 7.47% same-binary software/auto result is invalidated; the
   corrected evidence uses distinct baseline/candidate executable identities and
   measurement-window-only CPU/RSS samples for every run and role.
-- final macOS regression verification passed CTest 49/49, including the MSVC
+- final macOS regression verification passed CTest 50/50, including the MSVC
   portability regression contract, 20 repeated
   `signaled_peer` lifecycles, Go race/vet, workflow 8/8, the skill validator,
   and `git diff --check`; Windows and human visual/audio/thermal evidence remain
@@ -98,7 +98,14 @@ measurement and conversion-cleanup slice is complete with outcome
   Experimental P010 pass-through, 10-bit conversion, and forced macOS H.264
   paths were rejected after either producing solid-green frames or failing the
   CPU/RSS gate; none of those hardware experiments remain in the committed
-  source. The stage therefore remains `blocked-on-quality-preserving-boundary`.
+   source. The stage therefore remains `blocked-on-quality-preserving-boundary`.
+
+The current working tree additionally moves diagnostics off synchronous Qt and
+signaling-thread waits, protects concurrent media metrics, and preserves the
+existing quality and drop policy. The final macOS binary completed three
+strictly summarized 180-second software runs with 120 process and counter
+samples per role in the measurement window, zero stats-unavailable samples,
+zero coalescing/drops, and `max_pending=1`.
 
 See [Movie Playback Performance Verification](../verification/movie-playback-performance.md).
 The branch must not merge to `main` or resume drift/hard-resync work until the
@@ -107,7 +114,7 @@ resolved.
 
 ## Verification status
 
-- **Verified — macOS movie-call:** full build and CTest passed 49/49; the
+- **Verified — macOS movie-call:** full build and CTest passed 50/50; the
   dedicated peer lifecycle test also passed 20 consecutive runs.
 - **Verified — macOS live signaling:** five consecutive microphone/movie/audio
   smoke calls passed with stereo 48 kHz delivery and no captured codec
@@ -149,12 +156,17 @@ resolved.
   exposes sink/encode/send/receive counters; the post-fix native diagnostic
   recorded sink submissions but no report encode attempt. See
   [Movie Drift Study Verification](../verification/movie-drift-study.md).
-- **Partial — movie playback performance:** measurement tooling, three-run
-  software baseline, sender quality preference, direct-I420 conversion cleanup,
-  planar preview lifetime path, profiling, and a three-run macOS HEVC hardware
-  candidate are evidenced. The frozen performance/quality gate is failed as
-  documented; Windows, PSNR/SSIM, paused probe, human GUI/audio acceptance,
-  display scanout, and physical thermal evidence remain unverified.
+- **Verified — macOS bounded movie diagnostics:** the final working-tree binary
+  completed three sequential 180-second software runs. Strict aggregation
+  accepted 120 process and counter samples per role in the measurement window;
+  all runs recorded 358 counter records, zero stats-unavailable samples, zero
+  coalescing/drops, and `max_pending=1`. Queue and owned-byte maxima are
+  recorded in [Movie Playback Performance Verification](../verification/movie-playback-performance.md).
+- **Partial — movie playback performance gate:** the counter chain and bounded
+  ownership are verified, but no valid baseline/candidate quality comparison,
+  PSNR/SSIM, paused probe, human GUI/audio confirmation, display scanout, or
+  physical thermal evidence has been completed. This does not justify a
+  CPU-reduction or temperature claim.
 - **Unimplemented as an accepted delivery:** correction application, bounded
   hard resync, TURN/public network acceptance, process-loopback audio, a
   quality-passing platform hardware adapter, and all hard-resync tasks blocked
@@ -162,12 +174,12 @@ resolved.
 
 ## Next recommended stage
 
-The next stage should determine why the maintained-4K hardware path delivers
-only 70.20% of the baseline viewer cadence, then add same-timestamp PSNR/SSIM
-and paused-probe evidence. Do not lower quality, tune thresholds, resume
-viewer reportability repair, or start hard-resync until the frozen performance
-gate is genuinely satisfied. Windows hardware validation remains a separate,
-environment-dependent stage.
+Complete the remaining quality-preserving performance gate for the bounded
+diagnostics stage: a distinct baseline/candidate comparison, same-timestamp
+PSNR/SSIM samples, a paused probe, human GUI/audio acceptance, and Windows
+reruns. Do not lower quality, tune thresholds, resume viewer reportability
+repair, or start hard-resync until the frozen performance gate is genuinely
+satisfied. Windows validation remains a separate, environment-dependent stage.
 
 ## Git handoff
 
@@ -183,3 +195,9 @@ environment-dependent stage.
 - The repository-external libwebrtc cache was preserved and used read-only.
 - Keep Windows results environment-dependent until that machine reruns the
   affected configuration.
+- `codex/movie-playback-performance` remains an unmerged, unpushed active
+  worktree with uncommitted source/test changes for nonblocking diagnostics and
+  concurrent media metrics.
+- The latest ignored macOS artifacts are under
+  `build/movie-call-dev/movie-performance-diagnostics-20260805-queue-rerun8`;
+  they are evidence only and are not part of Git.
