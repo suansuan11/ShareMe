@@ -31,6 +31,9 @@ static_assert(!HasMovieAudioFactory<shareme::rtc::SignaledPeerConfig>);
 } // namespace
 #define REQUIRE(expression) require((expression), #expression, __LINE__)
 int main() {
+  const auto codec_report = shareme::rtc::SignaledPeer::video_codec_report();
+  REQUIRE(codec_report.encoder == "vp8-software");
+  REQUIRE(codec_report.hardware_encoder_status == "unavailable-locked-abi");
   using shareme::rtc::SignaledAudioMode;
   using shareme::rtc::SignaledRole;
   using shareme::rtc::SignaledVideoDirection;

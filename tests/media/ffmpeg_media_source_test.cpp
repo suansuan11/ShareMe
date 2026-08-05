@@ -1,5 +1,6 @@
 #include "shareme/media/ffmpeg_media_source.hpp"
 #include "shareme/media/pcm_chunker.hpp"
+#include "shareme/media/video_path.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -92,25 +93,43 @@ void decodes_generated_movie(const std::filesystem::path& movie_path) {
   source.close();
 }
 
-void reports_video_acceleration_fallback_for_unsupported_fixture(
+void defaults_to_software_decoder_path(
+    const std::filesystem::path& movie_path) {
+  using shareme::media::FfmpegMediaSource;
+  using shareme::media::FfmpegMediaSourceOptions;
+  using shareme::media::VideoDecoderPath;
+  using shareme::media::VideoAccelerationMode;
+
+  FfmpegMediaSource source;
+  const auto info = source.open(movie_path);
+  REQUIRE(info.video_path.requested == VideoAccelerationMode::software);
+  REQUIRE(info.video_path.decoder == VideoDecoderPath::software);
+  REQUIRE(info.video_acceleration == "software");
+
+  FfmpegMediaSource explicit_source{FfmpegMediaSourceOptions{
+      .decode_video = true,
+      .decode_audio = false,
+      .video_acceleration = VideoAccelerationMode::software}};
+  const auto explicit_info = explicit_source.open(movie_path);
+  REQUIRE(explicit_info.video_path.requested == VideoAccelerationMode::software);
+  REQUIRE(explicit_info.video_path.decoder == VideoDecoderPath::software);
+}
+
+void explicit_auto_reports_decoder_path_without_encoder_claim(
     const std::filesystem::path& movie_path) {
   using shareme::media::FfmpegMediaSource;
   using shareme::media::FfmpegMediaSourceOptions;
   using shareme::media::VideoAccelerationMode;
+  using shareme::media::VideoDecoderPath;
 
-  FfmpegMediaSource software_source{FfmpegMediaSourceOptions{
-      .decode_video = true,
-      .decode_audio = false,
-      .video_acceleration = VideoAccelerationMode::software}};
-  const auto software_info = software_source.open(movie_path);
-  REQUIRE(software_info.video_acceleration == "software");
-
-  FfmpegMediaSource automatic_source{FfmpegMediaSourceOptions{
+  FfmpegMediaSource source{FfmpegMediaSourceOptions{
       .decode_video = true,
       .decode_audio = false,
       .video_acceleration = VideoAccelerationMode::auto_mode}};
-  const auto automatic_info = automatic_source.open(movie_path);
-  REQUIRE(automatic_info.video_acceleration == "software");
+  const auto info = source.open(movie_path);
+  REQUIRE(info.video_path.requested == VideoAccelerationMode::auto_mode);
+  REQUIRE(info.video_path.decoder == VideoDecoderPath::fallback);
+  REQUIRE(info.video_acceleration == "software");
 }
 
 void seeks_to_requested_region(const std::filesystem::path& movie_path) {
@@ -573,7 +592,8 @@ void rejects_when_all_decoders_are_disabled() {
 int main(int argc, char** argv) {
   REQUIRE(argc == 7);
   decodes_generated_movie(argv[1]);
-  reports_video_acceleration_fallback_for_unsupported_fixture(argv[1]);
+  defaults_to_software_decoder_path(argv[1]);
+  explicit_auto_reports_decoder_path_without_encoder_claim(argv[1]);
   seeks_to_requested_region(argv[1]);
   decodes_audio_without_video(argv[1]);
   decodes_video_without_audio(argv[1]);

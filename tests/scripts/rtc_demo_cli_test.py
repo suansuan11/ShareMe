@@ -103,11 +103,19 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertEqual(viewer.returncode, 2)
         self.assertNotIn(movie, viewer.stderr)
 
-    def test_movie_video_acceleration_contract_is_explicit_and_host_only(self):
+    def test_movie_video_acceleration_defaults_to_software_and_is_host_only(self):
         common = [
             "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
             "--source", "movie", "--movie", "/private/movie.mkv",
         ]
+        cli_source = (self.controller_source.parent / "main.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'QStringLiteral("mode"), QStringLiteral("software")', cli_source
+        )
+        omitted = self.run_demo(*common, "--validate")
+        self.assertEqual(omitted.returncode, 0 if self.movie_supported else 2)
         for mode in ("auto", "software"):
             result = self.run_demo(*common, "--video-acceleration", mode,
                                    "--validate")

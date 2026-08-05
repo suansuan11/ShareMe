@@ -45,12 +45,33 @@ class MoviePerformanceStudyTest(unittest.TestCase):
             "width=3840 height=2160 cadence_num=24 cadence_den=1 "
             "pixel_aspect_num=1 pixel_aspect_den=1 color_range=limited "
             "color_space=bt2020nc codec=hevc profile=main10 "
-            "path=software state=playing candidate=host"
+            "requested_mode=software decoder_path=software "
+            "webrtc_encoder=vp8-software "
+            "hardware_encoder_status=unavailable-locked-abi "
+            "state=playing candidate=host"
         )
+        self.assertIsNotNone(parsed)
         self.assertEqual(parsed["width"], 3840)
-        self.assertEqual(parsed["path"], "software")
+        self.assertEqual(parsed["requested_mode"], "software")
+        self.assertEqual(parsed["decoder_path"], "software")
+        self.assertEqual(parsed["webrtc_encoder"], "vp8-software")
+        self.assertEqual(
+            parsed["hardware_encoder_status"], "unavailable-locked-abi"
+        )
         self.assertEqual(parsed["dropped"], 0)
         self.assertEqual(parsed["max_pending"], 1)
+        auto = self.runner.parse_perf_counters(
+            "PERF_COUNTERS version=1 role=host requested_mode=auto "
+            "decoder_path=fallback webrtc_encoder=vp8-software "
+            "hardware_encoder_status=unavailable-locked-abi"
+        )
+        self.assertIsNotNone(auto)
+        self.assertEqual(auto["requested_mode"], "auto")
+        self.assertEqual(auto["decoder_path"], "fallback")
+        self.assertEqual(auto["webrtc_encoder"], "vp8-software")
+        self.assertEqual(
+            auto["hardware_encoder_status"], "unavailable-locked-abi"
+        )
         bounded = self.runner.parse_perf_counters(
             "PERF_COUNTERS version=1 role=host cpu_percent=1 rss_bytes=2 "
             "decoded=3 offered=4 encoded=5 received=6 callback=7 submitted=8 "
@@ -63,7 +84,10 @@ class MoviePerformanceStudyTest(unittest.TestCase):
             "owned_peak_bytes=70 backpressure_events=2 stats_unavailable=0 "
             "width=3840 height=2160 cadence_num=24000 cadence_den=1001 "
             "pixel_aspect_num=1 pixel_aspect_den=1 color_range=limited "
-            "color_space=unknown codec=hevc profile=main10 path=software "
+            "color_space=unknown codec=hevc profile=main10 "
+            "requested_mode=software decoder_path=software "
+            "webrtc_encoder=vp8-software "
+            "hardware_encoder_status=unavailable-locked-abi "
             "state=playing candidate=host"
         )
         self.assertIsNotNone(bounded)
@@ -74,6 +98,24 @@ class MoviePerformanceStudyTest(unittest.TestCase):
         self.assertEqual(
             self.runner.parse_perf_counters("PERF_COUNTERS version=1 path=/private/movie"),
             None,
+        )
+        self.assertIsNone(
+            self.runner.parse_perf_counters(
+                "PERF_COUNTERS version=1 role=host path=hardware"
+            )
+        )
+        self.assertIsNone(
+            self.runner.parse_perf_counters(
+                "PERF_COUNTERS version=1 role=host path=hardware "
+                "webrtc_encoder=hardware"
+            )
+        )
+        self.assertIsNone(
+            self.runner.parse_perf_counters(
+                "PERF_COUNTERS version=1 role=host requested_mode=auto "
+                "decoder_path=hardware webrtc_encoder=hardware "
+                "hardware_encoder_status=available"
+            )
         )
         self.assertIsNone(
             self.runner.parse_perf_counters(
