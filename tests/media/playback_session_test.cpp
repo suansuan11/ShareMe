@@ -209,6 +209,40 @@ void limits_decode_ahead_of_playhead() {
       [&session] { return session.state() == PlaybackState::ended; }));
 }
 
+void reports_bounded_video_bytes() {
+  using shareme::media::AudioFrame;
+  using shareme::media::PlaybackSession;
+  using shareme::media::VideoFrame;
+
+  auto source = std::make_unique<FakeMediaSource>();
+  auto* observed_source = source.get();
+  PlaybackSession session{std::move(source)};
+  static_cast<void>(session.open("movie.mp4"));
+
+  VideoFrame video;
+  video.rgba.resize(4);
+  REQUIRE(shareme::media::video_frame_capacity_bytes(video) == 4);
+
+  AudioFrame audio;
+  audio.interleaved_samples.resize(4);
+  REQUIRE(shareme::media::audio_frame_capacity_bytes(audio) ==
+          4 * sizeof(std::int16_t));
+
+  observed_source->push_video(1, FakeMediaSource::use_requested_generation);
+  observed_source->push_video(2, FakeMediaSource::use_requested_generation);
+  session.play();
+  REQUIRE(wait_until([&session] {
+    return session.metrics().video_queue_size > 0;
+  }));
+
+  const auto metrics = session.metrics();
+  REQUIRE(metrics.video_queue_capacity == 3);
+  REQUIRE(metrics.video_queue_size <= metrics.video_queue_capacity);
+  REQUIRE(metrics.video_queue_bytes > 0);
+  REQUIRE(metrics.video_queue_peak_bytes >= metrics.video_queue_bytes);
+  REQUIRE(metrics.video_dropped_count == session.video_dropped_count());
+}
+
 void negative_start_throttles_without_dropping_audio(
     const std::filesystem::path& negative_start_path) {
   using shareme::media::FfmpegMediaSource;
@@ -279,6 +313,7 @@ int main(int argc, char** argv) {
   seek_increments_generation_and_discards_stale_frames();
   drops_oldest_video_when_queue_is_full();
   limits_decode_ahead_of_playhead();
+  reports_bounded_video_bytes();
   negative_start_throttles_without_dropping_audio(argv[1]);
   return EXIT_SUCCESS;
 }

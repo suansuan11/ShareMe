@@ -2,6 +2,7 @@
 
 #include "shareme/media/media_frame.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
@@ -28,6 +29,16 @@ struct MediaInfo {
   std::string video_acceleration{"software"};
 };
 
+struct MediaSourceMetrics {
+  std::uint64_t decoded_video_frames{0};
+  std::uint64_t decoded_audio_frames{0};
+  std::size_t pending_events{0};
+  std::size_t pending_bytes{0};
+  std::size_t peak_pending_events{0};
+  std::size_t peak_pending_bytes{0};
+  std::uint64_t backpressure_events{0};
+};
+
 struct EndOfStream {};
 
 class VideoStreamUnavailable final : public std::runtime_error {
@@ -52,6 +63,9 @@ public:
   virtual MediaEvent read_next(std::uint64_t generation) = 0;
   virtual void seek(std::int64_t target_ms) = 0;
   virtual void close() noexcept = 0;
+  [[nodiscard]] virtual MediaSourceMetrics metrics() const noexcept {
+    return {};
+  }
 };
 
 }  // namespace shareme::media

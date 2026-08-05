@@ -18,8 +18,10 @@ class PlaybackSession::Impl {
 public:
   explicit Impl(std::unique_ptr<IMediaSource> source)
       : source_{std::move(source)},
-        video_queue_{3, core::OverflowPolicy::drop_oldest},
-        audio_queue_{24, core::OverflowPolicy::reject_newest} {
+        video_queue_{3, core::OverflowPolicy::drop_oldest,
+                     &video_frame_capacity_bytes},
+        audio_queue_{24, core::OverflowPolicy::reject_newest,
+                     &audio_frame_capacity_bytes} {
     if (source_ == nullptr) {
       throw std::invalid_argument{"PlaybackSession requires a media source"};
     }
@@ -171,6 +173,25 @@ public:
     return audio_queue_.dropped_count();
   }
 
+  [[nodiscard]] PlaybackSessionMetrics metrics() const noexcept {
+    PlaybackSessionMetrics metrics;
+    {
+      std::scoped_lock source_lock{source_mutex_};
+      metrics.source = source_->metrics();
+    }
+    metrics.video_queue_size = video_queue_.size();
+    metrics.video_queue_capacity = video_queue_.capacity();
+    metrics.video_queue_bytes = video_queue_.bytes();
+    metrics.video_queue_peak_bytes = video_queue_.peak_bytes();
+    metrics.video_dropped_count = video_queue_.dropped_count();
+    metrics.audio_queue_size = audio_queue_.size();
+    metrics.audio_queue_capacity = audio_queue_.capacity();
+    metrics.audio_queue_bytes = audio_queue_.bytes();
+    metrics.audio_queue_peak_bytes = audio_queue_.peak_bytes();
+    metrics.audio_dropped_count = audio_queue_.dropped_count();
+    return metrics;
+  }
+
 private:
   void run(const std::stop_token& stop_token) {
     while (!stop_token.stop_requested()) {
@@ -248,7 +269,7 @@ private:
 
   std::unique_ptr<IMediaSource> source_;
   mutable std::mutex state_mutex_;
-  std::mutex source_mutex_;
+  mutable std::mutex source_mutex_;
   std::condition_variable_any state_changed_;
   std::jthread worker_;
   PlaybackState state_{PlaybackState::closed};
@@ -312,6 +333,10 @@ std::uint64_t PlaybackSession::video_dropped_count() const {
 
 std::uint64_t PlaybackSession::audio_dropped_count() const {
   return impl_->audio_dropped_count();
+}
+
+PlaybackSessionMetrics PlaybackSession::metrics() const noexcept {
+  return impl_->metrics();
 }
 
 }  // namespace shareme::media
