@@ -574,7 +574,7 @@ struct MovieAudioRenderer::Impl {
     } else if (had_old_output && output_quiesced_) {
       old_handoff_prepared = true;
       old_handoff_exact = !last_quiesce_unknown_;
-      old_ownership_rebuilt = true;
+      old_ownership_rebuilt = !last_quiesce_unknown_;
     }
 
     const auto fail_candidate =
@@ -730,6 +730,9 @@ struct MovieAudioRenderer::Impl {
       } catch (...) {
       }
       output_.reset();
+    }
+    if (output_quiesced_ && last_quiesce_unknown_) {
+      rebuild_after_handoff(false);
     }
     output_active_ = false;
     output_quiesced_ = false;
@@ -1424,9 +1427,6 @@ struct MovieAudioRenderer::Impl {
     }
 
     mark_unknown_consumption(PlaybackCategory::route_handoff_unknown_consumption);
-    if (rebuild_ownership) {
-      rebuild_after_handoff(false);
-    }
     return QuiesceResult{
         .status = QuiesceStatus::unknown_consumption,
         .final_snapshot = final_snapshot,

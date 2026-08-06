@@ -564,7 +564,8 @@ void unknown_consumption_freezes_clock_and_does_not_replay() {
   REQUIRE(snapshot.clock_confidence == ClockConfidence::invalid);
   REQUIRE(snapshot.last_discontinuity_reason ==
           PlaybackCategory::route_handoff_unknown_consumption);
-  REQUIRE(snapshot.released_pcm_block_count == 1);
+  REQUIRE(snapshot.released_pcm_block_count == 0);
+  REQUIRE(snapshot.in_flight_block_count == 1);
   REQUIRE(snapshot.replayed_frames_total == 0);
 
   auto replacement = std::make_unique<FakeOutputDevice>(32);
@@ -575,6 +576,8 @@ void unknown_consumption_freezes_clock_and_does_not_replay() {
   REQUIRE(replacement_ptr->writes.empty());
   REQUIRE(renderer.snapshot().route_generation == 2);
   REQUIRE(renderer.snapshot().clock_confidence == ClockConfidence::invalid);
+  REQUIRE(renderer.snapshot().released_pcm_block_count == 1);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 0);
 }
 
 void ignores_delayed_snapshots_without_regressing_logical_consumption() {
@@ -799,6 +802,33 @@ void failed_candidate_resumes_old_route_after_unknown_handoff() {
   REQUIRE(renderer.snapshot().clock_confidence == ClockConfidence::invalid);
   REQUIRE(renderer.snapshot().released_pcm_block_count == 0);
   REQUIRE(renderer.snapshot().replay_block_count == 0);
+
+  old_device_ptr->consumed_frames = 10;
+  renderer.pump(MonotonicTime{});
+  REQUIRE(renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().logical_consumed_frames == 10);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 0);
+  REQUIRE(renderer.snapshot().released_pcm_block_count == 1);
+}
+
+void failed_candidate_after_public_unknown_quiesce_preserves_old_ownership() {
+  MovieAudioRenderer renderer{test_config()};
+  auto old_device = std::make_unique<FakeOutputDevice>(549);
+  auto* old_device_ptr = old_device.get();
+  old_device_ptr->final_exact_consumption = false;
+  activates(renderer, std::move(old_device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+
+  REQUIRE(renderer.quiesce_output().status ==
+          QuiesceStatus::unknown_consumption);
+
+  auto candidate = std::make_unique<FakeOutputDevice>(550);
+  candidate->open_succeeds = false;
+  REQUIRE(renderer.activate_output(std::move(candidate)).status ==
+          ActivationStatus::failed);
+  REQUIRE(old_device_ptr->active);
+  REQUIRE(renderer.snapshot().output_active);
 
   old_device_ptr->consumed_frames = 10;
   renderer.pump(MonotonicTime{});
@@ -1531,6 +1561,7 @@ int main() {
   unconfirmed_quiescence_blocks_candidate_activation();
   failed_candidate_open_resumes_old_route_without_generation_change();
   failed_candidate_resumes_old_route_after_unknown_handoff();
+  failed_candidate_after_public_unknown_quiesce_preserves_old_ownership();
   output_loss_releases_in_flight_and_marks_unknown();
   stale_quiesce_resumes_the_same_output();
   malformed_final_identity_is_rejected_as_invalid();
