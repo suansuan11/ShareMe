@@ -12,6 +12,7 @@ class RtcDemoCliTest(unittest.TestCase):
     demo = Path()
     qml = Path()
     controller_source = Path()
+    controller_header = Path()
     peer_source = Path()
     movie_supported = False
 
@@ -235,10 +236,23 @@ class RtcDemoCliTest(unittest.TestCase):
         source = self.controller_source.read_text(encoding="utf-8")
         self.assertIn("MovieVideoPlayoutSchedulerConfig::observational()", source)
         self.assertIn("activation.status", source)
-        self.assertIn("movie_audio_output_ready = false", source)
+        self.assertIn("movie_audio_output_ready_ = false", source)
         self.assertIn("movie-audio-output-activation-failed", source)
-        self.assertIn("if (movie_audio_renderer_ && movie_audio_output_ready)", source)
+        self.assertIn("if (movie_audio_renderer_ && movie_audio_output_ready_)", source)
         self.assertNotIn(".apply_policy = true", source)
+
+    def test_controller_preserves_local_output_failure_status(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        self.assertIn("bool movie_audio_output_ready_", header)
+        self.assertNotIn("bool movie_audio_output_ready = true;", source)
+        start = source.index("waiter_ = std::jthread")
+        end = source.index("\nvoid RtcDemoController::stopPeer()", start)
+        waiter = source[start:end]
+        self.assertIn("if (!result.error.empty())", waiter)
+        self.assertIn("} else if (movie_audio_output_ready_)", waiter)
+        self.assertIn("if (movie_audio_output_ready_)", waiter)
+        self.assertIn('setStatus(QStringLiteral("connected"))', waiter)
 
     def test_controller_teardown_is_dependency_safe(self):
         source = self.controller_source.read_text(encoding="utf-8")
@@ -337,12 +351,14 @@ def main() -> int:
     parser.add_argument("--demo", type=Path, required=True)
     parser.add_argument("--qml", type=Path, required=True)
     parser.add_argument("--controller-source", type=Path, required=True)
+    parser.add_argument("--controller-header", type=Path, required=True)
     parser.add_argument("--peer-source", type=Path, required=True)
     parser.add_argument("--movie-supported", action="store_true")
     args, unittest_args = parser.parse_known_args()
     RtcDemoCliTest.demo = args.demo.resolve()
     RtcDemoCliTest.qml = args.qml.resolve()
     RtcDemoCliTest.controller_source = args.controller_source.resolve()
+    RtcDemoCliTest.controller_header = args.controller_header.resolve()
     RtcDemoCliTest.peer_source = args.peer_source.resolve()
     RtcDemoCliTest.movie_supported = args.movie_supported
     unittest.main(argv=[sys.argv[0], *unittest_args])

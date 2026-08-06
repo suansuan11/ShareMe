@@ -218,3 +218,59 @@ Windows native media behavior, live native output, and physical acoustic or
 display synchronization remain environment-dependent and are not claimed by
 this macOS review-fix verification. Stage 2B correction remains unimplemented
 and disabled.
+
+## Review-Fix Round 2
+
+Status: VERIFIED_WITH_CONCERNS
+Platform: macOS Darwin arm64
+
+Round 2 addressed the two remaining review findings without altering the prior
+commits, teardown order, observational video mode, or Stage 2B boundary:
+
+- `MovieAudioCallbackSink` now uses a packed atomic admission state with a
+  closed-ingress bit and in-flight count. `OnData()` performs the atomic
+  admission operation before taking `callback_mutex_` or inspecting PCM. A
+  callback that wins admission is counted before callback copying and remains
+  covered by `close_and_wait()`; late callbacks return without mutex
+  contention. The deterministic test blocks an admitted callback while its
+  callback object is copied, closes ingress, and proves a late `OnData()`
+  returns before that mutex is released.
+- `RtcDemoController` persists `movie_audio_output_ready_` for the call. The
+  primary-peer waiter reports `connected` only when its own wait succeeds and
+  local movie output is ready; it does not overwrite
+  `movie-audio-output-activation-failed`. Primary peer failure handling remains
+  active, so local output failure is not fatal to voice/video/control.
+
+### Review-Fix TDD Evidence
+
+The RED checks were observed before the production changes:
+
+- the callback test failed to compile because the explicit close-ingress seam
+  did not exist; and
+- the controller contract failed because no persistent output-ready member
+  existed, and the waiter had no guarded success branch.
+
+The affected tests then passed:
+
+```text
+ctest --test-dir build/movie-call-dev --output-on-failure \
+  --repeat until-fail:5 -R '^movie_audio_peer$'
+100% tests passed, 0 tests failed out of 1
+
+ctest --test-dir build/movie-call-dev --output-on-failure \
+  -R '^rtc_demo_cli_contract$'
+100% tests passed, 0 tests failed out of 1
+```
+
+### Review-Fix Verification
+
+- Full configured build: `cmake --build --preset build-movie-call-dev --parallel 4`.
+- Full configured CTest: `ctest --test-dir build/movie-call-dev
+  --output-on-failure`, passed `57/57` in `28.87 sec`.
+- The external WebRTC cache remained preserved and was not cleaned, rebuilt, or
+  staged.
+- No correction, route work, estimator, Stage 2B measurement, or production
+  hold/drop/hard-resync wiring was added.
+
+Windows native media behavior and live native output remain
+environment-dependent and are not claimed by this macOS verification.

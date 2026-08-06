@@ -542,24 +542,24 @@ void RtcDemoController::startPeer() {
       failDriftScenario(QStringLiteral("peer-start-failure"));
     return;
   }
-  bool movie_audio_output_ready = true;
+  movie_audio_output_ready_ = true;
   if (movie_audio_renderer_) {
     const auto activation = movie_audio_renderer_->activate_output(
         std::make_unique<QtAudioOutputDevice>());
     if (activation.status != shareme::core::ActivationStatus::activated) {
-      movie_audio_output_ready = false;
+      movie_audio_output_ready_ = false;
       recordDriftError("movie-audio-output-activation-failure");
       setStatus(QStringLiteral("movie-audio-output-activation-failed"));
       if (!drift_scenario_name_.isEmpty())
         failDriftScenario(QStringLiteral("movie-audio-output-activation-failure"));
     }
   }
-  if (movie_audio_renderer_ && movie_audio_output_ready) {
+  if (movie_audio_renderer_ && movie_audio_output_ready_) {
     scheduler_started_at_ = std::chrono::steady_clock::now();
     scheduler_observation_sequence_ = 1;
     movie_audio_pump_timer_.start();
   }
-  if (movie_peer_ && movie_audio_output_ready && movie_peer_->start()) {
+  if (movie_peer_ && movie_audio_output_ready_ && movie_peer_->start()) {
     movie_waiter_ = std::jthread([this] {
       const auto result = movie_peer_->wait(std::chrono::seconds(15));
       if (!result.error.empty()) {
@@ -571,13 +571,13 @@ void RtcDemoController::startPeer() {
             }, Qt::QueuedConnection);
       }
     });
-  } else if (movie_peer_ && movie_audio_output_ready) {
+  } else if (movie_peer_ && movie_audio_output_ready_) {
     recordDriftError("movie-audio-start-failure");
     setStatus(QStringLiteral("movie-audio-start-failed"));
     if (!drift_scenario_name_.isEmpty())
       failDriftScenario(QStringLiteral("movie-audio-start-failure"));
   }
-  if (movie_audio_output_ready)
+  if (movie_audio_output_ready_)
     setStatus(QStringLiteral("negotiating"));
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
     refreshHostPlayback();
@@ -619,12 +619,12 @@ void RtcDemoController::startPeer() {
         this,
         [this, result] {
           selected_candidate_type_ = result.selected_candidate_type;
-          if (result.error.empty()) {
-            setStatus(QStringLiteral("connected"));
-          } else {
+          if (!result.error.empty()) {
             recordDriftError("peer-wait-failure");
             setStatus(QStringLiteral("call-error: ") +
                       QString::fromStdString(result.error));
+          } else if (movie_audio_output_ready_) {
+            setStatus(QStringLiteral("connected"));
           }
         },
         Qt::QueuedConnection);

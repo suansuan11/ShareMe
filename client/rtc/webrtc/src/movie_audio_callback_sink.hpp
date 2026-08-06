@@ -26,26 +26,43 @@ class MovieAudioCallbackSink final : public webrtc::AudioTrackSinkInterface {
     callback_ = std::move(callback);
   }
 
+  void close_ingress() noexcept {
+    auto state = callback_lifecycle_.load(std::memory_order_acquire);
+    for (;;) {
+      if ((state & kCallbackIngressClosed) != 0)
+        return;
+      const auto closed = state | kCallbackIngressClosed;
+      if (callback_lifecycle_.compare_exchange_weak(
+              state, closed, std::memory_order_acq_rel,
+              std::memory_order_acquire))
+        return;
+    }
+  }
+
   void close_and_wait() noexcept {
+    close_ingress();
     std::unique_lock lock(callback_mutex_);
-    callback_accepting_ = false;
-    callback_cv_.wait(lock, [this] { return callbacks_in_flight_ == 0; });
+    callback_cv_.wait(lock, [this] {
+      return (callback_lifecycle_.load(std::memory_order_acquire) &
+              kCallbackCountMask) == 0;
+    });
   }
 
   void OnData(const void *audio_data, int bits_per_sample, int sample_rate,
               std::size_t number_of_channels, std::size_t number_of_frames,
               std::optional<std::int64_t> capture_timestamp_ms) override {
+    if (!enter_callback())
+      return;
+
     Callback callback;
     {
       std::lock_guard lock(callback_mutex_);
-      if (!callback_accepting_ || !callback_)
-        return;
-      ++callbacks_in_flight_;
+      if (!callback_)
+        return leave_callback();
       try {
         callback = callback_;
       } catch (...) {
-        leave_callback_locked();
-        return;
+        return leave_callback();
       }
     }
 
@@ -88,23 +105,36 @@ class MovieAudioCallbackSink final : public webrtc::AudioTrackSinkInterface {
   }
 
  private:
-  void leave_callback_locked() noexcept {
-    --callbacks_in_flight_;
-    if (callbacks_in_flight_ == 0)
-      callback_cv_.notify_all();
+  static constexpr std::uint64_t kCallbackIngressClosed =
+      std::uint64_t{1} << 63;
+  static constexpr std::uint64_t kCallbackCountMask =
+      ~kCallbackIngressClosed;
+
+  [[nodiscard]] bool enter_callback() noexcept {
+    auto state = callback_lifecycle_.load(std::memory_order_acquire);
+    for (;;) {
+      if ((state & kCallbackIngressClosed) != 0 ||
+          (state & kCallbackCountMask) == kCallbackCountMask)
+        return false;
+      if (callback_lifecycle_.compare_exchange_weak(
+              state, state + 1, std::memory_order_acq_rel,
+              std::memory_order_acquire))
+        return true;
+    }
   }
 
   void leave_callback() noexcept {
-    std::lock_guard lock(callback_mutex_);
-    leave_callback_locked();
+    const auto state =
+        callback_lifecycle_.fetch_sub(1, std::memory_order_acq_rel);
+    if ((state & kCallbackCountMask) == 1)
+      callback_cv_.notify_all();
   }
 
   CountingAudioSink counter_;
   Callback callback_;
   mutable std::mutex callback_mutex_;
   std::condition_variable callback_cv_;
-  std::size_t callbacks_in_flight_{0};
-  bool callback_accepting_{true};
+  std::atomic<std::uint64_t> callback_lifecycle_{0};
   std::atomic<std::uint64_t> receiver_sequence_{0};
 };
 

@@ -224,6 +224,7 @@ private:
   QString viewer_applied_action_{QStringLiteral("none")};
   QString audio_clock_confidence_{QStringLiteral("unavailable")};
   bool peer_started_{false};
+  bool movie_audio_output_ready_{true};
   bool start_requested_{false};
   bool shutting_down_{false};
 };

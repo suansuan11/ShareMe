@@ -33,6 +33,87 @@ void require(bool condition, const char *expression, int line) {
 
 #define REQUIRE(expression) require((expression), #expression, __LINE__)
 
+struct CallbackCopyState {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool block_copies{false};
+  bool copy_entered{false};
+  bool release_copy{false};
+};
+
+class BlockingCallback final {
+ public:
+  explicit BlockingCallback(std::shared_ptr<CallbackCopyState> state)
+      : state_(std::move(state)) {}
+
+  BlockingCallback(const BlockingCallback& other) : state_(other.state_) {
+    std::unique_lock lock(state_->mutex);
+    if (!state_->block_copies)
+      return;
+    state_->copy_entered = true;
+    state_->cv.notify_all();
+    state_->cv.wait(lock, [&] { return state_->release_copy; });
+  }
+
+  BlockingCallback(BlockingCallback&&) noexcept = default;
+
+  void operator()(shareme::core::AudioPcmBlockView, std::uint64_t) const {}
+
+ private:
+  std::shared_ptr<CallbackCopyState> state_;
+};
+
+void late_callback_is_rejected_before_sink_mutex() {
+  shareme::rtc::MovieAudioCallbackSink sink;
+  auto copy_state = std::make_shared<CallbackCopyState>();
+  sink.set_callback(BlockingCallback{copy_state});
+  {
+    std::lock_guard lock(copy_state->mutex);
+    copy_state->block_copies = true;
+  }
+
+  std::vector<std::int16_t> pcm(480 * 2, 1'024);
+  std::thread early_callback([&] {
+    sink.OnData(pcm.data(), 16, 48'000, 2, 480, std::nullopt);
+  });
+  {
+    std::unique_lock lock(copy_state->mutex);
+    REQUIRE(copy_state->cv.wait_for(lock, std::chrono::seconds(2), [&] {
+      return copy_state->copy_entered;
+    }));
+  }
+
+  sink.close_ingress();
+
+  std::mutex late_mutex;
+  std::condition_variable late_cv;
+  bool late_finished = false;
+  std::thread late_callback([&] {
+    sink.OnData(pcm.data(), 16, 48'000, 2, 480, std::nullopt);
+    {
+      std::lock_guard lock(late_mutex);
+      late_finished = true;
+    }
+    late_cv.notify_all();
+  });
+  bool late_finished_while_copy_blocked = false;
+  {
+    std::unique_lock lock(late_mutex);
+    late_finished_while_copy_blocked = late_cv.wait_for(
+        lock, std::chrono::milliseconds(200), [&] { return late_finished; });
+  }
+
+  {
+    std::lock_guard lock(copy_state->mutex);
+    copy_state->release_copy = true;
+  }
+  copy_state->cv.notify_all();
+  early_callback.join();
+  late_callback.join();
+  sink.close_and_wait();
+  REQUIRE(late_finished_while_copy_blocked);
+}
+
 void callback_sink_quiesces_in_flight_callbacks() {
   shareme::rtc::MovieAudioCallbackSink sink;
   std::mutex callback_mutex;
@@ -173,6 +254,7 @@ int main() {
   using shareme::rtc::MovieAudioPeerConfig;
   using shareme::rtc::SignaledRole;
 
+  late_callback_is_rejected_before_sink_mutex();
   callback_sink_quiesces_in_flight_callbacks();
 
   auto fake_state = std::make_shared<FakeAudioState>();
