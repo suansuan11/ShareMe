@@ -346,3 +346,17 @@ Windows native media behavior, live native output, route changes, and physical
 acoustic/display synchronization remain environment-dependent and are not
 claimed by this macOS verification. No video correction, estimator, route API,
 Stage 2B measurement, or hard-resync wiring was added.
+
+## Final Whole-Stage Review Ruling
+
+The final whole-Stage-2A review accepted the generation-scope reset, logical
+anchor origin, pause/resume wiring, Qt `IdleState` handling, and final handoff
+SHA. It raised a defensive edge-case concern that an injected exception from
+`AudioOutputDevice::pause()` during a paused media-scope restart could leave an
+uncertain backend state, and that a failed resume is not automatically retried.
+This was parked as non-load-bearing for the current boundary: the concrete Qt
+adapter has no throwing pause path, the renderer marks failed output inactive
+and invalidates its clock before further pump writes, and the plan explicitly
+classifies failed resume as local renderer output failure rather than an
+automatic retry. Normal pause/resume, paused scope change, failed reopen, and
+stale-PCM release are covered by the renderer tests. No Stage 2B work started.

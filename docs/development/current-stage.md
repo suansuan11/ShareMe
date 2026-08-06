@@ -90,6 +90,15 @@ provisional and cannot authorize Stage 2B measurement or correction wiring.
 Tasks 2B.2 and 2B.3 were not started. This implementation SHA is the Stage 2B
 rollback point.
 
+The final whole-Stage-2A review parked one defensive exception-path concern:
+an injected `AudioOutputDevice::pause()` failure during a paused media-scope
+restart could leave backend state uncertain, and failed resume is not retried
+automatically. The concrete Qt adapter has no throwing pause path; the
+renderer marks output inactive and clock state invalid on failure, and the
+normal pause/resume, paused-scope reset, reopen-failure, and stale-PCM tests
+pass. This parked edge case does not change the Stage 2B block or the platform
+evidence boundary.
+
 ### Movie Playback Boundary Stage 1 Handoff
 
 The safe video-path boundary is accepted on `codex/movie-playback-stage1` at
