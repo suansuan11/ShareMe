@@ -43,6 +43,8 @@ public:
   [[nodiscard]] std::uint64_t generated_count() const noexcept override;
   [[nodiscard]] std::optional<std::int64_t>
   last_pts_ms() const noexcept override;
+  [[nodiscard]] LocalAudioSourceClockSnapshot
+  clock_snapshot() const noexcept override;
   [[nodiscard]] std::string error() const override;
 
   void AddSink(webrtc::AudioTrackSinkInterface *sink) override;
@@ -55,7 +57,7 @@ public:
 
 private:
   void run(std::stop_token stop_token);
-  bool emit_chunk(const media::PcmChunk &chunk);
+  bool emit_chunk(const media::PcmChunk &chunk, std::uint64_t generation);
   void set_error(std::string category);
 
   const std::filesystem::path movie_path_;
@@ -67,6 +69,9 @@ private:
   std::atomic<std::uint64_t> generated_count_{0};
   std::atomic_bool has_last_pts_{false};
   std::atomic<std::int64_t> last_pts_ms_{0};
+  mutable std::mutex clock_mutex_;
+  LocalAudioSourceClockSnapshot clock_snapshot_{
+      .sample_rate = 48'000, .channel_count = 2};
   mutable std::mutex sink_mutex_;
   std::vector<webrtc::AudioTrackSinkInterface *> sinks_;
   mutable std::mutex error_mutex_;

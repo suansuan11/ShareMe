@@ -75,6 +75,15 @@ ApplicationWindow {
 
         Label {
             Layout.fillWidth: true
+            visible: window.controller.viewerRenderedAvailable
+            text: "Video policy: " + window.controller.viewerSuggestedAction
+                  + " -> " + window.controller.viewerAppliedAction
+                  + " · audio clock " + window.controller.audioClockConfidence
+            color: "#e7c77a"
+        }
+
+        Label {
+            Layout.fillWidth: true
             visible: window.controller.viewer
             text: "Host playback: " + window.controller.remotePlaybackState
                   + " · " + window.controller.remotePlaybackPositionMs + " ms"

@@ -69,6 +69,12 @@ bool MovieAudioSource::start() {
     if (timeline->state == MovieTimelineState::playing)
       session->play();
     session_ = std::move(session);
+    {
+      std::lock_guard lock(clock_mutex_);
+      ++clock_snapshot_.audio_epoch;
+      clock_snapshot_.generation = timeline->generation;
+      clock_snapshot_.media_pts_ms.reset();
+    }
     worker_ =
         std::jthread([this](std::stop_token stop_token) { run(stop_token); });
     return true;
@@ -101,6 +107,12 @@ std::optional<std::int64_t> MovieAudioSource::last_pts_ms() const noexcept {
   if (!has_last_pts_.load(std::memory_order_acquire))
     return std::nullopt;
   return last_pts_ms_.load(std::memory_order_relaxed);
+}
+
+LocalAudioSourceClockSnapshot
+MovieAudioSource::clock_snapshot() const noexcept {
+  std::lock_guard lock(clock_mutex_);
+  return clock_snapshot_;
 }
 
 std::string MovieAudioSource::error() const {
@@ -182,7 +194,7 @@ void MovieAudioSource::run(std::stop_token stop_token) {
           }
           if (wait_result == MovieTimelineWaitResult::stopped)
             break;
-          if (!emit_chunk(*chunk)) {
+           if (!emit_chunk(*chunk, applied_generation)) {
             invalid_frame = true;
             break;
           }
@@ -214,7 +226,8 @@ void MovieAudioSource::run(std::stop_token stop_token) {
   running_.store(false, std::memory_order_release);
 }
 
-bool MovieAudioSource::emit_chunk(const media::PcmChunk &chunk) {
+bool MovieAudioSource::emit_chunk(const media::PcmChunk &chunk,
+                                  std::uint64_t generation) {
   constexpr std::size_t expected_sample_count = 480U * 2U;
   if (chunk.interleaved_samples.size() != expected_sample_count) {
     set_error("movie-audio-frame-invalid");
@@ -229,6 +242,12 @@ bool MovieAudioSource::emit_chunk(const media::PcmChunk &chunk) {
 
   last_pts_ms_.store(chunk.pts_ms, std::memory_order_relaxed);
   has_last_pts_.store(true, std::memory_order_release);
+  {
+    std::lock_guard lock(clock_mutex_);
+    ++clock_snapshot_.source_sequence;
+    clock_snapshot_.media_pts_ms = chunk.pts_ms;
+    clock_snapshot_.generation = generation;
+  }
   const auto capture_timestamp_ms = webrtc::TimeMillis();
   {
     std::lock_guard lock(sink_mutex_);

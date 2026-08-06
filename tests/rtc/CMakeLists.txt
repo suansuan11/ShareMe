@@ -151,6 +151,29 @@ if(TARGET ShareMe::QtSignaling)
   add_test(NAME playback_state COMMAND shareme_playback_state_test)
 
   add_executable(
+    shareme_movie_audio_clock_message_test
+    movie_audio_clock_message_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/movie_audio_clock_message.cpp"
+  )
+  target_include_directories(
+    shareme_movie_audio_clock_message_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(
+    shareme_movie_audio_clock_message_test
+    PRIVATE cxx_std_20
+  )
+  target_link_libraries(
+    shareme_movie_audio_clock_message_test
+    PRIVATE ShareMe::Core Qt6::Core
+  )
+  shareme_set_project_warnings(shareme_movie_audio_clock_message_test)
+  add_test(
+    NAME movie_audio_clock_message
+    COMMAND shareme_movie_audio_clock_message_test
+  )
+
+  add_executable(
     shareme_playout_report_test
     playout_report_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/playout_report.cpp"
@@ -416,6 +439,7 @@ if(TARGET ShareMe::Playback)
     shareme_video_preview_adapter_test
     video_preview_adapter_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/video_preview_adapter.cpp"
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/movie_video_playout_adapter.cpp"
   )
   target_include_directories(
     shareme_video_preview_adapter_test
@@ -423,7 +447,7 @@ if(TARGET ShareMe::Playback)
   )
   target_link_libraries(
     shareme_video_preview_adapter_test
-    PRIVATE ShareMe::WebRTC Qt6::Core Qt6::Gui Qt6::Multimedia
+    PRIVATE ShareMe::Core ShareMe::WebRTC Qt6::Core Qt6::Gui Qt6::Multimedia
   )
   shareme_set_project_warnings(shareme_video_preview_adapter_test)
   add_test(NAME video_preview_adapter COMMAND shareme_video_preview_adapter_test)

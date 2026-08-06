@@ -10,6 +10,15 @@
 
 namespace shareme::rtc {
 
+struct LocalAudioSourceClockSnapshot {
+  std::uint64_t source_sequence{};
+  std::optional<std::int64_t> media_pts_ms;
+  std::uint64_t generation{};
+  std::uint64_t audio_epoch{};
+  std::uint32_t sample_rate{};
+  std::uint16_t channel_count{};
+};
+
 class LocalAudioSource
     : public webrtc::Notifier<webrtc::AudioSourceInterface> {
 public:
@@ -18,6 +27,10 @@ public:
   [[nodiscard]] virtual std::uint64_t generated_count() const noexcept = 0;
   [[nodiscard]] virtual std::optional<std::int64_t>
   last_pts_ms() const noexcept = 0;
+  [[nodiscard]] virtual LocalAudioSourceClockSnapshot
+  clock_snapshot() const noexcept {
+    return {};
+  }
   [[nodiscard]] virtual std::string error() const = 0;
 
   [[nodiscard]] SourceState state() const final { return kLive; }

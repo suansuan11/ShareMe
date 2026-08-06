@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -17,8 +18,8 @@
 #include "api/stats/rtcstats_objects.h"
 #include "api/units/time_delta.h"
 #include "audio_device_factory.hpp"
-#include "counting_audio_sink.hpp"
 #include "movie_audio_peer_policy.hpp"
+#include "movie_audio_callback_sink.hpp"
 #include "pc/session_description.h"
 #include "rtc_base/thread.h"
 #include "shareme/rtc/candidate_stager.hpp"
@@ -118,7 +119,14 @@ private:
 class MovieAudioPeer::Impl final {
 public:
   Impl(MovieAudioPeerConfig config, MovieAudioPeerCallbacks callbacks)
-      : config_(std::move(config)), callbacks_(std::move(callbacks)) {}
+      : config_(std::move(config)), callbacks_(std::move(callbacks)) {
+    sink_.set_callback([this](shareme::core::AudioPcmBlockView pcm,
+                              std::uint64_t receiver_sequence) {
+      if (!callbacks_.pcm)
+        return;
+      callbacks_.pcm(pcm, receiver_sequence);
+    });
+  }
   ~Impl() { stop(); }
 
   bool initialize() {
@@ -218,6 +226,12 @@ public:
     return result_;
   }
 
+  [[nodiscard]] LocalAudioSourceClockSnapshot
+  source_clock_snapshot() const noexcept {
+    return source_ ? source_->clock_snapshot()
+                   : LocalAudioSourceClockSnapshot{};
+  }
+
   void cancel_wait() noexcept {
     wait_cancelled_.store(true, std::memory_order_release);
   }
@@ -227,6 +241,7 @@ public:
       return;
     cancel_wait();
     callbacks_active_->store(false, std::memory_order_release);
+    sink_.close_and_wait();
     stop_source();
     if (runtime_ && runtime_->signaling_thread() &&
         runtime_->signaling_thread()->RunningForTest()) {
@@ -475,7 +490,7 @@ private:
   MovieAudioPeerCallbacks callbacks_;
   std::shared_ptr<WebRtcRuntime> runtime_;
   webrtc::scoped_refptr<LocalAudioSource> source_;
-  CountingAudioSink sink_;
+  MovieAudioCallbackSink sink_;
   std::unique_ptr<PeerObserver> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_;
   webrtc::scoped_refptr<webrtc::AudioTrackInterface> local_track_;
@@ -511,6 +526,10 @@ bool MovieAudioPeer::receive_candidate(std::string mid, int line, std::string ca
 }
 MovieAudioPeerResult MovieAudioPeer::wait(std::chrono::milliseconds timeout) {
   return impl_->wait(timeout);
+}
+LocalAudioSourceClockSnapshot
+MovieAudioPeer::source_clock_snapshot() const noexcept {
+  return impl_->source_clock_snapshot();
 }
 void MovieAudioPeer::cancel_wait() noexcept { impl_->cancel_wait(); }
 void MovieAudioPeer::stop() noexcept { impl_->stop(); }
