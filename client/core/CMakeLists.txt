@@ -4,6 +4,7 @@ add_library(
   src/movie_audio_clock.cpp
   src/movie_audio_pts_mapper.cpp
   src/movie_audio_renderer.cpp
+  src/movie_video_scheduler.cpp
   src/playback_failure.cpp
   src/drift_metrics.cpp
   src/probe_cli.cpp

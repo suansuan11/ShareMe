@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "shareme/core/sync_controller.hpp"
+#include "qt_audio_output_device.hpp"
 
 #if defined(SHAREME_HAS_DESKTOP_CAPTURE)
 #include "shareme/rtc/desktop_capture_source.hpp"
@@ -54,6 +55,53 @@ QString sync_action_name(shareme::core::SyncAction action) {
     return QStringLiteral("adjust-rate");
   case shareme::core::SyncAction::hard_resync:
     return QStringLiteral("hard-resync-observed");
+  }
+  return QStringLiteral("unavailable");
+}
+
+QString video_suggested_action_name(
+    shareme::core::VideoSuggestedAction action) {
+  switch (action) {
+  case shareme::core::VideoSuggestedAction::none:
+    return QStringLiteral("none");
+  case shareme::core::VideoSuggestedAction::early_hold:
+    return QStringLiteral("early-hold");
+  case shareme::core::VideoSuggestedAction::late_drop:
+    return QStringLiteral("late-drop");
+  case shareme::core::VideoSuggestedAction::hard_resync_candidate:
+    return QStringLiteral("hard-resync-candidate");
+  case shareme::core::VideoSuggestedAction::clock_blocked:
+    return QStringLiteral("clock-blocked");
+  }
+  return QStringLiteral("none");
+}
+
+QString video_applied_action_name(shareme::core::VideoAppliedAction action) {
+  switch (action) {
+  case shareme::core::VideoAppliedAction::none:
+    return QStringLiteral("none");
+  case shareme::core::VideoAppliedAction::pass_through:
+    return QStringLiteral("pass-through");
+  case shareme::core::VideoAppliedAction::present:
+    return QStringLiteral("present");
+  case shareme::core::VideoAppliedAction::late_drop:
+    return QStringLiteral("late-drop");
+  }
+  return QStringLiteral("none");
+}
+
+QString audio_clock_confidence_name(shareme::core::ClockConfidence confidence) {
+  switch (confidence) {
+  case shareme::core::ClockConfidence::unavailable:
+    return QStringLiteral("unavailable");
+  case shareme::core::ClockConfidence::provisional:
+    return QStringLiteral("provisional");
+  case shareme::core::ClockConfidence::locked:
+    return QStringLiteral("locked");
+  case shareme::core::ClockConfidence::degraded:
+    return QStringLiteral("degraded");
+  case shareme::core::ClockConfidence::invalid:
+    return QStringLiteral("invalid");
   }
   return QStringLiteral("unavailable");
 }
@@ -102,20 +150,24 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                  nullptr),
       performance_counters_enabled_(
           std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
-  video_preview_adapter_ =
-      std::make_unique<shareme::tools::VideoPreviewAdapter>(this);
-  video_preview_adapter_->set_submitted_callback([this](std::uint32_t timestamp) {
+  movie_video_playout_adapter_ =
+      std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(this);
+  movie_video_playout_adapter_->set_submitted_callback(
+      [this](std::uint32_t timestamp) {
     performance_sink_submissions_.fetch_add(1, std::memory_order_relaxed);
     ++drift_sink_submissions_;
     if (viewer())
       recordRenderedFrame(timestamp);
-  });
+      });
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
           &RtcDemoController::publishPlaybackState);
   playout_report_timer_.setInterval(250);
   connect(&playout_report_timer_, &QTimer::timeout, this,
           &RtcDemoController::publishPlayoutReport);
+  movie_audio_pump_timer_.setInterval(10);
+  connect(&movie_audio_pump_timer_, &QTimer::timeout, this,
+          &RtcDemoController::pumpMovieAudio);
   connect(&signaling_, &QtSignalingClient::statusChanged, this,
           [this](const QString &state) {
             setStatus(state);
@@ -248,6 +300,18 @@ bool RtcDemoController::viewerRenderedAvailable() const noexcept {
   return viewer_rendered_available_;
 }
 
+QString RtcDemoController::viewerSuggestedAction() const {
+  return viewer_suggested_action_;
+}
+
+QString RtcDemoController::viewerAppliedAction() const {
+  return viewer_applied_action_;
+}
+
+QString RtcDemoController::audioClockConfidence() const {
+  return audio_clock_confidence_;
+}
+
 QString RtcDemoController::driftScenarioPhase() const {
   return drift_phase_name(drift_phase_);
 }
@@ -259,8 +323,8 @@ bool RtcDemoController::driftScenarioActive() const noexcept {
 
 void RtcDemoController::setVideoSink(QVideoSink *sink) {
   video_sink_ = sink;
-  if (video_preview_adapter_)
-    video_preview_adapter_->set_sink(sink);
+  if (movie_video_playout_adapter_)
+    movie_video_playout_adapter_->set_sink(sink);
 }
 
 void RtcDemoController::start() {
@@ -395,6 +459,10 @@ bool RtcDemoController::createPeer() {
   }
 #if defined(SHAREME_HAS_MOVIE_RTC)
   if (movie_audio_ || role_ == shareme::rtc::SignaledRole::viewer) {
+    if (role_ == shareme::rtc::SignaledRole::viewer)
+      movie_audio_renderer_ =
+          std::make_unique<shareme::core::MovieAudioRenderer>();
+    auto *renderer = movie_audio_renderer_.get();
     shareme::rtc::MovieAudioPeerCallbacks movie_callbacks;
     movie_callbacks.description = [this](std::string type, std::string sdp) {
       QMetaObject::invokeMethod(
@@ -423,8 +491,13 @@ bool RtcDemoController::createPeer() {
           }, Qt::QueuedConnection);
     };
     shareme::rtc::MovieAudioPeerConfig movie_config{.role = role_};
-    movie_config.native_playout =
-        role_ == shareme::rtc::SignaledRole::viewer;
+    movie_config.native_playout = false;
+    if (renderer != nullptr) {
+      movie_callbacks.pcm = [renderer](shareme::core::AudioPcmBlockView pcm,
+                                       std::uint64_t receiver_sequence) {
+        static_cast<void>(renderer->try_enqueue(pcm, receiver_sequence));
+      };
+    }
     if (movie_audio_) {
       movie_config.source_factory = [movie_path = movie_path_,
                                      timeline = movie_timeline_] {
@@ -466,6 +539,13 @@ void RtcDemoController::startPeer() {
     if (!drift_scenario_name_.isEmpty())
       failDriftScenario(QStringLiteral("peer-start-failure"));
     return;
+  }
+  if (movie_audio_renderer_) {
+    static_cast<void>(movie_audio_renderer_->activate_output(
+        std::make_unique<QtAudioOutputDevice>()));
+    scheduler_started_at_ = std::chrono::steady_clock::now();
+    scheduler_observation_sequence_ = 1;
+    movie_audio_pump_timer_.start();
   }
   if (movie_peer_ && movie_peer_->start()) {
     movie_waiter_ = std::jthread([this] {
@@ -539,8 +619,16 @@ void RtcDemoController::startPeer() {
 }
 
 void RtcDemoController::stopPeer() noexcept {
+  if (shutting_down_)
+    return;
+  shutting_down_ = true;
+  if (movie_audio_renderer_)
+    movie_audio_renderer_->close_ingress();
+  if (movie_video_playout_adapter_)
+    movie_video_playout_adapter_->close_ingress();
   playback_state_timer_.stop();
   playout_report_timer_.stop();
+  movie_audio_pump_timer_.stop();
   drift_scenario_timer_.stop();
   performance_timer_.stop();
   if (performance_stats_worker_.joinable()) {
@@ -548,6 +636,12 @@ void RtcDemoController::stopPeer() noexcept {
     performance_stats_worker_.join();
   }
   stopDriftMetrics();
+  if (movie_audio_renderer_) {
+    static_cast<void>(movie_audio_renderer_->quiesce_output());
+    movie_audio_renderer_->shutdown();
+  }
+  if (movie_video_playout_adapter_)
+    movie_video_playout_adapter_->shutdown();
   if (peer_)
     peer_->cancel_wait();
   if (movie_peer_)
@@ -562,6 +656,8 @@ void RtcDemoController::stopPeer() noexcept {
     peer_->stop();
   peer_.reset();
   movie_peer_.reset();
+  movie_audio_renderer_.reset();
+  movie_video_playout_adapter_.reset();
 }
 
 void RtcDemoController::flushDriftMetrics() {
@@ -591,8 +687,8 @@ void RtcDemoController::emitPerformanceCounters() {
   std::uint64_t dropped = 0;
   std::uint64_t conversion_failures =
       performance_conversion_failures_.load(std::memory_order_relaxed);
-  const auto preview = video_preview_adapter_
-                           ? video_preview_adapter_->counters()
+  const auto preview = movie_video_playout_adapter_
+                           ? movie_video_playout_adapter_->counters()
                            : shareme::tools::VideoPreviewCounters{};
   const auto fallback_copies = preview.fallback_copies;
   const auto max_pending = preview.max_pending_depth;
@@ -963,8 +1059,28 @@ void RtcDemoController::publishPlaybackState() {
   if (!state)
     return;
   if (!peer_->queue_control_message(
-          shareme::tools::encode_playback_state(*state).toStdString()))
+           shareme::tools::encode_playback_state(*state).toStdString()))
     return;
+  if (movie_peer_) {
+    const auto audio_snapshot = movie_peer_->source_clock_snapshot();
+    if (audio_snapshot.media_pts_ms && audio_snapshot.source_sequence != 0 &&
+        audio_snapshot.generation == timeline->generation) {
+      const shareme::tools::MovieAudioClockMessage audio_clock{
+          .room_id = room_id_,
+          .sequence = playback_sequence_,
+          .playback_generation = audio_snapshot.generation,
+          .audio_epoch = audio_snapshot.audio_epoch,
+          .host_source_sequence = audio_snapshot.source_sequence,
+          .media_pts_ms = *audio_snapshot.media_pts_ms,
+          .sample_rate = audio_snapshot.sample_rate,
+          .channel_count = audio_snapshot.channel_count};
+      const auto encoded_audio_clock =
+          shareme::tools::encode_movie_audio_clock(audio_clock);
+      if (!encoded_audio_clock.isEmpty())
+        static_cast<void>(peer_->queue_control_message(
+            encoded_audio_clock.toStdString()));
+    }
+  }
   ++playback_sequence_;
   if (ended)
     playback_state_timer_.stop();
@@ -980,21 +1096,53 @@ void RtcDemoController::publishPlaybackState() {
 
 void RtcDemoController::publishPlayoutReport() {
   emitDriftDiagnostics();
+  const auto audio = movie_audio_renderer_
+                         ? movie_audio_renderer_->snapshot()
+                         : shareme::core::MovieAudioRendererSnapshot{};
+  if (viewer() && movie_video_playout_adapter_) {
+    const auto scheduler = movie_video_playout_adapter_->scheduler_snapshot();
+    const auto suggested = video_suggested_action_name(scheduler.suggested_action);
+    const auto applied = video_applied_action_name(scheduler.applied_action);
+    const auto confidence = audio_clock_confidence_name(
+        movie_audio_renderer_ ? audio.clock_confidence
+                              : scheduler.clock_confidence);
+    if (viewer_suggested_action_ != suggested ||
+        viewer_applied_action_ != applied ||
+        audio_clock_confidence_ != confidence) {
+      viewer_suggested_action_ = suggested;
+      viewer_applied_action_ = applied;
+      audio_clock_confidence_ = confidence;
+      emit playoutReportChanged();
+    }
+  }
   const auto &rendered_sample = rendered_playout_tracker_.last();
+  std::optional<shareme::tools::PlaybackState> playback_anchor;
+  {
+    std::lock_guard lock(playback_anchor_mutex_);
+    playback_anchor = viewer_playback_anchor_;
+  }
   if (!viewer() || !peer_ || room_id_.isEmpty() || !rendered_sample ||
-      !viewer_playback_anchor_ ||
-      !viewer_playback_anchor_->video_anchor_media_pts_ms ||
-      !viewer_playback_anchor_->video_rtp_timestamp ||
-      viewer_playback_anchor_->state != QStringLiteral("playing") ||
-      rendered_sample->generation != viewer_playback_anchor_->generation)
+      !playback_anchor || !playback_anchor->video_anchor_media_pts_ms ||
+      !playback_anchor->video_rtp_timestamp ||
+      playback_anchor->state != QStringLiteral("playing") ||
+      rendered_sample->generation != playback_anchor->generation)
     return;
   const shareme::tools::PlayoutReport report{
       .room_id = room_id_,
       .sequence = playout_report_sequence_,
       .rendered_pts_ms = rendered_sample->rendered_pts_ms,
       .buffer_ms = rendered_sample->buffer_ms,
-      .receive_time_ms = rendered_sample_time_ms_,
-      .generation = rendered_sample->generation};
+       .receive_time_ms = rendered_sample_time_ms_,
+       .generation = rendered_sample->generation,
+       .viewer_suggested_action = viewer_suggested_action_,
+       .viewer_applied_action = viewer_applied_action_,
+       .audio_clock_confidence = audio_clock_confidence_,
+       .audio_playout_pts_ms = audio.estimated_playout_pts_ms,
+       .logical_consumed_frames = audio.logical_consumed_frames,
+       .renderer_queue_duration = audio.renderer_queue_duration,
+       .device_queue_duration = audio.device_queue_duration,
+       .route_generation = audio.route_generation,
+       .renderer_clock_epoch = audio.renderer_clock_epoch};
   ++drift_report_encode_attempts_;
   const auto encoded = shareme::tools::encode_playout_report(report);
   if (encoded.isEmpty())
@@ -1081,19 +1229,41 @@ void RtcDemoController::receiveControlMessage(std::string message) {
     }
   }
   if (viewer()) {
+    if (const auto audio_clock =
+            shareme::tools::decode_movie_audio_clock(bytes, room_id_)) {
+      if (movie_audio_clock_tracker_.accept(*audio_clock) &&
+          movie_audio_renderer_) {
+        movie_audio_renderer_->set_playback_anchor({
+            .control_sequence = audio_clock->sequence,
+            .host_source_sequence = audio_clock->host_source_sequence,
+            .playback_generation = audio_clock->playback_generation,
+            .audio_epoch = audio_clock->audio_epoch,
+            .media_pts_ms = audio_clock->media_pts_ms,
+            .consumed_frames = 0,
+            .sample_rate = audio_clock->sample_rate,
+            .channel_count = audio_clock->channel_count});
+      }
+      return;
+    }
     const auto state =
         shareme::tools::decode_playback_state(bytes, room_id_);
     if (!state || !playback_tracker_.accept(*state))
       return;
+    bool generation_changed = false;
+    {
+      std::lock_guard lock(playback_anchor_mutex_);
+      generation_changed =
+          !viewer_playback_anchor_ ||
+          viewer_playback_anchor_->generation != state->generation;
+      viewer_playback_anchor_ = *state;
+    }
     if (!state->video_anchor_media_pts_ms || !state->video_rtp_timestamp ||
-        !viewer_playback_anchor_ ||
-        viewer_playback_anchor_->generation != state->generation) {
+        generation_changed) {
       rendered_playout_tracker_.reset();
       viewer_rendered_position_ms_ = 0;
       viewer_rendered_available_ = false;
       emit playoutReportChanged();
     }
-    viewer_playback_anchor_ = *state;
     viewer_anchor_received_at_ = std::chrono::steady_clock::now();
     remote_playback_state_ = state->state;
     remote_playback_position_ms_ = static_cast<qint64>(state->media_pts_ms);
@@ -1113,6 +1283,10 @@ void RtcDemoController::receiveControlMessage(std::string message) {
   if (!timeline || !report ||
       !playout_report_tracker_.accept(*report, timeline->generation))
     return;
+  viewer_suggested_action_ = report->viewer_suggested_action;
+  viewer_applied_action_ = report->viewer_applied_action;
+  audio_clock_confidence_ = report->audio_clock_confidence;
+  emit playoutReportChanged();
   const auto delta = shareme::tools::viewer_delta_ms(
       timeline->media_pts_ms, report->rendered_pts_ms);
   if (!delta)
@@ -1176,29 +1350,89 @@ void RtcDemoController::deliverRemoteFrame(const webrtc::VideoFrame &frame) {
     performance_frame_width_.store(buffer->width(), std::memory_order_relaxed);
     performance_frame_height_.store(buffer->height(), std::memory_order_relaxed);
   }
-  if (!video_preview_adapter_)
+  if (!movie_video_playout_adapter_)
     return;
-  const auto result = video_preview_adapter_->submit(frame);
-  if (result.path == shareme::tools::PreviewPath::coalesced)
+
+  std::optional<shareme::core::VideoFrameTiming> timing;
+#if defined(SHAREME_HAS_MOVIE_RTC)
+  if (movie_video_source_) {
+    if (const auto sample = movie_video_source_->last_frame_sample();
+        sample && sample->rtp_timestamp == frame.rtp_timestamp()) {
+      timing = shareme::core::VideoFrameTiming{
+          .media_pts_ms = sample->media_pts_ms,
+          .playback_generation = sample->generation};
+    }
+  }
+  std::optional<shareme::tools::PlaybackState> playback_anchor;
+  {
+    std::lock_guard lock(playback_anchor_mutex_);
+    playback_anchor = viewer_playback_anchor_;
+  }
+  if (!timing && viewer() && playback_anchor) {
+    if (const auto sample = shareme::tools::reconcile_rendered_frame(
+            *playback_anchor, frame.rtp_timestamp(), 0)) {
+      timing = shareme::core::VideoFrameTiming{
+          .media_pts_ms = sample->rendered_pts_ms,
+          .playback_generation = sample->generation};
+    }
+  }
+#endif
+  const auto result = movie_video_playout_adapter_->submit(frame, timing);
+  if (result.preview.path == shareme::tools::PreviewPath::coalesced)
     performance_coalesced_count_.fetch_add(1, std::memory_order_relaxed);
-  if (result.path == shareme::tools::PreviewPath::argb_fallback)
+  if (result.preview.path == shareme::tools::PreviewPath::argb_fallback)
     performance_fallback_copies_.fetch_add(1, std::memory_order_relaxed);
-  if (!result.submitted && result.path == shareme::tools::PreviewPath::rejected)
+  if (!result.preview.submitted &&
+      result.preview.path == shareme::tools::PreviewPath::rejected)
     performance_conversion_failures_.fetch_add(1, std::memory_order_relaxed);
 }
 
+void RtcDemoController::pumpMovieAudio() {
+  if (!movie_audio_renderer_ || !movie_video_playout_adapter_)
+    return;
+  const auto now = std::chrono::steady_clock::now();
+  movie_audio_renderer_->pump(now);
+  const auto audio = movie_audio_renderer_->snapshot();
+  if (scheduler_started_at_ == std::chrono::steady_clock::time_point{})
+    scheduler_started_at_ = now;
+  const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              now - scheduler_started_at_)
+                              .count();
+  const auto &rendered = rendered_playout_tracker_.last();
+  const auto observation_sequence = scheduler_observation_sequence_ ==
+          std::numeric_limits<std::uint64_t>::max()
+      ? scheduler_observation_sequence_
+      : scheduler_observation_sequence_++;
+  static_cast<void>(movie_video_playout_adapter_->advance({
+      .clock_confidence = audio.clock_confidence,
+      .audio_playout_pts_ms = audio.estimated_playout_pts_ms,
+      .playback_generation = audio.playback_generation,
+      .route_generation = audio.route_generation,
+      .playing = remote_playback_state_ == QStringLiteral("playing"),
+      .observation_sequence = observation_sequence,
+      .observation_time_ms = elapsed_ms,
+      .observed_video_pts_ms = rendered
+          ? std::optional<std::int64_t>{rendered->rendered_pts_ms}
+          : std::nullopt}));
+}
+
 void RtcDemoController::recordRenderedFrame(std::uint32_t rtp_timestamp) {
-  if (!viewer_playback_anchor_)
+  std::optional<shareme::tools::PlaybackState> playback_anchor;
+  {
+    std::lock_guard lock(playback_anchor_mutex_);
+    playback_anchor = viewer_playback_anchor_;
+  }
+  if (!playback_anchor)
     return;
   const auto now = std::chrono::steady_clock::now();
   const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                            now - viewer_anchor_received_at_)
                            .count();
   const auto sample = shareme::tools::reconcile_rendered_frame(
-      *viewer_playback_anchor_, rtp_timestamp, elapsed);
+      *playback_anchor, rtp_timestamp, elapsed);
   if (!sample)
     return;
-  if (!rendered_playout_tracker_.accept(*viewer_playback_anchor_, *sample))
+  if (!rendered_playout_tracker_.accept(*playback_anchor, *sample))
     return;
   rendered_sample_time_ms_ =
       std::chrono::duration_cast<std::chrono::milliseconds>(

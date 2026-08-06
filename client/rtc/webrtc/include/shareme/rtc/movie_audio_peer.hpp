@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "shareme/core/audio_output_contract.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
 
 namespace shareme::rtc {
@@ -33,6 +34,11 @@ struct MovieAudioPeerCallbacks {
   std::function<void(std::string mid, int line, std::string candidate)>
       candidate;
   std::function<void(std::string category)> failure;
+  // The PCM view is synchronous and non-owning; it is valid only for this call.
+  // The callback must not synchronously re-enter peer lifecycle methods.
+  std::function<void(shareme::core::AudioPcmBlockView pcm,
+                     std::uint64_t receiver_sequence)>
+      pcm;
 };
 
 class MovieAudioPeer final {
@@ -48,6 +54,8 @@ public:
   [[nodiscard]] bool receive_candidate(std::string mid, int line,
                                        std::string candidate);
   [[nodiscard]] MovieAudioPeerResult wait(std::chrono::milliseconds timeout);
+  [[nodiscard]] LocalAudioSourceClockSnapshot
+  source_clock_snapshot() const noexcept;
   void cancel_wait() noexcept;
   void stop() noexcept;
 

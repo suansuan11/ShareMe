@@ -2,8 +2,10 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <thread>
 #include <utility>
 
@@ -113,12 +115,70 @@ private:
   return config.role == SignaledRole::viewer && !config.source_factory;
 }
 
+class CallbackAudioSink final : public webrtc::AudioTrackSinkInterface {
+public:
+  using Callback = std::function<void(shareme::core::AudioPcmBlockView,
+                                      std::uint64_t)>;
+
+  void set_callback(Callback callback) { callback_ = std::move(callback); }
+
+  void OnData(const void *audio_data, int bits_per_sample, int sample_rate,
+              std::size_t number_of_channels, std::size_t number_of_frames,
+              std::optional<std::int64_t> capture_timestamp_ms) override {
+    counter_.OnData(audio_data, bits_per_sample, sample_rate,
+                    number_of_channels, number_of_frames,
+                    capture_timestamp_ms);
+    if (!callback_ || audio_data == nullptr || bits_per_sample != 16 ||
+        sample_rate != 48'000 || number_of_channels != 2 ||
+        number_of_frames != 480)
+      return;
+
+    const auto receiver_sequence =
+        receiver_sequence_.fetch_add(1, std::memory_order_release) + 1;
+    const auto frame_stride_bytes =
+        static_cast<std::uint32_t>(number_of_channels * sizeof(std::int16_t));
+    const auto byte_count = number_of_frames * frame_stride_bytes;
+    const shareme::core::AudioPcmBlockView pcm{
+        .receiver_sequence = receiver_sequence,
+        .frame_count = number_of_frames,
+        .sample_rate = static_cast<std::uint32_t>(sample_rate),
+        .channel_count = static_cast<std::uint16_t>(number_of_channels),
+        .sample_format = shareme::core::AudioSampleFormat::signed_int16,
+        .interleaving = shareme::core::AudioInterleaving::interleaved,
+        .payload = {.bytes = std::span<const std::byte>{
+                        static_cast<const std::byte *>(audio_data), byte_count},
+                    .frame_stride_bytes = frame_stride_bytes}};
+    try {
+      callback_(pcm, receiver_sequence);
+    } catch (...) {
+      // WebRTC callbacks must not propagate application exceptions.
+    }
+  }
+
+  [[nodiscard]] CountingAudioSink::Snapshot snapshot() const noexcept {
+    return counter_.snapshot();
+  }
+
+private:
+  CountingAudioSink counter_;
+  Callback callback_;
+  std::atomic<std::uint64_t> receiver_sequence_{0};
+};
+
 } // namespace
 
 class MovieAudioPeer::Impl final {
 public:
   Impl(MovieAudioPeerConfig config, MovieAudioPeerCallbacks callbacks)
-      : config_(std::move(config)), callbacks_(std::move(callbacks)) {}
+      : config_(std::move(config)), callbacks_(std::move(callbacks)) {
+    sink_.set_callback([this](shareme::core::AudioPcmBlockView pcm,
+                              std::uint64_t receiver_sequence) {
+      if (!callbacks_active_->load(std::memory_order_acquire) ||
+          !callbacks_.pcm)
+        return;
+      callbacks_.pcm(pcm, receiver_sequence);
+    });
+  }
   ~Impl() { stop(); }
 
   bool initialize() {
@@ -216,6 +276,12 @@ public:
     if (result_.connected && media_unavailable && result_.error.empty())
       result_.error = "movie-audio-unavailable";
     return result_;
+  }
+
+  [[nodiscard]] LocalAudioSourceClockSnapshot
+  source_clock_snapshot() const noexcept {
+    return source_ ? source_->clock_snapshot()
+                   : LocalAudioSourceClockSnapshot{};
   }
 
   void cancel_wait() noexcept {
@@ -475,7 +541,7 @@ private:
   MovieAudioPeerCallbacks callbacks_;
   std::shared_ptr<WebRtcRuntime> runtime_;
   webrtc::scoped_refptr<LocalAudioSource> source_;
-  CountingAudioSink sink_;
+  CallbackAudioSink sink_;
   std::unique_ptr<PeerObserver> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_;
   webrtc::scoped_refptr<webrtc::AudioTrackInterface> local_track_;
@@ -511,6 +577,10 @@ bool MovieAudioPeer::receive_candidate(std::string mid, int line, std::string ca
 }
 MovieAudioPeerResult MovieAudioPeer::wait(std::chrono::milliseconds timeout) {
   return impl_->wait(timeout);
+}
+LocalAudioSourceClockSnapshot
+MovieAudioPeer::source_clock_snapshot() const noexcept {
+  return impl_->source_clock_snapshot();
 }
 void MovieAudioPeer::cancel_wait() noexcept { impl_->cancel_wait(); }
 void MovieAudioPeer::stop() noexcept { impl_->stop(); }

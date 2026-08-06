@@ -3,10 +3,12 @@
 #include "qt_signaling_client.hpp"
 #include "drift_metrics_jsonl.hpp"
 #include "drift_failure.hpp"
+#include "movie_audio_clock_message.hpp"
 #include "playback_state.hpp"
 #include "playout_report.hpp"
 #include "shareme/core/drift_metrics.hpp"
-#include "video_preview_adapter.hpp"
+#include "shareme/core/movie_audio_renderer.hpp"
+#include "movie_video_playout_adapter.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -53,6 +55,9 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(qint64 hostViewerDeltaMs READ hostViewerDeltaMs NOTIFY playoutReportChanged)
   Q_PROPERTY(QString hostSyncAction READ hostSyncAction NOTIFY playoutReportChanged)
   Q_PROPERTY(bool viewerRenderedAvailable READ viewerRenderedAvailable NOTIFY playoutReportChanged)
+  Q_PROPERTY(QString viewerSuggestedAction READ viewerSuggestedAction NOTIFY playoutReportChanged)
+  Q_PROPERTY(QString viewerAppliedAction READ viewerAppliedAction NOTIFY playoutReportChanged)
+  Q_PROPERTY(QString audioClockConfidence READ audioClockConfidence NOTIFY playoutReportChanged)
   Q_PROPERTY(QString driftScenarioPhase READ driftScenarioPhase NOTIFY driftScenarioChanged)
   Q_PROPERTY(bool driftScenarioActive READ driftScenarioActive NOTIFY driftScenarioChanged)
 
@@ -84,6 +89,9 @@ public:
   [[nodiscard]] qint64 hostViewerDeltaMs() const noexcept;
   [[nodiscard]] QString hostSyncAction() const;
   [[nodiscard]] bool viewerRenderedAvailable() const noexcept;
+  [[nodiscard]] QString viewerSuggestedAction() const;
+  [[nodiscard]] QString viewerAppliedAction() const;
+  [[nodiscard]] QString audioClockConfidence() const;
   [[nodiscard]] QString driftScenarioPhase() const;
   [[nodiscard]] bool driftScenarioActive() const noexcept;
 
@@ -109,6 +117,7 @@ private:
   void setRoomId(QString room_id);
   void deliverRemoteFrame(const webrtc::VideoFrame &frame);
   void recordRenderedFrame(std::uint32_t rtp_timestamp);
+  void pumpMovieAudio();
   void publishPlaybackState();
   void publishPlayoutReport();
   void refreshHostPlayback();
@@ -139,18 +148,25 @@ private:
   QtSignalingClient signaling_;
   std::unique_ptr<shareme::rtc::SignaledPeer> peer_;
   std::unique_ptr<shareme::rtc::MovieAudioPeer> movie_peer_;
+  std::unique_ptr<shareme::core::MovieAudioRenderer> movie_audio_renderer_;
   std::jthread waiter_;
   std::jthread movie_waiter_;
-  std::unique_ptr<shareme::tools::VideoPreviewAdapter> video_preview_adapter_;
+  std::unique_ptr<shareme::tools::MovieVideoPlayoutAdapter>
+      movie_video_playout_adapter_;
   QTimer playback_state_timer_;
   QTimer playout_report_timer_;
+  QTimer movie_audio_pump_timer_;
   QTimer drift_metrics_flush_timer_;
   QTimer drift_scenario_timer_;
   QTimer performance_timer_;
   std::uint64_t playback_sequence_{1};
+  std::uint64_t scheduler_observation_sequence_{1};
+  std::chrono::steady_clock::time_point scheduler_started_at_{};
   shareme::tools::PlaybackStateTracker playback_tracker_;
+  mutable std::mutex playback_anchor_mutex_;
   shareme::tools::PlayoutReportTracker playout_report_tracker_;
   std::optional<shareme::tools::PlaybackState> viewer_playback_anchor_;
+  shareme::tools::MovieAudioClockTracker movie_audio_clock_tracker_;
   shareme::tools::RenderedPlayoutTracker rendered_playout_tracker_;
   std::chrono::steady_clock::time_point viewer_anchor_received_at_{};
   std::int64_t rendered_sample_time_ms_{0};
@@ -204,6 +220,10 @@ private:
   qint64 host_viewer_delta_ms_{0};
   QString host_sync_action_{QStringLiteral("unavailable")};
   bool viewer_rendered_available_{false};
+  QString viewer_suggested_action_{QStringLiteral("none")};
+  QString viewer_applied_action_{QStringLiteral("none")};
+  QString audio_clock_confidence_{QStringLiteral("unavailable")};
   bool peer_started_{false};
   bool start_requested_{false};
+  bool shutting_down_{false};
 };

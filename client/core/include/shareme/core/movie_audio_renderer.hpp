@@ -129,6 +129,7 @@ class MovieAudioRenderer final {
       std::unique_ptr<AudioOutputDevice> device);
   [[nodiscard]] QuiesceResult quiesce_output();
   void deactivate_output(PlaybackCategory reason);
+  void close_ingress() noexcept;
   void shutdown() noexcept;
 
   [[nodiscard]] MovieAudioRendererSnapshot snapshot() const noexcept;

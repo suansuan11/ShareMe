@@ -60,6 +60,7 @@ public:
     }
     last_capture_timestamp_ms_ = capture_timestamp_ms;
     if (source_) {
+      clock_snapshots_.push_back(source_->clock_snapshot());
       if (const auto media_pts_ms = source_->last_pts_ms()) {
         media_pts_ms_.push_back(*media_pts_ms);
         timed_samples_.push_back(
@@ -112,6 +113,12 @@ public:
     return timed_samples_;
   }
 
+  [[nodiscard]] std::vector<shareme::rtc::LocalAudioSourceClockSnapshot>
+  clock_snapshots() const {
+    std::lock_guard lock(mutex_);
+    return clock_snapshots_;
+  }
+
 private:
   const shareme::rtc::MovieAudioSource *source_;
   mutable std::mutex mutex_;
@@ -121,6 +128,7 @@ private:
   bool timestamps_monotonic_{true};
   std::optional<std::int64_t> last_capture_timestamp_ms_;
   std::vector<std::int64_t> media_pts_ms_;
+  std::vector<shareme::rtc::LocalAudioSourceClockSnapshot> clock_snapshots_;
   std::vector<TimedMediaSample> timed_samples_;
   std::optional<std::chrono::steady_clock::time_point> first_callback_at_;
 };
@@ -247,11 +255,64 @@ void emits_exact_pcm_chunks(const std::filesystem::path &movie_path) {
   REQUIRE(source->last_pts_ms().has_value());
   const auto media_pts_ms = primary_sink.media_pts_ms();
   REQUIRE(media_pts_ms.size() == primary_sink.callback_count());
+  const auto clock_snapshots = primary_sink.clock_snapshots();
+  REQUIRE(clock_snapshots.size() == media_pts_ms.size());
+  for (std::size_t index = 0; index < clock_snapshots.size(); ++index) {
+    REQUIRE(clock_snapshots[index].source_sequence == index + 1);
+    REQUIRE(clock_snapshots[index].media_pts_ms.has_value());
+    REQUIRE(*clock_snapshots[index].media_pts_ms == media_pts_ms[index]);
+  }
   REQUIRE(std::adjacent_find(
               media_pts_ms.begin(), media_pts_ms.end(),
               [](std::int64_t previous, std::int64_t current) {
                 return current <= previous || current - previous != 10;
               }) == media_pts_ms.end());
+}
+
+void reports_clock_snapshot(const std::filesystem::path &movie_path) {
+  using namespace std::chrono_literals;
+  auto timeline = std::make_shared<shareme::rtc::MovieTimeline>();
+  auto source =
+      shareme::rtc::MovieAudioSource::create(movie_path, timeline);
+  CountingPcmSink sink{source.get()};
+  source->AddSink(&sink);
+
+  const auto before_start = source->clock_snapshot();
+  REQUIRE(before_start.source_sequence == 0);
+  REQUIRE(!before_start.media_pts_ms.has_value());
+  REQUIRE(before_start.generation == 0);
+  REQUIRE(before_start.audio_epoch == 0);
+  REQUIRE(before_start.sample_rate == 48'000);
+  REQUIRE(before_start.channel_count == 2);
+
+  REQUIRE(source->start());
+  const auto first_deadline = std::chrono::steady_clock::now() + 1s;
+  while (sink.callback_count() < 10 && source->error().empty() &&
+         std::chrono::steady_clock::now() < first_deadline)
+    std::this_thread::sleep_for(5ms);
+  REQUIRE(sink.callback_count() >= 10);
+
+  const auto after_start = source->clock_snapshot();
+  REQUIRE(after_start.source_sequence >= sink.callback_count());
+  REQUIRE(after_start.media_pts_ms.has_value());
+  REQUIRE(after_start.generation == 0);
+  REQUIRE(after_start.audio_epoch > before_start.audio_epoch);
+  REQUIRE(after_start.sample_rate == 48'000);
+  REQUIRE(after_start.channel_count == 2);
+
+  REQUIRE(timeline->seek(after_start.media_pts_ms.value() + 500));
+  const auto seek_deadline = std::chrono::steady_clock::now() + 1s;
+  while (source->clock_snapshot().generation == after_start.generation &&
+         source->error().empty() &&
+         std::chrono::steady_clock::now() < seek_deadline)
+    std::this_thread::sleep_for(5ms);
+  const auto after_seek = source->clock_snapshot();
+  REQUIRE(after_seek.generation == after_start.generation + 1);
+  REQUIRE(after_seek.audio_epoch == after_start.audio_epoch);
+
+  source->stop();
+  source->RemoveSink(&sink);
+  REQUIRE(source->error().empty());
 }
 
 void shared_timeline_controls_audio(const std::filesystem::path &movie_path) {
@@ -431,6 +492,7 @@ int main(int argc, char **argv) {
   const std::filesystem::path movie_path{argv[1]};
   source_is_live_and_disables_voice_processing(movie_path);
   emits_exact_pcm_chunks(movie_path);
+  reports_clock_snapshot(movie_path);
   shared_timeline_controls_audio(movie_path);
   audio_only_movie_is_supported(std::filesystem::path{argv[2]});
   failures_are_sanitized(movie_path.parent_path(),

@@ -1,11 +1,14 @@
 #include "shareme/rtc/movie_audio_peer.hpp"
 
+#include "shareme/core/audio_output_contract.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -68,6 +71,15 @@ public:
   std::optional<std::int64_t> last_pts_ms() const noexcept override {
     return static_cast<std::int64_t>(chunks_generated_.load() * 10);
   }
+  shareme::rtc::LocalAudioSourceClockSnapshot
+  clock_snapshot() const noexcept override {
+    return {.source_sequence = chunks_generated_.load(),
+            .media_pts_ms = last_pts_ms(),
+            .generation = 3,
+            .audio_epoch = 7,
+            .sample_rate = 48'000,
+            .channel_count = 2};
+  }
   std::string error() const override { return {}; }
   void AddSink(webrtc::AudioTrackSinkInterface *sink) override {
     if (sink)
@@ -122,6 +134,10 @@ int main() {
   std::unique_ptr<MovieAudioPeer> host;
   std::unique_ptr<MovieAudioPeer> viewer;
   std::string offer;
+  std::atomic_uint64_t pcm_callback_count{0};
+  std::atomic_uint64_t last_pcm_sequence{0};
+  std::atomic_bool pcm_metadata_valid{true};
+  std::atomic_bool throw_from_pcm_callback{true};
   MovieAudioPeerCallbacks host_callbacks;
   host_callbacks.description = [&](std::string type, std::string sdp) {
     if (type == "offer")
@@ -138,9 +154,21 @@ int main() {
     REQUIRE(host->receive_description(std::move(type), std::move(sdp)));
   };
   viewer_callbacks.candidate = [&](std::string mid, int line,
-                                   std::string candidate) {
+                                    std::string candidate) {
     REQUIRE(host->receive_candidate(std::move(mid), line,
-                                    std::move(candidate)));
+                                      std::move(candidate)));
+  };
+  viewer_callbacks.pcm = [&](shareme::core::AudioPcmBlockView pcm,
+                             std::uint64_t receiver_sequence) {
+    if (!shareme::core::is_valid_audio_pcm_block(pcm) ||
+        pcm.receiver_sequence != receiver_sequence || pcm.frame_count != 480 ||
+        pcm.sample_rate != 48'000 || pcm.channel_count != 2 ||
+        pcm.payload.bytes.size_bytes() != 480U * 4U)
+      pcm_metadata_valid.store(false, std::memory_order_relaxed);
+    last_pcm_sequence.store(receiver_sequence, std::memory_order_relaxed);
+    pcm_callback_count.fetch_add(1, std::memory_order_release);
+    if (throw_from_pcm_callback.exchange(false, std::memory_order_acq_rel))
+      throw std::runtime_error("test callback failure");
   };
 
   viewer = MovieAudioPeer::create({.role = SignaledRole::viewer},
@@ -160,6 +188,9 @@ int main() {
   REQUIRE(viewer_result.sample_rate == 48'000);
   REQUIRE(viewer_result.channels == 2);
   REQUIRE(viewer_result.peak > 0);
+  REQUIRE(pcm_callback_count.load(std::memory_order_acquire) >= 100);
+  REQUIRE(pcm_metadata_valid.load(std::memory_order_relaxed));
+  REQUIRE(last_pcm_sequence.load(std::memory_order_relaxed) > 0);
   REQUIRE(!offer.empty());
   const auto audio_mline = offer.find("m=audio");
   REQUIRE(audio_mline != std::string::npos);
@@ -171,6 +202,13 @@ int main() {
   REQUIRE(host_result.connected);
   REQUIRE(host_result.chunks_generated >= 100);
   REQUIRE(host_result.error.empty());
+  const auto source_snapshot = host->source_clock_snapshot();
+  REQUIRE(source_snapshot.source_sequence >= host_result.chunks_generated);
+  REQUIRE(source_snapshot.media_pts_ms.has_value());
+  REQUIRE(source_snapshot.generation == 3);
+  REQUIRE(source_snapshot.audio_epoch == 7);
+  REQUIRE(source_snapshot.sample_rate == 48'000);
+  REQUIRE(source_snapshot.channel_count == 2);
 
   host->stop();
   host->stop();

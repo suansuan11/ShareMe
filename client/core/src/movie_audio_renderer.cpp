@@ -632,6 +632,12 @@ struct MovieAudioRenderer::Impl {
     shutdown_complete_.store(true, std::memory_order_release);
   }
 
+  void close_ingress() noexcept {
+    callback_ingress_permanently_closed_.store(true,
+                                                std::memory_order_release);
+    close_callback_ingress();
+  }
+
   [[nodiscard]] MovieAudioRendererSnapshot snapshot() const noexcept {
     MovieAudioRendererSnapshot result;
     result.media_frames_enqueued_total =
@@ -773,7 +779,8 @@ struct MovieAudioRenderer::Impl {
   }
 
   void reopen_callback_ingress() noexcept {
-    if (shutting_down_.load(std::memory_order_acquire)) {
+    if (shutting_down_.load(std::memory_order_acquire) ||
+        callback_ingress_permanently_closed_.load(std::memory_order_acquire)) {
       return;
     }
     callback_lifecycle_.store(0, std::memory_order_release);
@@ -1452,6 +1459,7 @@ struct MovieAudioRenderer::Impl {
 
   std::atomic<std::uint64_t> callback_lifecycle_{0};
   std::atomic<bool> accepting_callbacks_{true};
+  std::atomic<bool> callback_ingress_permanently_closed_{false};
   std::atomic<bool> shutting_down_{false};
   std::atomic<bool> shutdown_complete_{false};
   std::atomic<std::uint64_t> media_frames_enqueued_total_{0};
@@ -1539,6 +1547,8 @@ QuiesceResult MovieAudioRenderer::quiesce_output() {
 void MovieAudioRenderer::deactivate_output(PlaybackCategory reason) {
   impl_->deactivate_output(reason);
 }
+
+void MovieAudioRenderer::close_ingress() noexcept { impl_->close_ingress(); }
 
 void MovieAudioRenderer::shutdown() noexcept {
   impl_->shutdown();

@@ -1090,6 +1090,22 @@ void teardown_ingress_is_bounded_and_rejects_without_copying() {
   REQUIRE(renderer.snapshot().media_frames_enqueued_total == 0);
 }
 
+void explicitly_closed_ingress_stays_closed_through_quiesce() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(84);
+  activates(renderer, std::move(device));
+
+  renderer.close_ingress();
+  auto bytes = pcm_bytes(10);
+  const auto result = renderer.try_enqueue(view_for(bytes, 10), 1);
+  REQUIRE(result.status == EnqueueStatus::not_accepting);
+  static_cast<void>(renderer.quiesce_output());
+  REQUIRE(!renderer.snapshot().accepting_callbacks);
+  renderer.shutdown();
+  REQUIRE(renderer.snapshot().ready_block_count == 0);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -1122,6 +1138,7 @@ int main() {
   shutdown_waits_for_prior_shutdown_completion();
   underrun_facts_degrade_renderer_confidence();
   teardown_ingress_is_bounded_and_rejects_without_copying();
+  explicitly_closed_ingress_stays_closed_through_quiesce();
   concurrent_shutdown_leaves_no_post_close_blocks();
   return EXIT_SUCCESS;
 }

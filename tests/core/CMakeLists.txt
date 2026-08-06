@@ -79,6 +79,17 @@ add_test(
 )
 
 add_executable(
+  shareme_movie_video_scheduler_test
+  movie_video_scheduler_test.cpp
+)
+target_link_libraries(shareme_movie_video_scheduler_test PRIVATE ShareMe::Core)
+
+add_test(
+  NAME movie_video_scheduler
+  COMMAND shareme_movie_video_scheduler_test
+)
+
+add_executable(
   shareme_qt_audio_output_device_test
   qt_audio_output_device_test.cpp
   "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qt_audio_output_device.cpp"

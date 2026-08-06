@@ -1,5 +1,8 @@
 #include "playout_report.hpp"
 
+#include <QJsonDocument>
+#include <QJsonObject>
+
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -85,7 +88,19 @@ int main() {
                              .rendered_pts_ms = 12'345,
                              .buffer_ms = 160,
                              .receive_time_ms = 99'000,
-                             .generation = 3};
+                             .generation = 3,
+                             .viewer_suggested_action =
+                                 QStringLiteral("early-hold"),
+                             .viewer_applied_action =
+                                 QStringLiteral("pass-through"),
+                             .audio_clock_confidence =
+                                 QStringLiteral("provisional"),
+                             .audio_playout_pts_ms = 12'300,
+                             .logical_consumed_frames = 590'400,
+                             .renderer_queue_duration = 30,
+                             .device_queue_duration = 10,
+                             .route_generation = 2,
+                             .renderer_clock_epoch = 1};
   const auto encoded = encode_playout_report(report);
   const auto decoded =
       decode_playout_report(encoded, QStringLiteral("ABC234"));
@@ -93,6 +108,42 @@ int main() {
   REQUIRE(decoded->rendered_pts_ms == report.rendered_pts_ms);
   REQUIRE(decoded->buffer_ms == report.buffer_ms);
   REQUIRE(decoded->generation == report.generation);
+  REQUIRE(decoded->viewer_suggested_action ==
+          report.viewer_suggested_action);
+  REQUIRE(decoded->viewer_applied_action == report.viewer_applied_action);
+  REQUIRE(decoded->audio_clock_confidence == report.audio_clock_confidence);
+  REQUIRE(decoded->audio_playout_pts_ms == report.audio_playout_pts_ms);
+  REQUIRE(decoded->logical_consumed_frames == report.logical_consumed_frames);
+  REQUIRE(decoded->renderer_queue_duration == report.renderer_queue_duration);
+  REQUIRE(decoded->device_queue_duration == report.device_queue_duration);
+  REQUIRE(decoded->route_generation == report.route_generation);
+  REQUIRE(decoded->renderer_clock_epoch == report.renderer_clock_epoch);
+
+  auto legacy_object = QJsonDocument::fromJson(encoded).object();
+  auto legacy_payload = legacy_object.value(QStringLiteral("payload")).toObject();
+  legacy_payload.remove(QStringLiteral("viewerSuggestedAction"));
+  legacy_payload.remove(QStringLiteral("viewerAppliedAction"));
+  legacy_payload.remove(QStringLiteral("audioClockConfidence"));
+  legacy_payload.remove(QStringLiteral("audioPlayoutPtsMs"));
+  legacy_payload.remove(QStringLiteral("logicalConsumedFrames"));
+  legacy_payload.remove(QStringLiteral("rendererQueueDuration"));
+  legacy_payload.remove(QStringLiteral("deviceQueueDuration"));
+  legacy_payload.remove(QStringLiteral("routeGeneration"));
+  legacy_payload.remove(QStringLiteral("rendererClockEpoch"));
+  legacy_object.insert(QStringLiteral("payload"), legacy_payload);
+  const auto legacy = decode_playout_report(
+      QJsonDocument(legacy_object).toJson(QJsonDocument::Compact),
+      QStringLiteral("ABC234"));
+  REQUIRE(legacy.has_value());
+  REQUIRE(legacy->viewer_suggested_action == QStringLiteral("none"));
+  REQUIRE(legacy->audio_clock_confidence == QStringLiteral("unavailable"));
+
+  auto invalid_action = report;
+  invalid_action.viewer_suggested_action = QStringLiteral("apply-correction");
+  REQUIRE(encode_playout_report(invalid_action).isEmpty());
+  auto invalid_counter = report;
+  invalid_counter.route_generation = 9'007'199'254'740'992ULL;
+  REQUIRE(encode_playout_report(invalid_counter).isEmpty());
 
   auto invalid = report;
   invalid.buffer_ms = 10'001;

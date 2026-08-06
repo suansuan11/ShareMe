@@ -17,6 +17,15 @@ struct PlayoutReport {
   std::int64_t buffer_ms{};
   std::int64_t receive_time_ms{};
   std::uint64_t generation{};
+  QString viewer_suggested_action;
+  QString viewer_applied_action;
+  QString audio_clock_confidence;
+  std::int64_t audio_playout_pts_ms{};
+  std::uint64_t logical_consumed_frames{};
+  std::uint64_t renderer_queue_duration{};
+  std::uint64_t device_queue_duration{};
+  std::uint64_t route_generation{};
+  std::uint64_t renderer_clock_epoch{};
 };
 
 struct RenderedPlayoutSample {

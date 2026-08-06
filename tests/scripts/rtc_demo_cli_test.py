@@ -216,10 +216,41 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("movie-audio-session-description", source)
         self.assertIn("movie-audio-ice-candidate", source)
 
-    def test_controller_enables_native_movie_playout_for_viewers(self):
+    def test_controller_uses_app_owned_movie_renderer_and_preserves_voice_path(self):
         source = self.controller_source.read_text(encoding="utf-8")
-        self.assertIn("movie_config.native_playout =", source)
-        self.assertIn("role_ == shareme::rtc::SignaledRole::viewer", source)
+        peer = self.peer_source.read_text(encoding="utf-8")
+        self.assertIn("MovieAudioRenderer", source)
+        self.assertIn("renderer->try_enqueue", source)
+        self.assertIn("movie_audio_renderer_->pump", source)
+        self.assertIn("movie_audio_renderer_->set_playback_anchor", source)
+        self.assertIn("movie_audio_renderer_->snapshot", source)
+        self.assertIn("movie_config.native_playout = false", source)
+        self.assertIn("MovieAudioPeer::create", source)
+        self.assertIn("SignaledPeer::create", source)
+        self.assertIn('"host-voice"', peer)
+        self.assertIn('"viewer-voice"', peer)
+        self.assertIn("SetAudioPlayout(false)", peer)
+
+    def test_controller_teardown_is_dependency_safe(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        start = source.index("void RtcDemoController::stopPeer()")
+        end = source.index("\nvoid RtcDemoController::flushDriftMetrics", start)
+        teardown = source[start:end]
+        ordered_markers = [
+            "shutting_down_ = true",
+            "movie_audio_renderer_->close_ingress",
+            "movie_video_playout_adapter_->close_ingress",
+            "movie_audio_pump_timer_.stop",
+            "movie_audio_renderer_->quiesce_output",
+            "movie_audio_renderer_->shutdown",
+            "movie_video_playout_adapter_->shutdown",
+            "movie_peer_->stop",
+            "peer_->stop",
+            "movie_audio_renderer_.reset",
+            "movie_video_playout_adapter_.reset",
+        ]
+        positions = [teardown.index(marker) for marker in ordered_markers]
+        self.assertEqual(positions, sorted(positions))
 
     def test_controller_routes_host_local_and_viewer_remote_video(self):
         source = self.controller_source.read_text(encoding="utf-8")
@@ -281,8 +312,9 @@ class RtcDemoCliTest(unittest.TestCase):
         source = self.controller_source.read_text(encoding="utf-8")
         qml = self.qml.read_text(encoding="utf-8")
         self.assertIn("publishPlayoutReport", source)
-        self.assertIn("viewer_playback_anchor_->video_anchor_media_pts_ms", source)
-        self.assertIn("viewer_playback_anchor_->video_rtp_timestamp", source)
+        self.assertIn("playback_anchor->video_anchor_media_pts_ms", source)
+        self.assertIn("playback_anchor->video_rtp_timestamp", source)
+        self.assertIn("playback_anchor_mutex_", source)
         self.assertIn("decode_playout_report", source)
         self.assertIn("playout_report_tracker_.accept", source)
         self.assertIn("SyncController{}.decide", source)
