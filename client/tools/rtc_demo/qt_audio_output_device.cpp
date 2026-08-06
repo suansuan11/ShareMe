@@ -49,6 +49,10 @@ std::atomic<std::uint64_t> next_device_instance_id{1};
   return id;
 }
 
+[[nodiscard]] bool is_writable_sink_state(QAudio::State state) noexcept {
+  return state == QAudio::ActiveState || state == QAudio::IdleState;
+}
+
 }  // namespace
 
 QtAudioOutputDevice::QtAudioOutputDevice(QAudioDevice device)
@@ -115,7 +119,7 @@ bool QtAudioOutputDevice::start() {
   refresh_sink_state();
   if (sink_->error() == QAudio::NoError) {
     const auto state = sink_->state();
-    active_ = io_device_ != nullptr && state == QAudio::ActiveState;
+    active_ = io_device_ != nullptr && is_writable_sink_state(state);
   }
   return active_;
 }
@@ -434,10 +438,9 @@ void QtAudioOutputDevice::refresh_sink_state() noexcept {
     queue_facts_valid_ = false;
     return;
   }
-  const bool running = io_device_ != nullptr &&
-      state == QAudio::ActiveState;
+  const bool running = io_device_ != nullptr && is_writable_sink_state(state);
+  active_ = running;
   if (!running) {
-    active_ = false;
     processed_duration_valid_ = false;
     queue_facts_valid_ = false;
   }

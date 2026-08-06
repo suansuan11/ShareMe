@@ -13,6 +13,7 @@ class RtcDemoCliTest(unittest.TestCase):
     qml = Path()
     controller_source = Path()
     controller_header = Path()
+    qt_audio_source = Path()
     peer_source = Path()
     movie_supported = False
 
@@ -254,6 +255,31 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("if (movie_audio_output_ready_)", waiter)
         self.assertIn('setStatus(QStringLiteral("connected"))', waiter)
 
+    def test_final_movie_audio_review_contracts(self):
+        controller = self.controller_source.read_text(encoding="utf-8")
+        qt_audio = self.qt_audio_source.read_text(encoding="utf-8")
+        renderer = (self.controller_source.parent.parent.parent / "core" /
+                    "src" / "movie_audio_renderer.cpp").read_text(
+                        encoding="utf-8"
+                    )
+
+        audio_start = controller.index("if (const auto audio_clock =")
+        audio_end = controller.index("\n      return;", audio_start)
+        audio_handler = controller[audio_start:audio_end]
+        self.assertIn("logical_consumed_frames", audio_handler)
+        self.assertIn(".consumed_frames = audio_snapshot.logical_consumed_frames",
+                      audio_handler)
+        self.assertIn("pause_output", controller)
+        self.assertIn("resume_output", controller)
+        self.assertIn(".playing = remote_playback_state_ ==",
+                      controller)
+        self.assertIn("output_->stop()", renderer)
+        self.assertIn("output_->open(config_.output_format)", renderer)
+        self.assertIn("output_->start()", renderer)
+        self.assertNotIn("AudioOutputDevice::flush", renderer)
+        self.assertIn("state == QAudio::ActiveState", qt_audio)
+        self.assertIn("state == QAudio::IdleState", qt_audio)
+
     def test_controller_teardown_is_dependency_safe(self):
         source = self.controller_source.read_text(encoding="utf-8")
         start = source.index("void RtcDemoController::stopPeer()")
@@ -352,6 +378,7 @@ def main() -> int:
     parser.add_argument("--qml", type=Path, required=True)
     parser.add_argument("--controller-source", type=Path, required=True)
     parser.add_argument("--controller-header", type=Path, required=True)
+    parser.add_argument("--qt-audio-source", type=Path, required=True)
     parser.add_argument("--peer-source", type=Path, required=True)
     parser.add_argument("--movie-supported", action="store_true")
     args, unittest_args = parser.parse_known_args()
@@ -359,6 +386,7 @@ def main() -> int:
     RtcDemoCliTest.qml = args.qml.resolve()
     RtcDemoCliTest.controller_source = args.controller_source.resolve()
     RtcDemoCliTest.controller_header = args.controller_header.resolve()
+    RtcDemoCliTest.qt_audio_source = args.qt_audio_source.resolve()
     RtcDemoCliTest.peer_source = args.peer_source.resolve()
     RtcDemoCliTest.movie_supported = args.movie_supported
     unittest.main(argv=[sys.argv[0], *unittest_args])

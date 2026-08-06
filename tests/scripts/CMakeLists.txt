@@ -52,6 +52,8 @@ if(TARGET shareme_rtc_demo)
       "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/rtc_demo_controller.cpp"
       --controller-header
       "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/rtc_demo_controller.hpp"
+      --qt-audio-source
+      "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qt_audio_output_device.cpp"
       --peer-source
       "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/signaled_peer.cpp"
       ${shareme_rtc_demo_test_arguments}

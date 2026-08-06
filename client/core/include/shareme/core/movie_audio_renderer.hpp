@@ -122,6 +122,8 @@ class MovieAudioRenderer final {
 
   void set_playback_anchor(AudioClockAnchor anchor) noexcept;
   void clear_playback_anchor() noexcept;
+  void pause_output() noexcept;
+  void resume_output() noexcept;
 
   void pump(MonotonicTime monotonic_now);
 

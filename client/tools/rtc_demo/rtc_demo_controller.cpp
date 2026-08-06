@@ -1246,13 +1246,14 @@ void RtcDemoController::receiveControlMessage(std::string message) {
             shareme::tools::decode_movie_audio_clock(bytes, room_id_)) {
       if (movie_audio_clock_tracker_.accept(*audio_clock) &&
           movie_audio_renderer_) {
+        const auto audio_snapshot = movie_audio_renderer_->snapshot();
         movie_audio_renderer_->set_playback_anchor({
             .control_sequence = audio_clock->sequence,
             .host_source_sequence = audio_clock->host_source_sequence,
             .playback_generation = audio_clock->playback_generation,
             .audio_epoch = audio_clock->audio_epoch,
             .media_pts_ms = audio_clock->media_pts_ms,
-            .consumed_frames = 0,
+            .consumed_frames = audio_snapshot.logical_consumed_frames,
             .sample_rate = audio_clock->sample_rate,
             .channel_count = audio_clock->channel_count});
       }
@@ -1278,7 +1279,15 @@ void RtcDemoController::receiveControlMessage(std::string message) {
       emit playoutReportChanged();
     }
     viewer_anchor_received_at_ = std::chrono::steady_clock::now();
+    const auto previous_remote_playback_state = remote_playback_state_;
     remote_playback_state_ = state->state;
+    if (movie_audio_renderer_ &&
+        previous_remote_playback_state != remote_playback_state_) {
+      if (remote_playback_state_ == QStringLiteral("paused"))
+        movie_audio_renderer_->pause_output();
+      else
+        movie_audio_renderer_->resume_output();
+    }
     remote_playback_position_ms_ = static_cast<qint64>(state->media_pts_ms);
     emit remotePlaybackChanged();
     return;

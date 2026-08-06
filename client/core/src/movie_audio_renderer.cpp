@@ -300,14 +300,146 @@ struct MovieAudioRenderer::Impl {
       record_discontinuity(PlaybackCategory::audio_correlation_unavailable);
       return;
     }
+    const auto media_scope_changed =
+        anchor.playback_generation > playback_generation_ ||
+        anchor.audio_epoch > host_audio_epoch_;
     playback_generation_ = anchor.playback_generation;
     host_audio_epoch_ = anchor.audio_epoch;
     anchor_ = anchor;
+    if (!media_scope_changed) {
+      return;
+    }
+
+    const auto was_output_active = output_active_;
+    const auto was_output_paused = output_paused_;
+    IngressBarrier ingress{*this};
+    discard_pending_pcm();
+    if (output_ == nullptr || (!was_output_active && !was_output_paused)) {
+      return;
+    }
+    const auto fail_scope_restart = [this]() noexcept {
+      if (output_ != nullptr) {
+        try {
+          output_->stop();
+        } catch (...) {
+        }
+      }
+      output_active_ = false;
+      output_quiesced_ = false;
+      output_paused_ = false;
+      last_write_status_ = WriteStatus::failed;
+      mark_unknown_consumption(PlaybackCategory::audio_output_failure);
+    };
+
+    bool stopped = false;
+    try {
+      output_->stop();
+      stopped = true;
+    } catch (...) {
+    }
+    output_active_ = false;
+    output_quiesced_ = false;
+    output_paused_ = false;
+    if (!stopped) {
+      fail_scope_restart();
+      return;
+    }
+
+    OpenResult open_result;
+    try {
+      open_result = output_->open(config_.output_format);
+    } catch (...) {
+      open_result = OpenResult{
+          .status = OpenStatus::failed,
+          .failure_category = PlaybackCategory::audio_output_failure,
+      };
+    }
+    if (!is_valid_open_result(open_result) ||
+        open_result.status != OpenStatus::opened) {
+      fail_scope_restart();
+      return;
+    }
+
+    bool started = false;
+    try {
+      started = output_->start();
+    } catch (...) {
+    }
+    if (!started) {
+      fail_scope_restart();
+      return;
+    }
+
+    AudioDeviceSnapshot fresh_snapshot;
+    try {
+      fresh_snapshot = output_->snapshot();
+    } catch (...) {
+      fresh_snapshot.active = false;
+    }
+    if (!is_valid_candidate_snapshot(fresh_snapshot)) {
+      fail_scope_restart();
+      return;
+    }
+
+    set_device_baseline(fresh_snapshot, true);
+    output_quiesced_ = false;
+    last_write_status_.reset();
+    if (was_output_active) {
+      output_active_ = true;
+      return;
+    }
+
+    try {
+      output_->pause();
+    } catch (...) {
+      output_active_ = false;
+      last_write_status_ = WriteStatus::failed;
+      mark_unknown_consumption(PlaybackCategory::audio_output_failure);
+      return;
+    }
+    output_active_ = false;
+    output_paused_ = true;
   }
 
   void clear_playback_anchor() noexcept {
     anchor_.reset();
     clock_.clear_playback_anchor();
+  }
+
+  void pause_output() noexcept {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return;
+    }
+    IngressBarrier ingress{*this};
+    if (output_ == nullptr || !output_active_) {
+      return;
+    }
+    try {
+      output_->pause();
+    } catch (...) {
+      output_active_ = false;
+      last_write_status_ = WriteStatus::failed;
+      mark_unknown_consumption(PlaybackCategory::audio_output_failure);
+      return;
+    }
+    output_active_ = false;
+    output_quiesced_ = false;
+    output_paused_ = true;
+  }
+
+  void resume_output() noexcept {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return;
+    }
+    IngressBarrier ingress{*this};
+    if (output_ == nullptr || output_active_ || !output_paused_) {
+      return;
+    }
+    if (!resume_old_output(device_instance_id_)) {
+      output_paused_ = false;
+      last_write_status_ = WriteStatus::failed;
+      mark_unknown_consumption(PlaybackCategory::audio_output_failure);
+    }
   }
 
   void pump(MonotonicTime monotonic_now) {
@@ -540,6 +672,7 @@ struct MovieAudioRenderer::Impl {
     output_ = std::move(candidate);
     output_active_ = true;
     output_quiesced_ = false;
+    output_paused_ = false;
     set_device_baseline(commit_snapshot, true);
     if (route_generation_ != std::numeric_limits<std::uint64_t>::max()) {
       ++route_generation_;
@@ -585,6 +718,7 @@ struct MovieAudioRenderer::Impl {
     }
     output_active_ = false;
     output_quiesced_ = false;
+    output_paused_ = false;
   }
 
   void shutdown() noexcept {
@@ -617,6 +751,7 @@ struct MovieAudioRenderer::Impl {
     }
     output_active_ = false;
     output_quiesced_ = false;
+    output_paused_ = false;
     for (std::size_t index = 0; index < total_capacity(); ++index) {
       if (slots_[index].state.load(std::memory_order_acquire) !=
           SlotState::free) {
@@ -785,6 +920,23 @@ struct MovieAudioRenderer::Impl {
     }
     callback_lifecycle_.store(0, std::memory_order_release);
     accepting_callbacks_.store(true, std::memory_order_release);
+  }
+
+  void discard_pending_pcm() noexcept {
+    for (std::size_t index = 0; index < total_capacity(); ++index) {
+      if (slots_[index].state.load(std::memory_order_acquire) !=
+          SlotState::free) {
+        release_slot(index);
+      }
+    }
+    ready_tail_.store(0, std::memory_order_release);
+    ready_head_.store(0, std::memory_order_release);
+    in_flight_tail_ = 0;
+    in_flight_head_ = 0;
+    in_flight_count_ = 0;
+    replay_tail_ = 0;
+    replay_head_ = 0;
+    replay_count_ = 0;
   }
 
   [[nodiscard]] std::size_t total_capacity() const noexcept {
@@ -998,6 +1150,7 @@ struct MovieAudioRenderer::Impl {
   void handle_unknown_output(PlaybackCategory reason) noexcept {
     output_active_ = false;
     output_quiesced_ = false;
+    output_paused_ = false;
     device_snapshot_.active = false;
     if (output_ != nullptr) {
       try {
@@ -1196,6 +1349,7 @@ struct MovieAudioRenderer::Impl {
     update_device_facts(ordinary);
     output_active_ = false;
     output_quiesced_ = true;
+    output_paused_ = false;
     last_final_snapshot_ = final_snapshot;
     last_quiesce_unknown_ = !exact_consumption;
     if (exact_consumption) {
@@ -1327,6 +1481,7 @@ struct MovieAudioRenderer::Impl {
     }
     if (!started) {
       output_active_ = false;
+      output_paused_ = false;
       return false;
     }
     AudioDeviceSnapshot snapshot;
@@ -1334,6 +1489,7 @@ struct MovieAudioRenderer::Impl {
       snapshot = output_->snapshot();
     } catch (...) {
       output_active_ = false;
+      output_paused_ = false;
       try {
         output_->stop();
       } catch (...) {
@@ -1344,6 +1500,7 @@ struct MovieAudioRenderer::Impl {
         snapshot.snapshot_sequence <= last_snapshot_sequence_ ||
         !snapshot.active || !is_valid_current_snapshot(snapshot)) {
       output_active_ = false;
+      output_paused_ = false;
       try {
         output_->stop();
       } catch (...) {
@@ -1354,6 +1511,7 @@ struct MovieAudioRenderer::Impl {
         last_device_consumed_raw_;
     if (!apply_consumed_frames(consumed_delta)) {
       output_active_ = false;
+      output_paused_ = false;
       try {
         output_->stop();
       } catch (...) {
@@ -1365,6 +1523,7 @@ struct MovieAudioRenderer::Impl {
     consumption_unknown_ = false;
     output_active_ = true;
     output_quiesced_ = false;
+    output_paused_ = false;
     observe_clock(clock_time(), true, snapshot.output_latency_frames, false,
                   underrun);
     return true;
@@ -1474,6 +1633,7 @@ struct MovieAudioRenderer::Impl {
   std::unique_ptr<AudioOutputDevice> output_;
   bool output_active_ = false;
   bool output_quiesced_ = false;
+  bool output_paused_ = false;
   bool last_quiesce_unknown_ = false;
   std::uint64_t device_instance_id_ = 0;
   std::uint64_t last_snapshot_sequence_ = 0;
@@ -1530,6 +1690,10 @@ void MovieAudioRenderer::set_playback_anchor(AudioClockAnchor anchor) noexcept {
 void MovieAudioRenderer::clear_playback_anchor() noexcept {
   impl_->clear_playback_anchor();
 }
+
+void MovieAudioRenderer::pause_output() noexcept { impl_->pause_output(); }
+
+void MovieAudioRenderer::resume_output() noexcept { impl_->resume_output(); }
 
 void MovieAudioRenderer::pump(MonotonicTime monotonic_now) {
   impl_->pump(monotonic_now);
