@@ -106,6 +106,7 @@ bool QtAudioOutputDevice::start() {
     return false;
   }
   controlled_suspension_ = false;
+  controlled_suspension_pending_ = false;
   if (sink_->state() == QAudio::SuspendedState) {
     sink_->resume();
   } else {
@@ -237,9 +238,10 @@ shareme::core::FinalDeviceSnapshot
 QtAudioOutputDevice::quiesce_and_snapshot() {
   if (sink_ != nullptr && active_ &&
       sink_->state() == QAudio::ActiveState) {
-    controlled_suspension_ = true;
+    controlled_suspension_pending_ = true;
     sink_->suspend();
   } else if (!controlled_suspension_) {
+    controlled_suspension_pending_ = false;
     controlled_suspension_ = false;
   }
   active_ = false;
@@ -261,8 +263,10 @@ QtAudioOutputDevice::quiesce_and_snapshot() {
 }
 
 void QtAudioOutputDevice::pause() {
-  controlled_suspension_ = sink_ != nullptr;
-  if (sink_ != nullptr && active_) {
+  controlled_suspension_ = false;
+  controlled_suspension_pending_ = sink_ != nullptr && active_ &&
+      sink_->state() == QAudio::ActiveState;
+  if (controlled_suspension_pending_) {
     sink_->suspend();
   }
   active_ = false;
@@ -275,6 +279,7 @@ void QtAudioOutputDevice::stop() {
   io_device_ = nullptr;
   active_ = false;
   controlled_suspension_ = false;
+  controlled_suspension_pending_ = false;
   processed_duration_valid_ = false;
   queue_facts_valid_ = false;
   opened_ = false;
@@ -379,6 +384,8 @@ bool QtAudioOutputDevice::has_trusted_device_facts() const noexcept {
 void QtAudioOutputDevice::refresh_sink_state() noexcept {
   if (sink_ == nullptr) {
     active_ = false;
+    controlled_suspension_ = false;
+    controlled_suspension_pending_ = false;
     return;
   }
 
@@ -396,6 +403,8 @@ void QtAudioOutputDevice::refresh_sink_state() noexcept {
     }
     last_audio_error_ = error_value;
     active_ = false;
+    controlled_suspension_ = false;
+    controlled_suspension_pending_ = false;
     processed_duration_valid_ = false;
     queue_facts_valid_ = false;
     return;
@@ -403,12 +412,24 @@ void QtAudioOutputDevice::refresh_sink_state() noexcept {
   last_audio_error_ = static_cast<int>(QAudio::NoError);
 
   const auto state = sink_->state();
-  if (controlled_suspension_) {
-    if (state != QAudio::SuspendedState) {
+  if (controlled_suspension_pending_ || controlled_suspension_) {
+    if (state == QAudio::SuspendedState) {
+      controlled_suspension_ = true;
+      controlled_suspension_pending_ = false;
       active_ = false;
-      processed_duration_valid_ = false;
-      queue_facts_valid_ = false;
+      return;
     }
+    controlled_suspension_ = false;
+    controlled_suspension_pending_ = false;
+    active_ = false;
+    processed_duration_valid_ = false;
+    queue_facts_valid_ = false;
+    return;
+  }
+  if (state == QAudio::SuspendedState) {
+    active_ = false;
+    processed_duration_valid_ = false;
+    queue_facts_valid_ = false;
     return;
   }
   const bool running = io_device_ != nullptr &&
@@ -431,6 +452,7 @@ void QtAudioOutputDevice::reset_runtime_state() noexcept {
   io_device_ = nullptr;
   active_ = false;
   controlled_suspension_ = false;
+  controlled_suspension_pending_ = false;
   processed_duration_valid_ = false;
   queue_facts_valid_ = false;
   device_instance_id_ = allocate_device_instance_id();
