@@ -250,6 +250,8 @@ QtAudioOutputDevice::quiesce_and_snapshot() {
   }
   active_ = false;
   const auto ordinary = read_snapshot();
+  const auto quiesced = controlled_suspension_ &&
+      !controlled_suspension_pending_;
   return shareme::core::FinalDeviceSnapshot{
       .device_instance_id = ordinary.device_instance_id,
       .snapshot_sequence = ordinary.snapshot_sequence,
@@ -260,9 +262,9 @@ QtAudioOutputDevice::quiesce_and_snapshot() {
       .underrun_count = ordinary.underrun_count,
       .discontinuity_count = ordinary.discontinuity_count,
       .last_discontinuity_reason = ordinary.last_discontinuity_reason,
-      .active = false,
-      .quiesced = true,
-      .exact_consumption = has_trusted_device_facts(),
+      .active = ordinary.active,
+      .quiesced = quiesced,
+      .exact_consumption = quiesced && has_trusted_device_facts(),
   };
 }
 

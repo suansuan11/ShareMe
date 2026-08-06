@@ -586,13 +586,15 @@ struct MovieAudioRenderer::Impl {
       }
 
       if (old_handoff_prepared) {
-        if (!old_ownership_rebuilt) {
-          rebuild_after_handoff(old_handoff_exact);
-          old_ownership_rebuilt = true;
-        }
         if (old_handoff_exact) {
+          if (!old_ownership_rebuilt) {
+            rebuild_after_handoff(true);
+            old_ownership_rebuilt = true;
+          }
           restore_exact_handoff_ownership();
         }
+        // Unknown consumption still owns the old device queue. Keep the
+        // in-flight blocks intact until old-route resume succeeds or fails.
         if (output_quiesced_ &&
             resume_old_output(old_device_instance_id)) {
           return ActivationResult{
