@@ -56,6 +56,11 @@ add_test(
   COMMAND shareme_audio_output_contract_test
 )
 
+add_executable(shareme_audio_route_test audio_route_test.cpp)
+target_link_libraries(shareme_audio_route_test PRIVATE ShareMe::Core)
+
+add_test(NAME audio_route COMMAND shareme_audio_route_test)
+
 add_executable(
   shareme_movie_audio_pts_mapper_test
   movie_audio_pts_mapper_test.cpp
