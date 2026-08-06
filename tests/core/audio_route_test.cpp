@@ -340,6 +340,27 @@ void stale_final_snapshots_are_rejected_before_handoff() {
   REQUIRE(result.clock_confidence == ClockConfidence::provisional);
 }
 
+void unquiesced_final_snapshots_are_rejected_before_handoff() {
+  const std::vector<std::uint64_t> in_flight{10};
+  const auto input = AudioRouteHandoffInput{
+      .expected_device_instance_id = AudioRouteDeviceId{62},
+      .minimum_snapshot_sequence = 4,
+      .last_device_consumed_frames = 0,
+      .logical_consumed_frames = 0,
+      .renderer_clock_epoch = 0,
+      .clock_confidence = ClockConfidence::provisional,
+      .in_flight_block_frames = in_flight,
+  };
+  auto snapshot = final_snapshot(62, 5, 10, 0, 10, true);
+  snapshot.quiesced = false;
+
+  const auto result = plan_audio_route_handoff(input, snapshot);
+  REQUIRE(result.status == AudioRouteHandoffStatus::invalid_snapshot);
+  REQUIRE(result.retained_block_frames.empty());
+  REQUIRE(result.logical_consumed_frames == 0);
+  REQUIRE(result.renderer_clock_epoch == 0);
+}
+
 void route_transition_video_policy_has_distinct_bounded_pass_through() {
   const auto waiting = evaluate_audio_route_video_policy(
       AudioRouteVideoPolicyInput{
@@ -447,6 +468,7 @@ int main() {
   exact_handoff_retires_consumed_blocks_and_keeps_the_suffix();
   unknown_consumption_stops_at_last_provable_value_and_invalidates_clock();
   stale_final_snapshots_are_rejected_before_handoff();
+  unquiesced_final_snapshots_are_rejected_before_handoff();
   route_transition_video_policy_has_distinct_bounded_pass_through();
   locked_new_clock_never_enables_route_correction();
   handoff_requires_nonzero_identity_and_snapshot_sequence();

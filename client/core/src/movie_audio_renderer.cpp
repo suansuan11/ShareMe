@@ -547,73 +547,15 @@ struct MovieAudioRenderer::Impl {
 
     IngressBarrier ingress{*this};
     const bool had_old_output = output_ != nullptr;
-
-    OpenResult open_result;
-    try {
-      open_result = candidate->open(config_.output_format);
-    } catch (...) {
-      open_result = OpenResult{
-          .status = OpenStatus::failed,
-          .failure_category = PlaybackCategory::route_activation_failed,
-      };
-    }
-    if (!is_valid_open_result(open_result) ||
-        open_result.status != OpenStatus::opened) {
-      try {
-        candidate->stop();
-      } catch (...) {
-      }
-      return ActivationResult{
-          .status = ActivationStatus::failed,
-          .failure_category = open_result.failure_category.value_or(
-              PlaybackCategory::route_activation_failed),
-      };
-    }
-
-    bool started = false;
-    try {
-      started = candidate->start();
-    } catch (...) {
-      started = false;
-    }
-    if (!started) {
-      try {
-        candidate->stop();
-      } catch (...) {
-      }
-      return ActivationResult{
-          .status = ActivationStatus::failed,
-          .failure_category = PlaybackCategory::route_activation_failed,
-      };
-    }
-
-    AudioDeviceSnapshot candidate_snapshot;
-    try {
-      candidate_snapshot = candidate->snapshot();
-    } catch (...) {
-      candidate_snapshot.active = false;
-    }
-    if (!is_valid_candidate_snapshot(candidate_snapshot)) {
-      try {
-        candidate->stop();
-      } catch (...) {
-      }
-      return ActivationResult{
-          .status = ActivationStatus::candidate_stale,
-          .failure_category = PlaybackCategory::route_candidate_stale,
-      };
-    }
-
     const auto old_device_instance_id = device_instance_id_;
+    bool old_handoff_prepared = false;
     bool old_handoff_exact = false;
-    if (had_old_output && output_active_) {
-      const auto quiesce = quiesce_impl();
+    bool old_ownership_rebuilt = false;
+
+    if (had_old_output && (output_active_ || output_paused_)) {
+      const auto quiesce = quiesce_impl(false);
       if (quiesce.status == QuiesceStatus::stale_snapshot ||
           quiesce.status == QuiesceStatus::invalid_snapshot) {
-        try {
-          candidate->stop();
-        } catch (...) {
-        }
         if (output_ != nullptr && output_active_ &&
             device_instance_id_ == old_device_instance_id) {
           return ActivationResult{
@@ -627,7 +569,87 @@ struct MovieAudioRenderer::Impl {
             .failure_category = PlaybackCategory::audio_output_device_lost,
         };
       }
+      old_handoff_prepared = true;
       old_handoff_exact = quiesce.status == QuiesceStatus::quiesced;
+    } else if (had_old_output && output_quiesced_) {
+      old_handoff_prepared = true;
+      old_handoff_exact = !last_quiesce_unknown_;
+      old_ownership_rebuilt = true;
+    }
+
+    const auto fail_candidate =
+        [&](ActivationStatus status,
+            PlaybackCategory failure_category) -> ActivationResult {
+      try {
+        candidate->stop();
+      } catch (...) {
+      }
+
+      if (old_handoff_prepared) {
+        if (!old_ownership_rebuilt) {
+          rebuild_after_handoff(old_handoff_exact);
+          old_ownership_rebuilt = true;
+        }
+        if (old_handoff_exact) {
+          restore_exact_handoff_ownership();
+        }
+        if (output_quiesced_ &&
+            resume_old_output(old_device_instance_id)) {
+          return ActivationResult{
+              .status = status,
+              .failure_category = failure_category,
+          };
+        }
+        if (output_ != nullptr) {
+          handle_unknown_output(PlaybackCategory::audio_output_device_lost);
+        }
+      }
+
+      return ActivationResult{
+          .status = status,
+          .failure_category = failure_category,
+      };
+    };
+
+    OpenResult open_result;
+    try {
+      open_result = candidate->open(config_.output_format);
+    } catch (...) {
+      open_result = OpenResult{
+          .status = OpenStatus::failed,
+          .failure_category = PlaybackCategory::route_activation_failed,
+      };
+    }
+    if (!is_valid_open_result(open_result) ||
+        open_result.status != OpenStatus::opened) {
+      return fail_candidate(
+          ActivationStatus::failed,
+          open_result.failure_category.value_or(
+              PlaybackCategory::route_activation_failed));
+    }
+
+    bool started = false;
+    try {
+      started = candidate->start();
+    } catch (...) {
+      started = false;
+    }
+    if (!started) {
+      return fail_candidate(
+          ActivationStatus::failed,
+          PlaybackCategory::route_activation_failed);
+    }
+
+    AudioDeviceSnapshot candidate_snapshot;
+    try {
+      candidate_snapshot = candidate->snapshot();
+    } catch (...) {
+      candidate_snapshot.active = false;
+    }
+    if (!is_valid_candidate_snapshot(candidate_snapshot)) {
+      return fail_candidate(
+          ActivationStatus::candidate_stale,
+          PlaybackCategory::route_candidate_stale);
     }
 
     AudioDeviceSnapshot commit_snapshot;
@@ -643,24 +665,14 @@ struct MovieAudioRenderer::Impl {
         commit_snapshot.snapshot_sequence >
             candidate_snapshot.snapshot_sequence;
     if (!candidate_still_valid) {
-      try {
-        candidate->stop();
-      } catch (...) {
-      }
-      if (old_handoff_exact && output_quiesced_ &&
-          restore_exact_old_output_after_candidate_failure()) {
-        return ActivationResult{
-            .status = ActivationStatus::candidate_stale,
-            .failure_category = PlaybackCategory::route_candidate_stale,
-        };
-      }
-      if (had_old_output && output_ != nullptr) {
-        handle_unknown_output(PlaybackCategory::audio_output_device_lost);
-      }
-      return ActivationResult{
-          .status = ActivationStatus::candidate_stale,
-          .failure_category = PlaybackCategory::route_candidate_stale,
-      };
+      return fail_candidate(
+          ActivationStatus::candidate_stale,
+          PlaybackCategory::route_candidate_stale);
+    }
+
+    if (old_handoff_prepared && !old_ownership_rebuilt) {
+      rebuild_after_handoff(old_handoff_exact);
+      old_ownership_rebuilt = true;
     }
 
     if (output_ != nullptr) {
@@ -673,6 +685,7 @@ struct MovieAudioRenderer::Impl {
     output_active_ = true;
     output_quiesced_ = false;
     output_paused_ = false;
+    last_quiesce_unknown_ = false;
     set_device_baseline(commit_snapshot, true);
     if (route_generation_ != std::numeric_limits<std::uint64_t>::max()) {
       ++route_generation_;
@@ -693,7 +706,7 @@ struct MovieAudioRenderer::Impl {
       };
     }
     IngressBarrier ingress{*this};
-    const auto result = quiesce_impl();
+    const auto result = quiesce_impl(true);
     return result;
   }
 
@@ -701,7 +714,7 @@ struct MovieAudioRenderer::Impl {
     IngressBarrier ingress{*this};
     record_discontinuity(reason);
     if (output_ != nullptr && output_active_) {
-      const auto quiesce = quiesce_impl();
+      const auto quiesce = quiesce_impl(true);
       if (quiesce.status == QuiesceStatus::stale_snapshot ||
           quiesce.status == QuiesceStatus::invalid_snapshot) {
         mark_unknown_consumption(
@@ -734,7 +747,7 @@ struct MovieAudioRenderer::Impl {
     IngressBarrier ingress{*this};
     ingress.keep_closed();
     if (output_ != nullptr && output_active_) {
-      const auto quiesce = quiesce_impl();
+      const auto quiesce = quiesce_impl(true);
       if (quiesce.status == QuiesceStatus::stale_snapshot ||
           quiesce.status == QuiesceStatus::invalid_snapshot) {
         mark_unknown_consumption(
@@ -1162,15 +1175,6 @@ struct MovieAudioRenderer::Impl {
     rebuild_after_handoff(false);
   }
 
-  [[nodiscard]] bool restore_exact_old_output_after_candidate_failure()
-      noexcept {
-    if (output_ == nullptr) {
-      return false;
-    }
-    restore_exact_handoff_ownership();
-    return resume_old_output(device_instance_id_);
-  }
-
   void observe_output_snapshot(MonotonicTime monotonic_now) {
     if (output_ == nullptr) {
       return;
@@ -1205,7 +1209,6 @@ struct MovieAudioRenderer::Impl {
     }
     const bool underrun = snapshot.underrun_count > last_device_underrun_raw_;
     update_device_facts(snapshot);
-    consumption_unknown_ = false;
     output_active_ = snapshot.active;
     observe_clock(monotonic_now, consumption_known,
                   snapshot.output_latency_frames, false, underrun);
@@ -1278,7 +1281,7 @@ struct MovieAudioRenderer::Impl {
     device_snapshot_ = snapshot;
   }
 
-  [[nodiscard]] QuiesceResult quiesce_impl() {
+  [[nodiscard]] QuiesceResult quiesce_impl(bool rebuild_ownership) {
     if (output_ == nullptr) {
       return QuiesceResult{
           .status = QuiesceStatus::no_output,
@@ -1309,6 +1312,18 @@ struct MovieAudioRenderer::Impl {
       return QuiesceResult{
           .status = QuiesceStatus::invalid_snapshot,
           .final_snapshot = {},
+          .failure_category = PlaybackCategory::audio_output_failure,
+      };
+    }
+    if (final_snapshot.device_instance_id == 0 ||
+        final_snapshot.snapshot_sequence == 0) {
+      const auto resumed = resume_old_output(device_instance_id_);
+      if (!resumed) {
+        handle_unknown_output(PlaybackCategory::audio_output_failure);
+      }
+      return QuiesceResult{
+          .status = QuiesceStatus::invalid_snapshot,
+          .final_snapshot = final_snapshot,
           .failure_category = PlaybackCategory::audio_output_failure,
       };
     }
@@ -1353,8 +1368,9 @@ struct MovieAudioRenderer::Impl {
     last_final_snapshot_ = final_snapshot;
     last_quiesce_unknown_ = !exact_consumption;
     if (exact_consumption) {
-      consumption_unknown_ = false;
-      rebuild_after_handoff(true);
+      if (rebuild_ownership) {
+        rebuild_after_handoff(true);
+      }
       return QuiesceResult{
           .status = QuiesceStatus::quiesced,
           .final_snapshot = final_snapshot,
@@ -1363,7 +1379,9 @@ struct MovieAudioRenderer::Impl {
     }
 
     mark_unknown_consumption(PlaybackCategory::route_handoff_unknown_consumption);
-    rebuild_after_handoff(false);
+    if (rebuild_ownership) {
+      rebuild_after_handoff(false);
+    }
     return QuiesceResult{
         .status = QuiesceStatus::unknown_consumption,
         .final_snapshot = final_snapshot,
@@ -1520,7 +1538,6 @@ struct MovieAudioRenderer::Impl {
     }
     const bool underrun = snapshot.underrun_count > last_device_underrun_raw_;
     update_device_facts(snapshot);
-    consumption_unknown_ = false;
     output_active_ = true;
     output_quiesced_ = false;
     output_paused_ = false;
@@ -1543,7 +1560,6 @@ struct MovieAudioRenderer::Impl {
     if (reset_write_baseline) {
       device_backend_write_baseline_ = backend_frames_written_total_;
     }
-    consumption_unknown_ = false;
   }
 
   void mark_unknown_consumption(PlaybackCategory reason) noexcept {
@@ -1576,8 +1592,13 @@ struct MovieAudioRenderer::Impl {
     const auto result = clock_.observe(observation, monotonic_now);
     renderer_clock_epoch_ = result.renderer_clock_epoch;
     if (consumption_known && !discontinuity && !underrun &&
-        result.confidence != ClockConfidence::invalid) {
+        result.confidence != ClockConfidence::invalid &&
+        (!consumption_unknown_ ||
+         result.confidence == ClockConfidence::locked)) {
       confidence_invalidated_.store(false, std::memory_order_release);
+      if (result.confidence == ClockConfidence::locked) {
+        consumption_unknown_ = false;
+      }
     }
   }
 

@@ -6,7 +6,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -99,10 +101,14 @@ class FakeOutputDevice final : public AudioOutputDevice {
   bool throw_on_write = false;
   std::vector<CapturedWrite> writes;
   std::vector<std::string> lifecycle;
+  std::vector<std::string>* shared_lifecycle = nullptr;
+  std::function<void()> start_observer;
 
   OpenResult open(AudioOutputFormat format) override {
     ++open_calls;
     lifecycle.emplace_back("open");
+    if (shared_lifecycle != nullptr)
+      shared_lifecycle->emplace_back("open");
     if (!open_succeeds || format.sample_rate == 0) {
       opened = false;
       return OpenResult{
@@ -128,11 +134,15 @@ class FakeOutputDevice final : public AudioOutputDevice {
   bool start() override {
     ++start_calls;
     lifecycle.emplace_back("start");
+    if (shared_lifecycle != nullptr)
+      shared_lifecycle->emplace_back("start");
     if (!opened || !start_succeeds) {
       active = false;
       return false;
     }
     active = true;
+    if (start_observer)
+      start_observer();
     return true;
   }
 
@@ -201,6 +211,9 @@ class FakeOutputDevice final : public AudioOutputDevice {
 
   FinalDeviceSnapshot quiesce_and_snapshot() override {
     ++quiesce_calls;
+    lifecycle.emplace_back("quiesce");
+    if (shared_lifecycle != nullptr)
+      shared_lifecycle->emplace_back("quiesce");
     active = false;
     if (block_quiesce.load(std::memory_order_acquire)) {
       quiesce_entered.store(true, std::memory_order_release);
@@ -232,6 +245,8 @@ class FakeOutputDevice final : public AudioOutputDevice {
   void pause() override {
     ++pause_calls;
     lifecycle.emplace_back("pause");
+    if (shared_lifecycle != nullptr)
+      shared_lifecycle->emplace_back("pause");
     active = false;
   }
 
@@ -239,6 +254,8 @@ class FakeOutputDevice final : public AudioOutputDevice {
     ++stop_calls;
     ++total_stop_calls;
     lifecycle.emplace_back("stop");
+    if (shared_lifecycle != nullptr)
+      shared_lifecycle->emplace_back("stop");
     active = false;
   }
 
@@ -359,6 +376,40 @@ void distinguishes_would_block_and_failure() {
   REQUIRE(snapshot.last_discontinuity_reason ==
           PlaybackCategory::audio_output_failure);
   REQUIRE(snapshot.clock_confidence == ClockConfidence::degraded);
+}
+
+void separates_renderer_and_device_queue_durations() {
+  MovieAudioRenderer renderer{test_config(2, 2)};
+  auto device = std::make_unique<FakeOutputDevice>(13);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  device_ptr->consumed_frames = 4;
+  renderer.pump(MonotonicTime{});
+
+  device_ptr->write_mode = FakeOutputDevice::WriteMode::would_block;
+  device_ptr->snapshot_override = AudioDeviceSnapshot{
+      .device_instance_id = 13,
+      .snapshot_sequence = 9,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 4,
+      .device_queue_frames = 6,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = true,
+  };
+  REQUIRE(enqueue(renderer, 2, 4).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+
+  const auto snapshot = renderer.snapshot();
+  REQUIRE(snapshot.ready_frame_count == 4);
+  REQUIRE(snapshot.in_flight_frame_count == 6);
+  REQUIRE(snapshot.renderer_queue_duration == 4);
+  REQUIRE(snapshot.device_queue_duration == 6);
 }
 
 void trims_exact_suffix_and_counts_replay_separately() {
@@ -519,6 +570,7 @@ void unknown_consumption_freezes_clock_and_does_not_replay() {
   renderer.pump(MonotonicTime{});
   REQUIRE(replacement_ptr->writes.empty());
   REQUIRE(renderer.snapshot().route_generation == 2);
+  REQUIRE(renderer.snapshot().clock_confidence == ClockConfidence::invalid);
 }
 
 void ignores_delayed_snapshots_without_regressing_logical_consumption() {
@@ -564,9 +616,9 @@ void failed_candidate_retains_old_output_identity() {
   candidate->snapshot_active_override = false;
   const auto result = renderer.activate_output(std::move(candidate));
   REQUIRE(result.status == ActivationStatus::candidate_stale);
-  REQUIRE(old_device_ptr->quiesce_calls == 0);
+  REQUIRE(old_device_ptr->quiesce_calls == 1);
   REQUIRE(old_device_ptr->stop_calls == 0);
-  REQUIRE(old_device_ptr->start_calls == 1);
+  REQUIRE(old_device_ptr->start_calls == 2);
   const auto snapshot = renderer.snapshot();
   REQUIRE(snapshot.route_generation == route_generation);
   REQUIRE(snapshot.output_active);
@@ -628,6 +680,104 @@ void candidate_loss_after_old_quiesce_restores_old_route() {
   REQUIRE(renderer.snapshot().in_flight_block_count == 0);
 }
 
+void handoff_quiesces_old_output_before_starting_candidate() {
+  MovieAudioRenderer renderer{test_config()};
+  std::vector<std::string> lifecycle;
+  auto old_device = std::make_unique<FakeOutputDevice>(541);
+  auto* old_device_ptr = old_device.get();
+  old_device_ptr->shared_lifecycle = &lifecycle;
+  activates(renderer, std::move(old_device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+
+  old_device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 541,
+      .snapshot_sequence = 5,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 4,
+      .device_queue_frames = 6,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = true,
+  };
+
+  auto candidate = std::make_unique<FakeOutputDevice>(542);
+  candidate->shared_lifecycle = &lifecycle;
+  std::optional<std::size_t> ready_frames_at_candidate_start;
+  candidate->start_observer = [&] {
+    ready_frames_at_candidate_start = renderer.snapshot().ready_frame_count;
+  };
+  REQUIRE(renderer.activate_output(std::move(candidate)).status ==
+          ActivationStatus::activated);
+
+  const auto quiesce = std::find(lifecycle.begin(), lifecycle.end(), "quiesce");
+  REQUIRE(quiesce != lifecycle.end());
+  const auto candidate_open = std::find(
+      std::next(quiesce), lifecycle.end(), "open");
+  REQUIRE(candidate_open != lifecycle.end());
+  const auto candidate_start = std::find(
+      std::next(candidate_open), lifecycle.end(), "start");
+  REQUIRE(candidate_start != lifecycle.end());
+  REQUIRE(quiesce < candidate_open);
+  REQUIRE(candidate_open < candidate_start);
+  REQUIRE(ready_frames_at_candidate_start.has_value());
+  REQUIRE(*ready_frames_at_candidate_start == 0);
+  REQUIRE(renderer.snapshot().ready_frame_count == 6);
+}
+
+void failed_candidate_open_resumes_old_route_without_generation_change() {
+  MovieAudioRenderer renderer{test_config()};
+  auto old_device = std::make_unique<FakeOutputDevice>(543);
+  auto* old_device_ptr = old_device.get();
+  activates(renderer, std::move(old_device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  old_device_ptr->consumed_frames = 4;
+  renderer.pump(MonotonicTime{});
+  const auto route_generation = renderer.snapshot().route_generation;
+
+  auto candidate = std::make_unique<FakeOutputDevice>(544);
+  candidate->open_succeeds = false;
+  const auto result = renderer.activate_output(std::move(candidate));
+
+  REQUIRE(result.status == ActivationStatus::failed);
+  REQUIRE(old_device_ptr->quiesce_calls == 1);
+  REQUIRE(old_device_ptr->start_calls == 2);
+  REQUIRE(old_device_ptr->active);
+  REQUIRE(renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().route_generation == route_generation);
+  REQUIRE(renderer.snapshot().logical_consumed_frames == 4);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 1);
+}
+
+void failed_candidate_resumes_old_route_after_unknown_handoff() {
+  MovieAudioRenderer renderer{test_config()};
+  auto old_device = std::make_unique<FakeOutputDevice>(545);
+  auto* old_device_ptr = old_device.get();
+  old_device_ptr->final_exact_consumption = false;
+  activates(renderer, std::move(old_device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  const auto route_generation = renderer.snapshot().route_generation;
+
+  auto candidate = std::make_unique<FakeOutputDevice>(546);
+  candidate->open_succeeds = false;
+  const auto result = renderer.activate_output(std::move(candidate));
+
+  REQUIRE(result.status == ActivationStatus::failed);
+  REQUIRE(old_device_ptr->active);
+  REQUIRE(renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().route_generation == route_generation);
+  REQUIRE(renderer.snapshot().renderer_clock_epoch == 1);
+  REQUIRE(renderer.snapshot().clock_confidence == ClockConfidence::invalid);
+  REQUIRE(renderer.snapshot().released_pcm_block_count == 1);
+  REQUIRE(renderer.snapshot().replay_block_count == 0);
+}
+
 void output_loss_releases_in_flight_and_marks_unknown() {
   MovieAudioRenderer renderer{test_config()};
   auto device = std::make_unique<FakeOutputDevice>(71);
@@ -682,6 +832,34 @@ void stale_quiesce_resumes_the_same_output() {
 
   const auto result = renderer.quiesce_output();
   REQUIRE(result.status == QuiesceStatus::stale_snapshot);
+  REQUIRE(device_ptr->start_calls == 2);
+  REQUIRE(device_ptr->active);
+  REQUIRE(renderer.snapshot().output_active);
+}
+
+void malformed_final_identity_is_rejected_as_invalid() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(721);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+
+  device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 0,
+      .snapshot_sequence = 2,
+      .accepted_frames_total = 0,
+      .device_consumed_frames_total = 0,
+      .device_queue_frames = 0,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = true,
+  };
+
+  const auto result = renderer.quiesce_output();
+  REQUIRE(result.status == QuiesceStatus::invalid_snapshot);
   REQUIRE(device_ptr->start_calls == 2);
   REQUIRE(device_ptr->active);
   REQUIRE(renderer.snapshot().output_active);
@@ -1280,6 +1458,7 @@ void explicitly_closed_ingress_stays_closed_through_quiesce() {
 int main() {
   rejects_invalid_pcm_and_bounds_ready_ring();
   distinguishes_would_block_and_failure();
+  separates_renderer_and_device_queue_durations();
   trims_exact_suffix_and_counts_replay_separately();
   retains_all_bounded_in_flight_suffixes_across_handoff();
   unknown_consumption_freezes_clock_and_does_not_replay();
@@ -1287,8 +1466,12 @@ int main() {
   failed_candidate_retains_old_output_identity();
   failed_candidate_does_not_replay_into_old_output();
   candidate_loss_after_old_quiesce_restores_old_route();
+  handoff_quiesces_old_output_before_starting_candidate();
+  failed_candidate_open_resumes_old_route_without_generation_change();
+  failed_candidate_resumes_old_route_after_unknown_handoff();
   output_loss_releases_in_flight_and_marks_unknown();
   stale_quiesce_resumes_the_same_output();
+  malformed_final_identity_is_rejected_as_invalid();
   exact_handoff_recovers_after_unknown_transition();
   rejects_device_accepted_frames_not_written_by_renderer();
   rejects_regressing_device_counters();
