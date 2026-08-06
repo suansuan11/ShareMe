@@ -99,6 +99,19 @@ normal pause/resume, paused-scope reset, reopen-failure, and stale-PCM tests
 pass. This parked edge case does not change the Stage 2B block or the platform
 evidence boundary.
 
+### Local Stage 2A Integration
+
+The accepted Stage 1 handoff `32b7de4` is locally merged into `main` as
+`c4ab791`. The accepted Stage 2A tip `c05fe48` is locally merged into `main` as
+`202090a`. Fresh macOS verification on the merged trees passed Stage 1 CTest
+`50/50` and Stage 2A CTest `57/57`; no push or deployment occurred.
+
+Stage 2B is explicitly gated as `blocked-on-audio-correlation`. No shared
+sender/decoded PCM correlation value or approved bounded-error estimator exists,
+so no Audio Clock Gate measurement, experiment branch, correction wiring, or
+Tasks 2B.1-2B.3 execution is authorized. The next authorized task is Stage 3
+Task 3.1, with `c05fe48` and merge `202090a` as rollback evidence.
+
 ### Movie Playback Boundary Stage 1 Handoff
 
 The safe video-path boundary is accepted on `codex/movie-playback-stage1` at
