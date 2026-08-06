@@ -43,8 +43,10 @@ Delivered behavior:
 - primary WebRTC transport owns video, bidirectional voice, and control only;
 - a dedicated WebRTC runtime and PeerConnection carry one stereo movie-audio
   track with ADM recording disabled;
-- the Qt viewer uses a native playout-only ADM for the dedicated movie track;
-  host and headless probe paths retain the deterministic discard renderer;
+- the Qt viewer owns dedicated movie-audio playout through the bounded
+  `MovieAudioRenderer` and `QtAudioOutputDevice`; `MovieAudioPeer` remains
+  transport-only with `native_playout=false`, while voice remains on the
+  existing primary WebRTC ADM path;
 - the Qt host observes its own local WebRTC video track while the viewer
   observes the remote track, preventing the viewer's grayscale test source from
   replacing the sender's movie preview;
@@ -59,6 +61,30 @@ See [Movie Audio Isolation Verification](../verification/movie-audio-isolation.m
 [Host Playback Controls Verification](../verification/host-playback-controls.md),
 and [Receiver Playout Reports Verification](../verification/receiver-playout-reports.md)
 for exact proof and evidence boundaries.
+
+### Stage 2A checkpoint
+
+The isolated branch `codex/movie-playback-stage2a` completed Stage 2A at
+`750f7c9` (`feat: integrate Stage 2A movie playback`). The controller now owns
+renderer and scheduler lifecycle orchestration only: viewer PCM callbacks use
+the renderer's bounded ingress, Qt timers pump audio and advance the
+observational scheduler, accepted host audio anchors feed the renderer, and
+existing playout reports publish renderer/scheduler snapshots. Production video
+hold, drop, and hard-resync application remain disabled.
+
+Focused and full macOS verification passed: the deterministic 500 ms and 2 s
+video-stall tests cover bounded held tokens, candidate and clock-blocked
+telemetry, audio queue continuity, and provisional pass-through; configured
+CTest passed 57/57; the registered CLI, drift-study, and performance-study
+contracts passed; `git diff --check` and the portable-core forbidden-header scan
+passed. Windows native media and live route/acoustic evidence remain
+environment-dependent.
+
+Correlation feasibility is `blocked-on-audio-correlation`: the locked
+`RemoteAudioSource` API does not expose the sender media timestamp, and the
+viewer callback has no shared source/decoded sequence. Anchors therefore remain
+provisional and cannot authorize Stage 2B measurement or correction wiring.
+Tasks 2B.2 and 2B.3 were not started. This SHA is the Stage 2B rollback point.
 
 ### Movie Playback Boundary Stage 1 Handoff
 
@@ -228,6 +254,9 @@ satisfied. Windows validation remains a separate, environment-dependent stage.
 - `codex/movie-playback-performance` remains an unmerged, unpushed active
   worktree with uncommitted source/test changes for nonblocking diagnostics and
   concurrent media metrics.
+- `codex/movie-playback-stage2a` contains the accepted Stage 2A implementation
+  at `750f7c9`; its detailed evidence is in
+  `.superpowers/sdd/2026-08-05-movie-playback-three-stage/task-2A.6-report.md`.
 - The latest ignored macOS artifacts are under
   `build/movie-call-dev/movie-performance-diagnostics-20260805-queue-rerun8`;
   they are evidence only and are not part of Git.
