@@ -127,7 +127,7 @@ private:
   bool desktop_source_{false};
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
-  QString video_acceleration_{QStringLiteral("auto")};
+  QString video_acceleration_{QStringLiteral("software")};
   QString metrics_jsonl_path_;
   QString drift_scenario_name_;
   qint64 measurement_duration_seconds_{0};

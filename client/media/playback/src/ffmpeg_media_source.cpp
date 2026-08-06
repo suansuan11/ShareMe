@@ -39,7 +39,14 @@ namespace {
 }
 
 struct HardwareFormatSelection {
-  bool selected{false};
+  std::atomic_bool selected{false};
+};
+
+struct DecoderOpenResult {
+  AVCodecContext* context{nullptr};
+  bool hardware_attempted{false};
+  bool hardware_selected{false};
+  std::unique_ptr<HardwareFormatSelection> hardware_selection;
 };
 
 enum AVPixelFormat select_video_pixel_format(
@@ -49,21 +56,21 @@ enum AVPixelFormat select_video_pixel_format(
   for (const auto* format = formats; *format != AV_PIX_FMT_NONE; ++format) {
     if (*format == AV_PIX_FMT_VIDEOTOOLBOX) {
       if (selection != nullptr)
-        selection->selected = true;
+        selection->selected.store(true, std::memory_order_release);
       return *format;
     }
   }
+  if (selection != nullptr)
+    selection->selected.store(false, std::memory_order_release);
   return formats[0];
 }
 
-[[nodiscard]] AVCodecContext* open_decoder(
+[[nodiscard]] DecoderOpenResult open_decoder(
     AVFormatContext* format_context,
     int stream_index,
     const AVCodec* decoder,
-    bool prefer_videotoolbox,
-    bool* videotoolbox_selected) {
-  if (videotoolbox_selected != nullptr)
-    *videotoolbox_selected = false;
+    bool prefer_videotoolbox) {
+  std::unique_ptr<HardwareFormatSelection> hardware_selection;
 
   const auto open_once = [&](bool use_videotoolbox) -> AVCodecContext* {
     auto* codec_context = avcodec_alloc_context3(decoder);
@@ -82,7 +89,7 @@ enum AVPixelFormat select_video_pixel_format(
       throw ffmpeg_error("Could not copy codec parameters", parameters_result);
     }
 
-    HardwareFormatSelection format_selection;
+    std::unique_ptr<HardwareFormatSelection> format_selection;
     if (use_videotoolbox) {
       if (decoder->id != AV_CODEC_ID_HEVC) {
         avcodec_free_context(&codec_context);
@@ -112,29 +119,39 @@ enum AVPixelFormat select_video_pixel_format(
         return nullptr;
       }
       codec_context->hw_device_ctx = device_context;
-      codec_context->opaque = &format_selection;
+      format_selection = std::make_unique<HardwareFormatSelection>();
+      codec_context->opaque = format_selection.get();
       codec_context->get_format = &select_video_pixel_format;
-      format_selection.selected = true;
     }
 
     const auto open_result = avcodec_open2(codec_context, decoder, nullptr);
-    codec_context->opaque = nullptr;
     if (open_result < 0) {
       avcodec_free_context(&codec_context);
       if (use_videotoolbox)
         return nullptr;
       throw ffmpeg_error("Could not open FFmpeg decoder", open_result);
     }
-    if (videotoolbox_selected != nullptr)
-      *videotoolbox_selected = format_selection.selected;
+    if (use_videotoolbox)
+      hardware_selection = std::move(format_selection);
     return codec_context;
   };
 
   if (prefer_videotoolbox) {
-    if (auto* codec_context = open_once(true))
-      return codec_context;
+    if (auto* codec_context = open_once(true)) {
+      const auto hardware_selected =
+          hardware_selection != nullptr &&
+          hardware_selection->selected.load(std::memory_order_acquire);
+      return {
+          .context = codec_context,
+          .hardware_attempted = true,
+          .hardware_selected = hardware_selected,
+          .hardware_selection = std::move(hardware_selection)};
+    }
   }
-  return open_once(false);
+  return {
+      .context = open_once(false),
+      .hardware_attempted = prefer_videotoolbox,
+      .hardware_selected = false};
 }
 
 [[nodiscard]] Rational time_base_of(
@@ -216,12 +233,21 @@ public:
         if (video_stream_index_ < 0 || video_decoder == nullptr) {
           throw VideoStreamUnavailable{};
         }
-        bool videotoolbox_selected = false;
-        video_codec_context_ = open_decoder(
+        auto video_decoder_result = open_decoder(
             format_context_, video_stream_index_, video_decoder,
-            options_.video_acceleration == VideoAccelerationMode::auto_mode,
-            &videotoolbox_selected);
-        video_acceleration_path_ = videotoolbox_selected ? "hardware" : "software";
+            options_.video_acceleration == VideoAccelerationMode::auto_mode);
+        video_codec_context_ = video_decoder_result.context;
+        video_hardware_selection_ =
+            std::move(video_decoder_result.hardware_selection);
+        video_path_ = VideoPathReport{
+            .requested = options_.video_acceleration,
+            .decoder = video_decoder_result.hardware_selected
+                           ? VideoDecoderPath::hardware
+                       : video_decoder_result.hardware_attempted
+                           ? VideoDecoderPath::fallback
+                           : VideoDecoderPath::software};
+        video_acceleration_path_ =
+            video_decoder_result.hardware_selected ? "hardware" : "software";
       }
 
       if (options_.decode_audio) {
@@ -234,10 +260,9 @@ public:
             &audio_decoder,
             0);
         if (audio_stream_index_ >= 0 && audio_decoder != nullptr) {
-          audio_codec_context_ =
-              open_decoder(
-                  format_context_, audio_stream_index_, audio_decoder, false,
-                  nullptr);
+          const auto audio_decoder_result = open_decoder(
+              format_context_, audio_stream_index_, audio_decoder, false);
+          audio_codec_context_ = audio_decoder_result.context;
         } else {
           audio_stream_index_ = -1;
           if (!options_.decode_video) {
@@ -279,6 +304,7 @@ public:
             color_range_name(video_codec_context_->color_range);
         info.video_color_space =
             color_space_name(video_codec_context_->colorspace);
+        info.video_path = video_path_;
         info.video_acceleration = video_acceleration_path_;
       }
       if (format_context_->duration != AV_NOPTS_VALUE) {
@@ -418,6 +444,7 @@ public:
     if (video_codec_context_ != nullptr) {
       avcodec_free_context(&video_codec_context_);
     }
+    video_hardware_selection_.reset();
     if (format_context_ != nullptr) {
       avformat_close_input(&format_context_);
     }
@@ -435,6 +462,7 @@ public:
     next_audio_output_pts_ms_.reset();
     video_discard_before_ms_.reset();
     audio_discard_before_ms_.reset();
+    video_path_ = VideoPathReport{};
     video_acceleration_path_ = "software";
   }
 
@@ -466,6 +494,16 @@ private:
     }
   }
 
+  void update_video_path_from_selection() noexcept {
+    if (video_hardware_selection_ == nullptr)
+      return;
+    const auto hardware_selected =
+        video_hardware_selection_->selected.load(std::memory_order_acquire);
+    video_path_.decoder = hardware_selected ? VideoDecoderPath::hardware
+                                             : VideoDecoderPath::fallback;
+    video_acceleration_path_ = hardware_selected ? "hardware" : "software";
+  }
+
   void send_and_drain(
       AVCodecContext* codec_context,
       bool is_video,
@@ -491,6 +529,8 @@ private:
       }
 
       const auto receive_result = avcodec_receive_frame(codec_context, frame_);
+      if (is_video)
+        update_video_path_from_selection();
       if (receive_result == AVERROR(EAGAIN) || receive_result == AVERROR_EOF) {
         return DrainResult::exhausted;
       }
@@ -818,6 +858,7 @@ private:
   AVFormatContext* format_context_{nullptr};
   AVCodecContext* video_codec_context_{nullptr};
   AVCodecContext* audio_codec_context_{nullptr};
+  std::unique_ptr<HardwareFormatSelection> video_hardware_selection_;
   SwsContext* sws_context_{nullptr};
   SwrContext* swr_context_{nullptr};
   AVPacket* packet_{nullptr};
@@ -838,6 +879,7 @@ private:
   std::optional<std::int64_t> next_audio_output_pts_ms_;
   std::optional<std::int64_t> video_discard_before_ms_;
   std::optional<std::int64_t> audio_discard_before_ms_;
+  VideoPathReport video_path_{};
   std::string video_acceleration_path_{"software"};
   PendingMediaEvents pending_events_;
   const FfmpegMediaSourceOptions options_;

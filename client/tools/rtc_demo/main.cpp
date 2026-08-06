@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
   QCommandLineOption video_acceleration_option(
       QStringList{QStringLiteral("video-acceleration")},
       QStringLiteral("Movie video path: auto or software"),
-      QStringLiteral("mode"), QStringLiteral("auto"));
+      QStringLiteral("mode"), QStringLiteral("software"));
   QCommandLineOption metrics_option(
       QStringList{QStringLiteral("metrics-jsonl")},
       QStringLiteral("Host-only sanitized drift JSONL output"),
@@ -129,12 +129,11 @@ int main(int argc, char **argv) {
        source_text != QStringLiteral("test")) ||
       (source_text == QStringLiteral("movie") && !parser.isSet(movie_option)) ||
       (source_text != QStringLiteral("movie") && parser.isSet(movie_option)) ||
-      ((parser.isSet(video_acceleration_option) ||
-        video_acceleration != QStringLiteral("auto")) &&
-       (source_text != QStringLiteral("movie") ||
-        role_text != QStringLiteral("host") ||
-        (video_acceleration != QStringLiteral("auto") &&
-         video_acceleration != QStringLiteral("software")))) ||
+       (video_acceleration != QStringLiteral("auto") &&
+        video_acceleration != QStringLiteral("software")) ||
+       (parser.isSet(video_acceleration_option) &&
+        (source_text != QStringLiteral("movie") ||
+         role_text != QStringLiteral("host"))) ||
       (parser.isSet(movie_audio_option) && source_text != QStringLiteral("movie")) ||
       (parser.isSet(metrics_option) &&
        (role_text != QStringLiteral("host") ||

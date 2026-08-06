@@ -625,9 +625,11 @@ void RtcDemoController::emitPerformanceCounters() {
   std::string codec = "unknown";
   std::string profile = "unknown";
   std::string state = "unknown";
-  std::string path = video_acceleration_.toStdString();
-  if (path != "software")
-    path = "auto";
+  const auto codec_report = shareme::rtc::SignaledPeer::video_codec_report();
+  std::string requested_mode = video_acceleration_.toStdString();
+  if (requested_mode != "software" && requested_mode != "auto")
+    requested_mode = "software";
+  std::string decoder_path = "software";
   if (!movie_video_source_) {
     width = performance_frame_width_.load(std::memory_order_relaxed);
     height = performance_frame_height_.load(std::memory_order_relaxed);
@@ -671,8 +673,22 @@ void RtcDemoController::emitPerformanceCounters() {
         codec = format->codec;
       if (!format->profile.empty())
         profile = format->profile;
-      if (!format->video_acceleration.empty())
-        path = format->video_acceleration;
+      requested_mode =
+          format->video_path.requested ==
+                  shareme::media::VideoAccelerationMode::auto_mode
+              ? "auto"
+              : "software";
+      switch (format->video_path.decoder) {
+      case shareme::media::VideoDecoderPath::software:
+        decoder_path = "software";
+        break;
+      case shareme::media::VideoDecoderPath::hardware:
+        decoder_path = "hardware";
+        break;
+      case shareme::media::VideoDecoderPath::fallback:
+        decoder_path = "fallback";
+        break;
+      }
       std::erase_if(profile, [](unsigned char value) {
         return std::isspace(value) != 0;
       });
@@ -732,14 +748,18 @@ void RtcDemoController::emitPerformanceCounters() {
             << " owned_peak_bytes=" << owned_peak_bytes
             << " backpressure_events=" << backpressure_events
             << " stats_unavailable=" << stats_unavailable
-            << " width=" << width << " height=" << height
-            << " cadence_num=" << cadence_num
-            << " cadence_den=" << cadence_den
-            << " pixel_aspect_num=" << pixel_aspect_num
+             << " width=" << width << " height=" << height
+             << " cadence_num=" << cadence_num
+             << " cadence_den=" << cadence_den
+             << " pixel_aspect_num=" << pixel_aspect_num
             << " pixel_aspect_den=" << pixel_aspect_den
             << " color_range=" << color_range
             << " color_space=" << color_space << " codec=" << codec
-            << " profile=" << profile << " path=" << path
+            << " profile=" << profile << " requested_mode=" << requested_mode
+            << " decoder_path=" << decoder_path
+            << " webrtc_encoder=" << codec_report.encoder
+            << " hardware_encoder_status="
+            << codec_report.hardware_encoder_status
             << " state=" << state << " candidate=unknown" << std::endl;
 }
 

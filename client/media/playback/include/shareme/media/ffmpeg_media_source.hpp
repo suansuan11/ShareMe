@@ -1,17 +1,16 @@
 #pragma once
 
 #include "shareme/media/media_source.hpp"
+#include "shareme/media/video_path.hpp"
 
 #include <memory>
 
 namespace shareme::media {
 
-enum class VideoAccelerationMode { auto_mode, software };
-
 struct FfmpegMediaSourceOptions {
   bool decode_video{true};
   bool decode_audio{true};
-  VideoAccelerationMode video_acceleration{VideoAccelerationMode::auto_mode};
+  VideoAccelerationMode video_acceleration{VideoAccelerationMode::software};
 };
 
 class FfmpegMediaSource final : public IMediaSource {

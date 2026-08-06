@@ -1,4 +1,5 @@
 #include "counting_video_sink.hpp"
+#include "shareme/media/video_path.hpp"
 #include "shareme/rtc/movie_timeline.hpp"
 #include "shareme/rtc/movie_video_source.hpp"
 
@@ -25,6 +26,8 @@ void require(bool condition, const char *expression, int line) {
 
 void decodes_and_paces_movie_frames(const std::filesystem::path &movie_path) {
   using namespace std::chrono_literals;
+  using shareme::media::VideoAccelerationMode;
+  using shareme::media::VideoDecoderPath;
   auto source = shareme::rtc::MovieVideoSource::create(movie_path);
   shareme::rtc::CountingVideoSink sink;
   webrtc::VideoSourceInterface<webrtc::VideoFrame> *video_source = source.get();
@@ -50,6 +53,10 @@ void decodes_and_paces_movie_frames(const std::filesystem::path &movie_path) {
   REQUIRE(source->video_format().has_value());
   REQUIRE(source->video_format()->width == 320);
   REQUIRE(source->video_format()->height == 180);
+  REQUIRE(source->video_format()->video_path.requested ==
+          VideoAccelerationMode::software);
+  REQUIRE(source->video_format()->video_path.decoder ==
+          VideoDecoderPath::software);
   REQUIRE(source->video_format()->video_acceleration == "software");
   REQUIRE(source->conversion_failure_count() == 0);
   const auto playback = source->playback_metrics();
@@ -57,6 +64,25 @@ void decodes_and_paces_movie_frames(const std::filesystem::path &movie_path) {
   REQUIRE(playback.video_queue_size <= playback.video_queue_capacity);
   REQUIRE(playback.video_queue_bytes <= playback.video_queue_peak_bytes);
   REQUIRE(playback.source.decoded_video_frames >= sink.frame_count());
+}
+
+void explicit_auto_preserves_request_and_reports_decoder_path(
+    const std::filesystem::path &movie_path) {
+  using shareme::media::VideoAccelerationMode;
+  using shareme::media::VideoDecoderPath;
+  auto source = shareme::rtc::MovieVideoSource::create(
+      movie_path, std::make_shared<shareme::rtc::MovieTimeline>(),
+      VideoAccelerationMode::auto_mode);
+
+  REQUIRE(source->start());
+  const auto format = source->video_format();
+  source->stop();
+
+  REQUIRE(source->error().empty());
+  REQUIRE(format.has_value());
+  REQUIRE(format->video_path.requested == VideoAccelerationMode::auto_mode);
+  REQUIRE(format->video_path.decoder == VideoDecoderPath::fallback);
+  REQUIRE(format->video_acceleration == "software");
 }
 
 void missing_movie_is_typed_failure(const std::filesystem::path &directory) {
@@ -188,6 +214,7 @@ int main(int argc, char **argv) {
   REQUIRE(argc == 6);
   const std::filesystem::path movie_path{argv[1]};
   decodes_and_paces_movie_frames(movie_path);
+  explicit_auto_preserves_request_and_reports_decoder_path(movie_path);
   missing_movie_is_typed_failure(movie_path.parent_path());
   video_less_movie_is_typed_failure(std::filesystem::path{argv[2]});
   nonzero_pts_is_normalized(std::filesystem::path{argv[3]});

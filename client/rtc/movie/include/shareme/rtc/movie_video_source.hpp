@@ -1,6 +1,7 @@
 #pragma once
 
 #include "shareme/media/playback_session.hpp"
+#include "shareme/media/video_path.hpp"
 #include "shareme/rtc/local_video_source.hpp"
 
 #include <atomic>
@@ -16,7 +17,6 @@
 #include "api/scoped_refptr.h"
 
 namespace shareme::media {
-enum class VideoAccelerationMode;
 struct VideoFrame;
 } // namespace shareme::media
 
@@ -41,6 +41,7 @@ struct MovieVideoFormat {
   std::string color_space;
   std::string codec;
   std::string profile;
+  media::VideoPathReport video_path{};
   std::string video_acceleration;
 };
 

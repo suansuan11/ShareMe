@@ -45,7 +45,8 @@ ALLOWED_KEYS = {
     "encoded", "received", "callback", "submitted", "coalesced", "dropped",
     "conversion_failures", "width", "height", "cadence_num", "cadence_den",
     "pixel_aspect_num", "pixel_aspect_den", "color_range", "color_space",
-    "codec", "profile", "path", "state", "candidate", "fallback_copies",
+    "codec", "profile", "requested_mode", "decoder_path", "webrtc_encoder",
+    "hardware_encoder_status", "state", "candidate", "fallback_copies",
     "max_pending", "source_pending", "source_pending_bytes",
     "source_peak_pending", "source_peak_pending_bytes",
     "session_video_pending", "session_video_bytes", "session_audio_pending",
@@ -56,10 +57,17 @@ ALLOWED_KEYS = {
 ENUMS = {
     "role": {"host", "viewer"},
     "color_range": {"limited", "full", "unknown"},
-    "path": {"software", "hardware", "auto", "unknown"},
+    "requested_mode": {"software", "auto"},
+    "decoder_path": {"software", "hardware", "fallback"},
+    "webrtc_encoder": {"vp8-software"},
+    "hardware_encoder_status": {"unavailable-locked-abi"},
     "state": {"playing", "paused", "seeking", "stopped", "unknown"},
     "candidate": {"host", "srflx", "relay", "unknown"},
 }
+CAPABILITY_KEYS = frozenset({
+    "requested_mode", "decoder_path", "webrtc_encoder",
+    "hardware_encoder_status",
+})
 INTEGER_KEYS = {
     "version", "rss_bytes", "decoded", "offered", "encoded", "received",
     "callback", "submitted", "coalesced", "dropped", "conversion_failures",
@@ -136,6 +144,15 @@ def _parse_value(key: str, value: str):
     raise ValueError(f"unsupported counter key: {key}")
 
 
+def _valid_capability_fields(fields: dict) -> bool:
+    return all(
+        key in fields
+        and isinstance(fields[key], str)
+        and fields[key] in ENUMS[key]
+        for key in CAPABILITY_KEYS
+    )
+
+
 def parse_perf_counters(line: str):
     fields = line.strip().split()
     if not fields or fields[0] != "PERF_COUNTERS":
@@ -149,7 +166,11 @@ def parse_perf_counters(line: str):
             parsed[key] = _parse_value(key, value)
     except (ValueError, TypeError):
         return None
-    if parsed.get("version") != 1 or "role" not in parsed:
+    if (
+        parsed.get("version") != 1
+        or "role" not in parsed
+        or not _valid_capability_fields(parsed)
+    ):
         return None
     if any(word in line for word in SENSITIVE_WORDS):
         return None
@@ -244,6 +265,9 @@ def _measurement_counter_samples(
         raise ValueError(
             f"measurement counter samples missing or non-contiguous: {role}"
         )
+    for record in records:
+        if record.get("kind") == "counter" and not _valid_capability_fields(record):
+            raise ValueError(f"invalid capability contract: {role}")
     if "max_pending" not in samples[-1]:
         raise ValueError(f"backlog depth missing: {role}")
     return samples
@@ -295,7 +319,10 @@ def summarize_performance_artifact(path: Path) -> dict:
             "colorSpace": last.get("color_space", "unknown"),
             "codec": last.get("codec", "unknown"),
             "profile": last.get("profile", "unknown"),
-            "path": last.get("path", "unknown"),
+            "requestedMode": last["requested_mode"],
+            "decoderPath": last["decoder_path"],
+            "webrtcEncoder": last["webrtc_encoder"],
+            "hardwareEncoderStatus": last["hardware_encoder_status"],
             "maxPending": int(last["max_pending"]),
             "cpuAverage": sum(cpu) / len(cpu) if cpu else 0.0,
             "cpuP95": _nearest_rank(cpu, 95),
@@ -311,6 +338,32 @@ def summarize_performance_artifact(path: Path) -> dict:
         result["roles"][role]["rssP95"] for role in ("host", "viewer")
     )
     return result
+
+
+def _capability_contract_summary(runs: list[dict]) -> dict:
+    role_summaries = [
+        run["roles"][role]
+        for run in runs
+        for role in ("host", "viewer")
+    ]
+    webrtc_encoders = {summary["webrtcEncoder"] for summary in role_summaries}
+    hardware_statuses = {
+        summary["hardwareEncoderStatus"] for summary in role_summaries
+    }
+    return {
+        "requested_modes": sorted(
+            {summary["requestedMode"] for summary in role_summaries}
+        ),
+        "decoder_paths": sorted(
+            {summary["decoderPath"] for summary in role_summaries}
+        ),
+        "webrtc_encoder": (
+            next(iter(webrtc_encoders)) if len(webrtc_encoders) == 1 else None
+        ),
+        "hardware_encoder_status": (
+            next(iter(hardware_statuses)) if len(hardware_statuses) == 1 else None
+        ),
+    }
 
 
 def _sha256_file(path: Path) -> str:
@@ -409,6 +462,9 @@ def aggregate_performance_runs(
         "run_role_comparisons": run_role_comparisons,
         "exact_dimensions": all(exact_dimensions),
         "exact_metadata": all(exact_metadata),
+        "capability_contract": _capability_contract_summary(
+            [*baseline, *candidate]
+        ),
         "cadence_ratio": min(cadence_ratios, default=0.0),
         "additional_drops": max(additional_drops, default=1),
         "combined_average_cpu_reduction": (
@@ -433,6 +489,12 @@ def synthetic_passing_report() -> dict:
     return {
         "exact_dimensions": True,
         "exact_metadata": True,
+        "capability_contract": {
+            "requested_modes": ["software"],
+            "decoder_paths": ["software"],
+            "webrtc_encoder": "vp8-software",
+            "hardware_encoder_status": "unavailable-locked-abi",
+        },
         "cadence_ratio": 1.0,
         "additional_drops": 0,
         "psnr_db": 45.0,
@@ -445,6 +507,35 @@ def synthetic_passing_report() -> dict:
     }
 
 
+def _valid_capability_contract(contract: object) -> bool:
+    if not isinstance(contract, dict):
+        return False
+    requested_modes = contract.get("requested_modes")
+    decoder_paths = contract.get("decoder_paths")
+    if (
+        not isinstance(requested_modes, list)
+        or not requested_modes
+        or not all(
+            isinstance(value, str) and value in ENUMS["requested_mode"]
+            for value in requested_modes
+        )
+        or len(requested_modes) != len(set(requested_modes))
+        or not isinstance(decoder_paths, list)
+        or not decoder_paths
+        or not all(
+            isinstance(value, str) and value in ENUMS["decoder_path"]
+            for value in decoder_paths
+        )
+        or len(decoder_paths) != len(set(decoder_paths))
+    ):
+        return False
+    return (
+        contract.get("webrtc_encoder") == "vp8-software"
+        and contract.get("hardware_encoder_status")
+        == "unavailable-locked-abi"
+    )
+
+
 def gates_pass(report: dict) -> bool:
     psnr = report.get("psnr_db")
     ssim = report.get("ssim")
@@ -452,6 +543,7 @@ def gates_pass(report: dict) -> bool:
     return (
         report.get("exact_dimensions") is True
         and report.get("exact_metadata") is True
+        and _valid_capability_contract(report.get("capability_contract"))
         and report.get("cadence_ratio", 0) >= 0.99
         and report.get("additional_drops", 1) <= 0
         and isinstance(psnr, (int, float)) and math.isfinite(psnr) and psnr >= 45.0

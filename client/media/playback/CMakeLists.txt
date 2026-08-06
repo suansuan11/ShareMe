@@ -6,6 +6,7 @@ add_library(
     src/pcm_chunker.cpp
     src/playback_session.cpp
     include/shareme/media/pending_media_events.hpp
+    include/shareme/media/video_path.hpp
 )
 add_library(ShareMe::Playback ALIAS shareme_playback)
 

@@ -30,7 +30,7 @@ webrtc::scoped_refptr<MovieVideoSource>
 MovieVideoSource::create(std::filesystem::path movie_path,
                          std::shared_ptr<MovieTimeline> timeline) {
   return create(std::move(movie_path), std::move(timeline),
-                media::VideoAccelerationMode::auto_mode);
+                media::VideoAccelerationMode::software);
 }
 
 webrtc::scoped_refptr<MovieVideoSource>
@@ -51,7 +51,7 @@ MovieVideoSource::MovieVideoSource(std::filesystem::path movie_path)
 MovieVideoSource::MovieVideoSource(std::filesystem::path movie_path,
                                    std::shared_ptr<MovieTimeline> timeline)
     : MovieVideoSource(std::move(movie_path), std::move(timeline),
-                       media::VideoAccelerationMode::auto_mode) {}
+                       media::VideoAccelerationMode::software) {}
 
 MovieVideoSource::MovieVideoSource(
     std::filesystem::path movie_path,
@@ -95,6 +95,7 @@ bool MovieVideoSource::start() {
           .color_space = info.video_color_space,
           .codec = info.video_codec,
           .profile = info.video_profile,
+          .video_path = info.video_path,
           .video_acceleration = info.video_acceleration};
     }
     if (!timeline_->initialize(info.start_time_ms, info.duration_ms)) {
