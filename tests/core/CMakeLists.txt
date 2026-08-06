@@ -77,3 +77,26 @@ add_test(
   NAME movie_audio_renderer
   COMMAND shareme_movie_audio_renderer_test
 )
+
+add_executable(
+  shareme_qt_audio_output_device_test
+  qt_audio_output_device_test.cpp
+  "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qt_audio_output_device.cpp"
+)
+target_include_directories(
+  shareme_qt_audio_output_device_test
+  PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+)
+target_link_libraries(
+  shareme_qt_audio_output_device_test
+  PRIVATE ShareMe::Core Qt6::Core Qt6::Multimedia
+)
+
+add_test(
+  NAME qt_audio_output_device_offscreen
+  COMMAND shareme_qt_audio_output_device_test
+)
+set_tests_properties(
+  qt_audio_output_device_offscreen
+  PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)

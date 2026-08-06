@@ -5,6 +5,7 @@
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -47,6 +48,32 @@ struct OwnedPcmBlock {
   }
   result = left + right;
   return true;
+}
+
+[[nodiscard]] bool saturating_add(
+    std::uint64_t& value, std::uint64_t amount) noexcept {
+  if (amount > std::numeric_limits<std::uint64_t>::max() - value) {
+    value = std::numeric_limits<std::uint64_t>::max();
+    return false;
+  }
+  value += amount;
+  return true;
+}
+
+void saturating_atomic_add(
+    std::atomic<std::uint64_t>& value, std::uint64_t amount) noexcept {
+  auto current = value.load(std::memory_order_relaxed);
+  for (;;) {
+    const auto next = amount > std::numeric_limits<std::uint64_t>::max() -
+            current
+        ? std::numeric_limits<std::uint64_t>::max()
+        : current + amount;
+    if (value.compare_exchange_weak(current, next,
+                                     std::memory_order_relaxed,
+                                     std::memory_order_relaxed)) {
+      return;
+    }
+  }
 }
 
 [[nodiscard]] bool is_same_format(
@@ -115,6 +142,46 @@ struct OwnedPcmBlock {
 }  // namespace
 
 struct MovieAudioRenderer::Impl {
+  static constexpr std::uint64_t kCallbackIngressClosed =
+      std::uint64_t{1} << 63;
+  static constexpr std::uint64_t kCallbackCountMask =
+      ~kCallbackIngressClosed;
+
+  enum class CallbackAdmission {
+    admitted,
+    not_accepting,
+    renderer_stopped,
+  };
+
+  struct CallbackScope {
+    Impl* owner = nullptr;
+
+    ~CallbackScope() {
+      if (owner != nullptr) {
+        owner->leave_callback();
+      }
+    }
+  };
+
+  struct IngressBarrier {
+    Impl& owner;
+    bool reopen = true;
+
+    explicit IngressBarrier(Impl& owner) : owner{owner} {
+      owner.close_callback_ingress();
+    }
+
+    ~IngressBarrier() {
+      if (reopen) {
+        owner.reopen_callback_ingress();
+      }
+    }
+
+    void keep_closed() noexcept {
+      reopen = false;
+    }
+  };
+
   explicit Impl(MovieAudioRendererConfig config) : config_{config} {
     if (config_.ready_capacity == 0 || config_.in_flight_capacity == 0 ||
         config_.maximum_block_bytes == 0 ||
@@ -143,7 +210,8 @@ struct MovieAudioRenderer::Impl {
 
   [[nodiscard]] EnqueueResult try_enqueue(
       AudioPcmBlockView pcm, std::uint64_t receiver_sequence) noexcept {
-    if (shutting_down_.load(std::memory_order_acquire)) {
+    const auto admission = enter_callback();
+    if (admission == CallbackAdmission::renderer_stopped) {
       return EnqueueResult{
           .status = EnqueueStatus::renderer_stopped,
           .accepted_frames = 0,
@@ -151,7 +219,7 @@ struct MovieAudioRenderer::Impl {
           .failure_category = std::nullopt,
       };
     }
-    if (!accepting_callbacks_.load(std::memory_order_acquire)) {
+    if (admission == CallbackAdmission::not_accepting) {
       return EnqueueResult{
           .status = EnqueueStatus::not_accepting,
           .accepted_frames = 0,
@@ -159,6 +227,7 @@ struct MovieAudioRenderer::Impl {
           .failure_category = std::nullopt,
       };
     }
+    const CallbackScope callback_scope{this};
 
     AudioPcmValidationError validation_error =
         AudioPcmValidationError::none;
@@ -184,19 +253,13 @@ struct MovieAudioRenderer::Impl {
     if (head - tail >= config_.ready_capacity) {
       return overflow_result();
     }
+    if (next_enqueue_order_ == std::numeric_limits<std::uint64_t>::max()) {
+      return overflow_result();
+    }
 
     const auto slot_index = claim_free_slot();
     if (!slot_index.has_value()) {
       return overflow_result();
-    }
-    if (!accepting_callbacks_.load(std::memory_order_acquire)) {
-      release_slot(*slot_index);
-      return EnqueueResult{
-          .status = EnqueueStatus::not_accepting,
-          .accepted_frames = 0,
-          .validation_error = std::nullopt,
-          .failure_category = std::nullopt,
-      };
     }
 
     auto& block = slots_[*slot_index];
@@ -206,7 +269,8 @@ struct MovieAudioRenderer::Impl {
     block.accepted_frames = 0;
     block.consumed_frames = 0;
     block.replay_pending_frames = 0;
-    block.enqueue_order = next_enqueue_order_++;
+    block.enqueue_order = next_enqueue_order_;
+    ++next_enqueue_order_;
     std::memcpy(block.bytes.data(), pcm.payload.bytes.data(),
                 pcm.payload.bytes.size_bytes());
 
@@ -214,8 +278,7 @@ struct MovieAudioRenderer::Impl {
         *slot_index;
     block.state.store(SlotState::ready, std::memory_order_release);
     ready_head_.store(head + 1, std::memory_order_release);
-    media_frames_enqueued_total_.fetch_add(
-        pcm.frame_count, std::memory_order_relaxed);
+    saturating_atomic_add(media_frames_enqueued_total_, pcm.frame_count);
     return EnqueueResult{
         .status = EnqueueStatus::accepted,
         .accepted_frames = pcm.frame_count,
@@ -244,6 +307,7 @@ struct MovieAudioRenderer::Impl {
 
   void clear_playback_anchor() noexcept {
     anchor_.reset();
+    clock_.clear_playback_anchor();
   }
 
   void pump(MonotonicTime monotonic_now) {
@@ -310,11 +374,12 @@ struct MovieAudioRenderer::Impl {
         append_in_flight(slot_index);
       }
       block.accepted_frames += result.accepted_frames;
-      backend_frames_written_total_ += result.accepted_frames;
+      (void)saturating_add(backend_frames_written_total_,
+                           result.accepted_frames);
       const auto replayed = std::min(
           result.accepted_frames, block.replay_pending_frames);
       block.replay_pending_frames -= replayed;
-      replayed_frames_total_ += replayed;
+      (void)saturating_add(replayed_frames_total_, replayed);
       if (block.accepted_frames == block.metadata.frame_count) {
         advance_pending_front(from_replay);
       }
@@ -339,20 +404,8 @@ struct MovieAudioRenderer::Impl {
       };
     }
 
-    accepting_callbacks_.store(false, std::memory_order_release);
+    IngressBarrier ingress{*this};
     const bool had_old_output = output_ != nullptr;
-    if (had_old_output && output_active_) {
-      const auto quiesce = quiesce_impl();
-      if (quiesce.status == QuiesceStatus::stale_snapshot ||
-          quiesce.status == QuiesceStatus::invalid_snapshot) {
-        accepting_callbacks_.store(true, std::memory_order_release);
-        return ActivationResult{
-            .status = ActivationStatus::failed,
-            .failure_category = quiesce.failure_category.value_or(
-                PlaybackCategory::route_candidate_stale),
-        };
-      }
-    }
 
     OpenResult open_result;
     try {
@@ -369,8 +422,6 @@ struct MovieAudioRenderer::Impl {
         candidate->stop();
       } catch (...) {
       }
-      resume_old_output();
-      accepting_callbacks_.store(true, std::memory_order_release);
       return ActivationResult{
           .status = ActivationStatus::failed,
           .failure_category = open_result.failure_category.value_or(
@@ -389,8 +440,6 @@ struct MovieAudioRenderer::Impl {
         candidate->stop();
       } catch (...) {
       }
-      resume_old_output();
-      accepting_callbacks_.store(true, std::memory_order_release);
       return ActivationResult{
           .status = ActivationStatus::failed,
           .failure_category = PlaybackCategory::route_activation_failed,
@@ -403,21 +452,39 @@ struct MovieAudioRenderer::Impl {
     } catch (...) {
       candidate_snapshot.active = false;
     }
-    if (!candidate_snapshot.active ||
-        !is_valid_audio_device_snapshot(
-            candidate_snapshot.accepted_frames_total,
-            candidate_snapshot.device_consumed_frames_total,
-            candidate_snapshot.device_queue_frames)) {
+    if (!is_valid_candidate_snapshot(candidate_snapshot)) {
       try {
         candidate->stop();
       } catch (...) {
       }
-      resume_old_output();
-      accepting_callbacks_.store(true, std::memory_order_release);
       return ActivationResult{
           .status = ActivationStatus::candidate_stale,
           .failure_category = PlaybackCategory::route_candidate_stale,
       };
+    }
+
+    const auto old_device_instance_id = device_instance_id_;
+    if (had_old_output && output_active_) {
+      const auto quiesce = quiesce_impl();
+      if (quiesce.status == QuiesceStatus::stale_snapshot ||
+          quiesce.status == QuiesceStatus::invalid_snapshot) {
+        try {
+          candidate->stop();
+        } catch (...) {
+        }
+        if (output_ != nullptr && output_active_ &&
+            device_instance_id_ == old_device_instance_id) {
+          return ActivationResult{
+              .status = ActivationStatus::failed,
+              .failure_category = quiesce.failure_category.value_or(
+                  PlaybackCategory::route_candidate_stale),
+          };
+        }
+        return ActivationResult{
+            .status = ActivationStatus::failed,
+            .failure_category = PlaybackCategory::audio_output_device_lost,
+        };
+      }
     }
 
     if (output_ != nullptr) {
@@ -429,12 +496,11 @@ struct MovieAudioRenderer::Impl {
     output_ = std::move(candidate);
     output_active_ = true;
     output_quiesced_ = false;
-    set_device_baseline(candidate_snapshot);
+    set_device_baseline(candidate_snapshot, true);
     if (route_generation_ != std::numeric_limits<std::uint64_t>::max()) {
       ++route_generation_;
     }
     last_write_status_.reset();
-    accepting_callbacks_.store(true, std::memory_order_release);
     return ActivationResult{
         .status = ActivationStatus::activated,
         .failure_category = std::nullopt,
@@ -449,19 +515,20 @@ struct MovieAudioRenderer::Impl {
           .failure_category = std::nullopt,
       };
     }
-    accepting_callbacks_.store(false, std::memory_order_release);
+    IngressBarrier ingress{*this};
     const auto result = quiesce_impl();
-    accepting_callbacks_.store(true, std::memory_order_release);
     return result;
   }
 
   void deactivate_output(PlaybackCategory reason) {
-    accepting_callbacks_.store(false, std::memory_order_release);
+    IngressBarrier ingress{*this};
     record_discontinuity(reason);
     if (output_ != nullptr && output_active_) {
       const auto quiesce = quiesce_impl();
       if (quiesce.status == QuiesceStatus::stale_snapshot ||
           quiesce.status == QuiesceStatus::invalid_snapshot) {
+        mark_unknown_consumption(
+            PlaybackCategory::route_handoff_unknown_consumption);
         rebuild_after_handoff(false);
       }
     }
@@ -474,7 +541,6 @@ struct MovieAudioRenderer::Impl {
     }
     output_active_ = false;
     output_quiesced_ = false;
-    accepting_callbacks_.store(true, std::memory_order_release);
   }
 
   void shutdown() noexcept {
@@ -484,11 +550,14 @@ struct MovieAudioRenderer::Impl {
             std::memory_order_acquire)) {
       return;
     }
-    accepting_callbacks_.store(false, std::memory_order_release);
+    IngressBarrier ingress{*this};
+    ingress.keep_closed();
     if (output_ != nullptr && output_active_) {
       const auto quiesce = quiesce_impl();
       if (quiesce.status == QuiesceStatus::stale_snapshot ||
           quiesce.status == QuiesceStatus::invalid_snapshot) {
+        mark_unknown_consumption(
+            PlaybackCategory::route_handoff_unknown_consumption);
         rebuild_after_handoff(false);
       }
     }
@@ -551,13 +620,15 @@ struct MovieAudioRenderer::Impl {
       const auto index = ready_indices_[static_cast<std::size_t>(
           position % config_.ready_capacity)];
       const auto& block = slots_[index];
-      ready_frames += block.metadata.frame_count - block.accepted_frames;
+      (void)saturating_add(
+          ready_frames, block.metadata.frame_count - block.accepted_frames);
     }
     for (std::size_t offset = 0; offset < replay_count_; ++offset) {
       const auto index = replay_indices_[static_cast<std::size_t>(
           (replay_tail_ + offset) % replay_indices_.size())];
       const auto& block = slots_[index];
-      ready_frames += block.metadata.frame_count - block.accepted_frames;
+      (void)saturating_add(
+          ready_frames, block.metadata.frame_count - block.accepted_frames);
     }
     result.ready_frame_count = ready_frames;
 
@@ -566,7 +637,8 @@ struct MovieAudioRenderer::Impl {
       const auto index = in_flight_indices_[static_cast<std::size_t>(
           (in_flight_tail_ + offset) % config_.in_flight_capacity)];
       const auto& block = slots_[index];
-      in_flight_frames += block.accepted_frames - block.consumed_frames;
+      (void)saturating_add(
+          in_flight_frames, block.accepted_frames - block.consumed_frames);
     }
     result.in_flight_frame_count = in_flight_frames;
     result.renderer_queue_duration = audio_duration_ms(
@@ -599,12 +671,73 @@ struct MovieAudioRenderer::Impl {
   }
 
  private:
+  [[nodiscard]] CallbackAdmission enter_callback() noexcept {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return CallbackAdmission::renderer_stopped;
+    }
+
+    auto state = callback_lifecycle_.load(std::memory_order_acquire);
+    for (;;) {
+      if ((state & kCallbackIngressClosed) != 0) {
+        return shutting_down_.load(std::memory_order_acquire)
+            ? CallbackAdmission::renderer_stopped
+            : CallbackAdmission::not_accepting;
+      }
+      const auto active_callbacks = state & kCallbackCountMask;
+      if (active_callbacks == kCallbackCountMask) {
+        return CallbackAdmission::not_accepting;
+      }
+      if (callback_lifecycle_.compare_exchange_weak(
+              state, state + 1, std::memory_order_acquire,
+              std::memory_order_acquire)) {
+        if (shutting_down_.load(std::memory_order_acquire)) {
+          leave_callback();
+          return CallbackAdmission::renderer_stopped;
+        }
+        return CallbackAdmission::admitted;
+      }
+    }
+  }
+
+  void leave_callback() noexcept {
+    callback_lifecycle_.fetch_sub(1, std::memory_order_release);
+  }
+
+  void close_callback_ingress() noexcept {
+    accepting_callbacks_.store(false, std::memory_order_release);
+    auto state = callback_lifecycle_.load(std::memory_order_acquire);
+    for (;;) {
+      if ((state & kCallbackIngressClosed) != 0) {
+        break;
+      }
+      const auto closed = state | kCallbackIngressClosed;
+      if (callback_lifecycle_.compare_exchange_weak(
+              state, closed, std::memory_order_acq_rel,
+              std::memory_order_acquire)) {
+        break;
+      }
+    }
+
+    while ((callback_lifecycle_.load(std::memory_order_acquire) &
+            kCallbackCountMask) != 0) {
+      std::this_thread::yield();
+    }
+  }
+
+  void reopen_callback_ingress() noexcept {
+    if (shutting_down_.load(std::memory_order_acquire)) {
+      return;
+    }
+    callback_lifecycle_.store(0, std::memory_order_release);
+    accepting_callbacks_.store(true, std::memory_order_release);
+  }
+
   [[nodiscard]] std::size_t total_capacity() const noexcept {
     return config_.ready_capacity + config_.in_flight_capacity;
   }
 
   [[nodiscard]] EnqueueResult overflow_result() noexcept {
-    overflow_count_.fetch_add(1, std::memory_order_relaxed);
+    saturating_atomic_add(overflow_count_, 1);
     record_discontinuity(PlaybackCategory::audio_queue_overflow);
     return EnqueueResult{
         .status = EnqueueStatus::overflow,
@@ -634,7 +767,7 @@ struct MovieAudioRenderer::Impl {
     block.replay_pending_frames = 0;
     block.enqueue_order = 0;
     block.state.store(SlotState::free, std::memory_order_release);
-    ++released_pcm_block_count_;
+    (void)saturating_add(released_pcm_block_count_, 1);
   }
 
   [[nodiscard]] bool ready_empty() const noexcept {
@@ -759,6 +892,61 @@ struct MovieAudioRenderer::Impl {
     };
   }
 
+  [[nodiscard]] bool is_valid_candidate_snapshot(
+      AudioDeviceSnapshot snapshot) const noexcept {
+    return snapshot.device_instance_id != 0 &&
+        snapshot.snapshot_sequence != 0 && snapshot.active &&
+        is_valid_audio_device_snapshot(
+            snapshot.accepted_frames_total,
+            snapshot.device_consumed_frames_total,
+            snapshot.device_queue_frames) &&
+        snapshot.accepted_frames_total == 0 &&
+        snapshot.device_consumed_frames_total == 0 &&
+        snapshot.device_queue_frames == 0;
+  }
+
+  [[nodiscard]] bool has_renderer_write_provenance(
+      AudioDeviceSnapshot snapshot) const noexcept {
+    if (snapshot.accepted_frames_total < last_device_accepted_raw_ ||
+        backend_frames_written_total_ < device_backend_write_baseline_) {
+      return false;
+    }
+    const auto accepted_delta = snapshot.accepted_frames_total -
+        last_device_accepted_raw_;
+    const auto renderer_write_delta = backend_frames_written_total_ -
+        device_backend_write_baseline_;
+    return accepted_delta <= renderer_write_delta;
+  }
+
+  [[nodiscard]] bool is_valid_current_snapshot(
+      AudioDeviceSnapshot snapshot) const noexcept {
+    return snapshot.device_instance_id != 0 &&
+        snapshot.snapshot_sequence != 0 &&
+        is_valid_audio_device_snapshot(
+            snapshot.accepted_frames_total,
+            snapshot.device_consumed_frames_total,
+            snapshot.device_queue_frames) &&
+        snapshot.device_consumed_frames_total >= last_device_consumed_raw_ &&
+        snapshot.accepted_frames_total >= last_device_accepted_raw_ &&
+        snapshot.underrun_count >= last_device_underrun_raw_ &&
+        snapshot.discontinuity_count >= last_device_discontinuity_raw_ &&
+        has_renderer_write_provenance(snapshot);
+  }
+
+  void handle_unknown_output(PlaybackCategory reason) noexcept {
+    output_active_ = false;
+    output_quiesced_ = false;
+    device_snapshot_.active = false;
+    if (output_ != nullptr) {
+      try {
+        output_->stop();
+      } catch (...) {
+      }
+    }
+    mark_unknown_consumption(reason);
+    rebuild_after_handoff(false);
+  }
+
   void observe_output_snapshot(MonotonicTime monotonic_now) {
     if (output_ == nullptr) {
       return;
@@ -767,42 +955,60 @@ struct MovieAudioRenderer::Impl {
     try {
       snapshot = output_->snapshot();
     } catch (...) {
-      record_discontinuity(PlaybackCategory::audio_output_failure);
-      output_active_ = false;
+      handle_unknown_output(PlaybackCategory::audio_output_failure);
       return;
     }
     if (snapshot.device_instance_id != device_instance_id_ ||
         snapshot.snapshot_sequence <= last_snapshot_sequence_) {
       return;
     }
-    if (!is_valid_audio_device_snapshot(
-            snapshot.accepted_frames_total,
-            snapshot.device_consumed_frames_total,
-            snapshot.device_queue_frames) ||
-        snapshot.device_consumed_frames_total < last_device_consumed_raw_ ||
-        snapshot.accepted_frames_total < last_device_accepted_raw_) {
+    if (!is_valid_current_snapshot(snapshot)) {
+      handle_unknown_output(PlaybackCategory::audio_output_failure);
+      return;
+    }
+
+    if (!snapshot.active) {
+      handle_unknown_output(PlaybackCategory::audio_output_device_lost);
       return;
     }
 
     const auto consumed_delta = snapshot.device_consumed_frames_total -
         last_device_consumed_raw_;
     const bool consumption_known = apply_consumed_frames(consumed_delta);
-    update_device_facts(snapshot);
     if (!consumption_known) {
-      mark_unknown_consumption(PlaybackCategory::audio_consumption_unknown);
+      handle_unknown_output(PlaybackCategory::audio_consumption_unknown);
+      return;
     }
+    const bool underrun = snapshot.underrun_count > last_device_underrun_raw_;
+    update_device_facts(snapshot);
+    consumption_unknown_ = false;
     output_active_ = snapshot.active;
-    if (!snapshot.active) {
-      record_discontinuity(PlaybackCategory::audio_output_device_lost);
-    }
     observe_clock(monotonic_now, consumption_known,
-                  snapshot.output_latency_frames, false, false);
+                  snapshot.output_latency_frames, false, underrun);
   }
 
   [[nodiscard]] bool apply_consumed_frames(
       std::uint64_t delta) noexcept {
+    std::uint64_t available_total = 0;
+    for (std::size_t offset = 0; offset < in_flight_count_; ++offset) {
+      const auto index = in_flight_indices_[static_cast<std::size_t>(
+          (in_flight_tail_ + offset) % config_.in_flight_capacity)];
+      const auto& block = slots_[index];
+      if (!saturating_add(available_total,
+                          block.accepted_frames - block.consumed_frames)) {
+        return false;
+      }
+    }
+    if (delta > available_total) {
+      return false;
+    }
+    std::uint64_t new_logical = 0;
+    if (!checked_add(logical_consumed_frames_, delta, new_logical)) {
+      return false;
+    }
+
     auto remaining = delta;
-    while (remaining != 0 && in_flight_count_ != 0) {
+    while (remaining != 0) {
       const auto index = in_flight_indices_[static_cast<std::size_t>(
           in_flight_tail_ % config_.in_flight_capacity)];
       auto& block = slots_[index];
@@ -812,23 +1018,21 @@ struct MovieAudioRenderer::Impl {
         continue;
       }
       const auto consumed = std::min(available, remaining);
-      std::uint64_t new_logical = 0;
-      if (!checked_add(logical_consumed_frames_, consumed, new_logical)) {
-        return false;
-      }
-      logical_consumed_frames_ = new_logical;
+      logical_consumed_frames_ += consumed;
       block.consumed_frames += consumed;
       remaining -= consumed;
       if (block.consumed_frames == block.accepted_frames) {
         remove_in_flight_front();
       }
     }
-    return remaining == 0;
+    logical_consumed_frames_ = new_logical;
+    return true;
   }
 
   void update_device_facts(AudioDeviceSnapshot snapshot) noexcept {
     if (snapshot.underrun_count >= last_device_underrun_raw_) {
-      underrun_count_ += snapshot.underrun_count - last_device_underrun_raw_;
+      (void)saturating_add(
+          underrun_count_, snapshot.underrun_count - last_device_underrun_raw_);
     }
     if (snapshot.discontinuity_count >= last_device_discontinuity_raw_) {
       const auto new_events = snapshot.discontinuity_count -
@@ -872,7 +1076,10 @@ struct MovieAudioRenderer::Impl {
     try {
       final_snapshot = output_->quiesce_and_snapshot();
     } catch (...) {
-      record_discontinuity(PlaybackCategory::audio_output_failure);
+      const auto resumed = resume_old_output(device_instance_id_);
+      if (!resumed) {
+        handle_unknown_output(PlaybackCategory::audio_output_failure);
+      }
       return QuiesceResult{
           .status = QuiesceStatus::invalid_snapshot,
           .final_snapshot = {},
@@ -881,16 +1088,24 @@ struct MovieAudioRenderer::Impl {
     }
     if (final_snapshot.device_instance_id != device_instance_id_ ||
         final_snapshot.snapshot_sequence <= last_snapshot_sequence_) {
+      const auto resumed = resume_old_output(device_instance_id_);
+      if (!resumed) {
+        handle_unknown_output(
+            PlaybackCategory::route_handoff_unknown_consumption);
+      }
       return QuiesceResult{
           .status = QuiesceStatus::stale_snapshot,
           .final_snapshot = final_snapshot,
           .failure_category = PlaybackCategory::route_candidate_stale,
       };
     }
-    if (!is_valid_final_device_snapshot(final_snapshot) ||
-        final_snapshot.device_consumed_frames_total <
-            last_device_consumed_raw_ ||
-        final_snapshot.accepted_frames_total < last_device_accepted_raw_) {
+    const auto ordinary = as_ordinary_snapshot(final_snapshot);
+    if (final_snapshot.active || !is_valid_final_device_snapshot(final_snapshot) ||
+        !is_valid_current_snapshot(ordinary)) {
+      const auto resumed = resume_old_output(device_instance_id_);
+      if (!resumed) {
+        handle_unknown_output(PlaybackCategory::audio_output_failure);
+      }
       return QuiesceResult{
           .status = QuiesceStatus::invalid_snapshot,
           .final_snapshot = final_snapshot,
@@ -898,9 +1113,7 @@ struct MovieAudioRenderer::Impl {
       };
     }
 
-    const auto ordinary = as_ordinary_snapshot(final_snapshot);
-    bool exact_consumption = final_snapshot.exact_consumption &&
-        !consumption_unknown_;
+    bool exact_consumption = final_snapshot.exact_consumption;
     if (exact_consumption) {
       const auto consumed_delta =
           final_snapshot.device_consumed_frames_total -
@@ -913,6 +1126,7 @@ struct MovieAudioRenderer::Impl {
     last_final_snapshot_ = final_snapshot;
     last_quiesce_unknown_ = !exact_consumption;
     if (exact_consumption) {
+      consumption_unknown_ = false;
       rebuild_after_handoff(true);
       return QuiesceResult{
           .status = QuiesceStatus::quiesced,
@@ -986,9 +1200,10 @@ struct MovieAudioRenderer::Impl {
     ++replay_count_;
   }
 
-  void resume_old_output() noexcept {
-    if (output_ == nullptr) {
-      return;
+  [[nodiscard]] bool resume_old_output(
+      std::uint64_t expected_device_instance_id) noexcept {
+    if (output_ == nullptr || expected_device_instance_id == 0) {
+      return false;
     }
     bool started = false;
     try {
@@ -998,29 +1213,51 @@ struct MovieAudioRenderer::Impl {
     }
     if (!started) {
       output_active_ = false;
-      return;
+      return false;
     }
     AudioDeviceSnapshot snapshot;
     try {
       snapshot = output_->snapshot();
     } catch (...) {
       output_active_ = false;
-      return;
+      try {
+        output_->stop();
+      } catch (...) {
+      }
+      return false;
     }
-    if (!snapshot.active ||
-        !is_valid_audio_device_snapshot(
-            snapshot.accepted_frames_total,
-            snapshot.device_consumed_frames_total,
-            snapshot.device_queue_frames)) {
+    if (snapshot.device_instance_id != expected_device_instance_id ||
+        snapshot.snapshot_sequence <= last_snapshot_sequence_ ||
+        !snapshot.active || !is_valid_current_snapshot(snapshot)) {
       output_active_ = false;
-      return;
+      try {
+        output_->stop();
+      } catch (...) {
+      }
+      return false;
     }
+    const auto consumed_delta = snapshot.device_consumed_frames_total -
+        last_device_consumed_raw_;
+    if (!apply_consumed_frames(consumed_delta)) {
+      output_active_ = false;
+      try {
+        output_->stop();
+      } catch (...) {
+      }
+      return false;
+    }
+    const bool underrun = snapshot.underrun_count > last_device_underrun_raw_;
+    update_device_facts(snapshot);
+    consumption_unknown_ = false;
     output_active_ = true;
     output_quiesced_ = false;
-    set_device_baseline(snapshot);
+    observe_clock(clock_time(), true, snapshot.output_latency_frames, false,
+                  underrun);
+    return true;
   }
 
-  void set_device_baseline(AudioDeviceSnapshot snapshot) noexcept {
+  void set_device_baseline(
+      AudioDeviceSnapshot snapshot, bool reset_write_baseline) noexcept {
     device_instance_id_ = snapshot.device_instance_id;
     last_snapshot_sequence_ = snapshot.snapshot_sequence;
     last_device_consumed_raw_ = snapshot.device_consumed_frames_total;
@@ -1030,6 +1267,10 @@ struct MovieAudioRenderer::Impl {
     device_consumed_frames_total_ =
         snapshot.device_consumed_frames_total;
     device_snapshot_ = snapshot;
+    if (reset_write_baseline) {
+      device_backend_write_baseline_ = backend_frames_written_total_;
+    }
+    consumption_unknown_ = false;
   }
 
   void mark_unknown_consumption(PlaybackCategory reason) noexcept {
@@ -1071,7 +1312,7 @@ struct MovieAudioRenderer::Impl {
   }
 
   void record_discontinuity(PlaybackCategory reason) noexcept {
-    discontinuity_count_.fetch_add(1, std::memory_order_relaxed);
+    saturating_atomic_add(discontinuity_count_, 1);
     last_discontinuity_reason_.store(reason, std::memory_order_release);
     has_discontinuity_reason_.store(true, std::memory_order_release);
     confidence_invalidated_.store(true, std::memory_order_release);
@@ -1095,6 +1336,7 @@ struct MovieAudioRenderer::Impl {
   std::size_t replay_count_ = 0;
   std::uint64_t next_enqueue_order_ = 1;
 
+  std::atomic<std::uint64_t> callback_lifecycle_{0};
   std::atomic<bool> accepting_callbacks_{true};
   std::atomic<bool> shutting_down_{false};
   std::atomic<std::uint64_t> media_frames_enqueued_total_{0};
@@ -1116,6 +1358,7 @@ struct MovieAudioRenderer::Impl {
   std::uint64_t last_device_accepted_raw_ = 0;
   std::uint64_t last_device_underrun_raw_ = 0;
   std::uint64_t last_device_discontinuity_raw_ = 0;
+  std::uint64_t device_backend_write_baseline_ = 0;
   AudioDeviceSnapshot device_snapshot_{ };
   FinalDeviceSnapshot last_final_snapshot_{ };
   std::uint64_t device_consumed_frames_total_ = 0;

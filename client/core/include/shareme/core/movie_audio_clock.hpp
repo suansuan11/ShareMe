@@ -78,6 +78,7 @@ class MovieAudioClock {
       AudioClockObservation observation,
       MonotonicTime monotonic_now) noexcept;
   [[nodiscard]] MovieAudioClockSnapshot snapshot() const noexcept;
+  void clear_playback_anchor() noexcept;
   void reset() noexcept;
 
  private:

@@ -400,10 +400,13 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
   }
 
   const bool was_locked = snapshot_.confidence == ClockConfidence::locked;
+  const bool was_degraded = snapshot_.confidence == ClockConfidence::degraded;
   const bool supplied_invalid_correlation =
       correlation_check.supplied && !correlation_check.valid;
   if (observation.discontinuity || observation.underrun ||
       supplied_invalid_correlation) {
+    set_confidence(ClockConfidence::degraded);
+  } else if (was_degraded && !observation.correlation.has_value()) {
     set_confidence(ClockConfidence::degraded);
   } else if (!have_playout_pts_) {
     set_confidence(ClockConfidence::unavailable);
@@ -426,6 +429,25 @@ MovieAudioClockSnapshot MovieAudioClock::observe(
 
 MovieAudioClockSnapshot MovieAudioClock::snapshot() const noexcept {
   return snapshot_;
+}
+
+void MovieAudioClock::clear_playback_anchor() noexcept {
+  anchor_.reset();
+  last_correlation_.reset();
+  relock_floor_.reset();
+  relock_correlation_ready_ = false;
+  requires_relock_ = false;
+  have_playout_pts_ = false;
+  last_playout_pts_ms_ = 0;
+  pts_playback_generation_ = 0;
+  pts_host_audio_epoch_ = 0;
+  pts_renderer_clock_epoch_ = 0;
+  snapshot_.estimated_playout_pts_ms = 0;
+  snapshot_.audio_playout_pts_ms = 0;
+  snapshot_.playout_pts_ms = 0;
+  snapshot_.has_playout_pts = false;
+  set_confidence(consumption_unknown_ ? ClockConfidence::invalid
+                                      : ClockConfidence::unavailable);
 }
 
 void MovieAudioClock::reset() noexcept {

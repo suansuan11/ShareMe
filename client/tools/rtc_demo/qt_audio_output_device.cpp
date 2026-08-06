@@ -1,5 +1,6 @@
 #include "qt_audio_output_device.hpp"
 
+#include <QAudio>
 #include <QAudioFormat>
 #include <QAudioSink>
 #include <QIODevice>
@@ -25,6 +26,10 @@ constexpr AudioOutputFormat kQtMovieAudioFormat{
     .sample_format = AudioSampleFormat::signed_int16,
     .interleaving = AudioInterleaving::interleaved,
 };
+
+// Qt 6.11 deprecates the UnderrunError symbol because that backend no longer
+// emits it, but keeps the enum value for older multimedia backends.
+constexpr int kQtAudioUnderrunError = 3;
 
 std::atomic<std::uint64_t> next_device_instance_id{1};
 
@@ -102,17 +107,21 @@ bool QtAudioOutputDevice::start() {
   }
   if (sink_->state() == QAudio::SuspendedState) {
     sink_->resume();
-    active_ = true;
-    return io_device_ != nullptr;
   } else {
     io_device_ = sink_->start();
-    active_ = io_device_ != nullptr;
   }
-  return active_ && io_device_ != nullptr;
+  refresh_sink_state();
+  if (sink_->error() == QAudio::NoError) {
+    const auto state = sink_->state();
+    active_ = io_device_ != nullptr &&
+        (state == QAudio::ActiveState || state == QAudio::IdleState);
+  }
+  return active_;
 }
 
 shareme::core::WriteResult QtAudioOutputDevice::try_write(
     shareme::core::AudioPcmBlockView pcm) {
+  refresh_sink_state();
   if (!active_ || io_device_ == nullptr || sink_ == nullptr) {
     return shareme::core::WriteResult{
         .status = shareme::core::WriteStatus::failed,
@@ -199,6 +208,19 @@ shareme::core::WriteResult QtAudioOutputDevice::try_write(
 
   const auto accepted_frames =
       static_cast<std::uint64_t>(written / static_cast<qint64>(frame_bytes));
+  if (accepted_frames >
+      std::numeric_limits<std::uint64_t>::max() - accepted_frames_total_) {
+    accepted_frames_total_ = std::numeric_limits<std::uint64_t>::max();
+    active_ = false;
+    if (discontinuity_count_ != std::numeric_limits<std::uint64_t>::max()) {
+      ++discontinuity_count_;
+    }
+    return shareme::core::WriteResult{
+        .status = shareme::core::WriteStatus::failed,
+        .accepted_frames = 0,
+        .failure_category = PlaybackCategory::audio_output_failure,
+    };
+  }
   accepted_frames_total_ += accepted_frames;
   return shareme::core::WriteResult{
       .status = shareme::core::WriteStatus::accepted,
@@ -251,6 +273,7 @@ void QtAudioOutputDevice::stop() {
 }
 
 shareme::core::AudioDeviceSnapshot QtAudioOutputDevice::read_snapshot() {
+  refresh_sink_state();
   std::uint64_t consumed = processed_frames();
   if (consumed > accepted_frames_total_) {
     consumed = accepted_frames_total_;
@@ -271,7 +294,14 @@ shareme::core::AudioDeviceSnapshot QtAudioOutputDevice::read_snapshot() {
     }
   }
 
-  ++snapshot_sequence_;
+  if (snapshot_sequence_ != std::numeric_limits<std::uint64_t>::max()) {
+    ++snapshot_sequence_;
+  } else {
+    active_ = false;
+    if (discontinuity_count_ != std::numeric_limits<std::uint64_t>::max()) {
+      ++discontinuity_count_;
+    }
+  }
   return shareme::core::AudioDeviceSnapshot{
       .device_instance_id = device_instance_id_,
       .snapshot_sequence = snapshot_sequence_,
@@ -297,10 +327,10 @@ std::uint64_t QtAudioOutputDevice::processed_frames() noexcept {
   const auto processed_usecs = sink_->processedUSecs();
   if (processed_usecs < 0 ||
       static_cast<std::uint64_t>(processed_usecs) < last_processed_usecs_) {
+    processed_duration_valid_ = false;
     return device_consumed_frames_total_;
   }
   last_processed_usecs_ = static_cast<std::uint64_t>(processed_usecs);
-  processed_duration_valid_ = true;
 
   const auto whole_seconds = last_processed_usecs_ / 1'000'000U;
   const auto remainder_usecs = last_processed_usecs_ % 1'000'000U;
@@ -310,19 +340,56 @@ std::uint64_t QtAudioOutputDevice::processed_frames() noexcept {
     return device_consumed_frames_total_;
   }
   if (whole_seconds > std::numeric_limits<std::uint64_t>::max() / sample_rate) {
+    processed_duration_valid_ = false;
     return std::numeric_limits<std::uint64_t>::max();
   }
   auto frames = whole_seconds * sample_rate;
   const auto fractional_frames = remainder_usecs * sample_rate / 1'000'000U;
   if (fractional_frames > std::numeric_limits<std::uint64_t>::max() - frames) {
+    processed_duration_valid_ = false;
     return std::numeric_limits<std::uint64_t>::max();
   }
   frames += fractional_frames;
+  processed_duration_valid_ = true;
   return frames;
 }
 
 bool QtAudioOutputDevice::has_trusted_device_facts() const noexcept {
   return processed_duration_valid_ && queue_facts_valid_;
+}
+
+void QtAudioOutputDevice::refresh_sink_state() noexcept {
+  if (sink_ == nullptr) {
+    active_ = false;
+    return;
+  }
+
+  const auto error = sink_->error();
+  const auto error_value = static_cast<int>(error);
+  if (error != QAudio::NoError) {
+    if (error_value == kQtAudioUnderrunError &&
+        last_audio_error_ != error_value) {
+      if (underrun_count_ != std::numeric_limits<std::uint64_t>::max()) {
+        ++underrun_count_;
+      }
+      if (discontinuity_count_ != std::numeric_limits<std::uint64_t>::max()) {
+        ++discontinuity_count_;
+      }
+    }
+    last_audio_error_ = error_value;
+    active_ = false;
+    processed_duration_valid_ = false;
+    queue_facts_valid_ = false;
+    return;
+  }
+  last_audio_error_ = static_cast<int>(QAudio::NoError);
+
+  const auto state = sink_->state();
+  const bool running = io_device_ != nullptr &&
+      (state == QAudio::ActiveState || state == QAudio::IdleState);
+  if (!running) {
+    active_ = false;
+  }
 }
 
 void QtAudioOutputDevice::reset_runtime_state() noexcept {
@@ -332,6 +399,7 @@ void QtAudioOutputDevice::reset_runtime_state() noexcept {
   last_processed_usecs_ = 0;
   underrun_count_ = 0;
   discontinuity_count_ = 0;
+  last_audio_error_ = -1;
   io_device_ = nullptr;
   active_ = false;
   processed_duration_valid_ = false;

@@ -34,6 +34,7 @@ class QtAudioOutputDevice final : public shareme::core::AudioOutputDevice {
   [[nodiscard]] shareme::core::AudioDeviceSnapshot read_snapshot();
   [[nodiscard]] std::uint64_t processed_frames() noexcept;
   [[nodiscard]] bool has_trusted_device_facts() const noexcept;
+  void refresh_sink_state() noexcept;
   void reset_runtime_state() noexcept;
 
   QAudioDevice device_;
@@ -47,6 +48,7 @@ class QtAudioOutputDevice final : public shareme::core::AudioOutputDevice {
   std::uint64_t last_processed_usecs_ = 0;
   std::uint64_t underrun_count_ = 0;
   std::uint64_t discontinuity_count_ = 0;
+  int last_audio_error_ = -1;
   bool opened_ = false;
   bool active_ = false;
   bool processed_duration_valid_ = false;

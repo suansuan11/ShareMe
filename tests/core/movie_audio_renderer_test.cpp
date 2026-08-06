@@ -1,6 +1,7 @@
 #include "shareme/core/movie_audio_renderer.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -73,6 +75,7 @@ class FakeOutputDevice final : public AudioOutputDevice {
   bool final_exact_consumption = true;
   std::optional<FinalDeviceSnapshot> final_override = std::nullopt;
   std::optional<AudioDeviceSnapshot> snapshot_override = std::nullopt;
+  std::optional<WriteResult> write_override = std::nullopt;
   std::uint64_t consumed_frames = 0;
   std::uint64_t underrun_count = 0;
   std::uint64_t discontinuity_count = 0;
@@ -131,6 +134,10 @@ class FakeOutputDevice final : public AudioOutputDevice {
         .bytes = std::vector<std::byte>{pcm.payload.bytes.begin(),
                                         pcm.payload.bytes.end()},
     });
+
+    if (write_override.has_value()) {
+      return *write_override;
+    }
 
     if (write_mode == WriteMode::would_block) {
       return WriteResult{
@@ -526,12 +533,332 @@ void failed_candidate_retains_old_output_identity() {
   candidate->snapshot_active_override = false;
   const auto result = renderer.activate_output(std::move(candidate));
   REQUIRE(result.status == ActivationStatus::candidate_stale);
-  REQUIRE(old_device_ptr->quiesce_calls == 1);
+  REQUIRE(old_device_ptr->quiesce_calls == 0);
   REQUIRE(old_device_ptr->stop_calls == 0);
-  REQUIRE(old_device_ptr->start_calls == 2);
+  REQUIRE(old_device_ptr->start_calls == 1);
   const auto snapshot = renderer.snapshot();
   REQUIRE(snapshot.route_generation == route_generation);
   REQUIRE(snapshot.output_active);
+}
+
+void failed_candidate_does_not_replay_into_old_output() {
+  MovieAudioRenderer renderer{test_config()};
+  auto old_device = std::make_unique<FakeOutputDevice>(52);
+  auto* old_device_ptr = old_device.get();
+  activates(renderer, std::move(old_device));
+
+  REQUIRE(enqueue(renderer, 1, 10, std::byte{7}).status ==
+          EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  old_device_ptr->consumed_frames = 4;
+  renderer.pump(MonotonicTime{});
+  REQUIRE(old_device_ptr->writes.size() == 1);
+
+  auto candidate = std::make_unique<FakeOutputDevice>(53);
+  candidate->snapshot_active_override = false;
+  const auto result = renderer.activate_output(std::move(candidate));
+
+  REQUIRE(result.status == ActivationStatus::candidate_stale);
+  REQUIRE(renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().ready_frame_count == 0);
+  renderer.pump(MonotonicTime{});
+  REQUIRE(old_device_ptr->writes.size() == 1);
+}
+
+void output_loss_releases_in_flight_and_marks_unknown() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(71);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  device_ptr->snapshot_override = AudioDeviceSnapshot{
+      .device_instance_id = 71,
+      .snapshot_sequence = 4,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 4,
+      .device_queue_frames = 6,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+  };
+
+  renderer.pump(MonotonicTime{});
+  const auto snapshot = renderer.snapshot();
+  REQUIRE(!snapshot.output_active);
+  REQUIRE(snapshot.in_flight_block_count == 0);
+  REQUIRE(snapshot.released_pcm_block_count == 1);
+  REQUIRE(snapshot.logical_consumed_frames == 0);
+  REQUIRE(snapshot.renderer_clock_epoch == 1);
+  REQUIRE(snapshot.clock_confidence == ClockConfidence::invalid);
+}
+
+void stale_quiesce_resumes_the_same_output() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(72);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+
+  device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 72,
+      .snapshot_sequence = 1,
+      .accepted_frames_total = 0,
+      .device_consumed_frames_total = 0,
+      .device_queue_frames = 0,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = true,
+  };
+
+  const auto result = renderer.quiesce_output();
+  REQUIRE(result.status == QuiesceStatus::stale_snapshot);
+  REQUIRE(device_ptr->start_calls == 2);
+  REQUIRE(device_ptr->active);
+  REQUIRE(renderer.snapshot().output_active);
+}
+
+void exact_handoff_recovers_after_unknown_transition() {
+  MovieAudioRenderer renderer{test_config()};
+  auto old_device = std::make_unique<FakeOutputDevice>(73);
+  auto* old_device_ptr = old_device.get();
+  activates(renderer, std::move(old_device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+
+  old_device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 73,
+      .snapshot_sequence = 4,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 0,
+      .device_queue_frames = 10,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = false,
+  };
+  REQUIRE(renderer.quiesce_output().status ==
+          QuiesceStatus::unknown_consumption);
+
+  auto replacement = std::make_unique<FakeOutputDevice>(74);
+  auto* replacement_ptr = replacement.get();
+  activates(renderer, std::move(replacement));
+  REQUIRE(enqueue(renderer, 2, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  replacement_ptr->consumed_frames = 4;
+  renderer.pump(MonotonicTime{});
+  replacement_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 74,
+      .snapshot_sequence = 6,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 4,
+      .device_queue_frames = 6,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = true,
+  };
+
+  const auto result = renderer.quiesce_output();
+  REQUIRE(result.status == QuiesceStatus::quiesced);
+  REQUIRE(renderer.snapshot().ready_frame_count == 6);
+}
+
+void rejects_device_accepted_frames_not_written_by_renderer() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(75);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+  device_ptr->snapshot_override = AudioDeviceSnapshot{
+      .device_instance_id = 75,
+      .snapshot_sequence = 2,
+      .accepted_frames_total = 100,
+      .device_consumed_frames_total = 0,
+      .device_queue_frames = 100,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = true,
+  };
+
+  renderer.pump(MonotonicTime{});
+  const auto snapshot = renderer.snapshot();
+  REQUIRE(!snapshot.output_active);
+  REQUIRE(snapshot.renderer_clock_epoch == 1);
+  REQUIRE(snapshot.clock_confidence == ClockConfidence::invalid);
+}
+
+void rejects_regressing_device_counters() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(755);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+  device_ptr->underrun_count = 1;
+  renderer.pump(MonotonicTime{});
+
+  device_ptr->snapshot_override = AudioDeviceSnapshot{
+      .device_instance_id = 755,
+      .snapshot_sequence = 4,
+      .accepted_frames_total = 0,
+      .device_consumed_frames_total = 0,
+      .device_queue_frames = 0,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = true,
+  };
+  renderer.pump(MonotonicTime{});
+  REQUIRE(!renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().renderer_clock_epoch == 1);
+}
+
+void partial_backend_writes_preserve_in_flight_suffix() {
+  MovieAudioRenderer renderer{test_config(2, 2)};
+  auto device = std::make_unique<FakeOutputDevice>(756);
+  auto* device_ptr = device.get();
+  device_ptr->maximum_accepted_frames = 4;
+  activates(renderer, std::move(device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+
+  renderer.pump(MonotonicTime{});
+  REQUIRE(device_ptr->writes.size() == 3);
+  REQUIRE(device_ptr->writes[0].frame_count == 10);
+  REQUIRE(device_ptr->writes[1].frame_count == 6);
+  REQUIRE(device_ptr->writes[2].frame_count == 2);
+  REQUIRE(renderer.snapshot().backend_frames_written_total == 10);
+
+  device_ptr->consumed_frames = 5;
+  renderer.pump(MonotonicTime{});
+  const auto snapshot = renderer.snapshot();
+  REQUIRE(snapshot.logical_consumed_frames == 5);
+  REQUIRE(snapshot.in_flight_frame_count == 5);
+}
+
+void pure_underrun_degrades_clock_confidence() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(76);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+  device_ptr->underrun_count = 1;
+
+  renderer.pump(MonotonicTime{});
+  REQUIRE(renderer.snapshot().clock_confidence == ClockConfidence::degraded);
+}
+
+void invalid_deactivation_marks_unknown_consumption() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(77);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 77,
+      .snapshot_sequence = 1,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 0,
+      .device_queue_frames = 10,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = true,
+  };
+
+  renderer.deactivate_output(PlaybackCategory::route_no_active_output);
+  const auto snapshot = renderer.snapshot();
+  REQUIRE(!snapshot.output_active);
+  REQUIRE(snapshot.released_pcm_block_count == 1);
+  REQUIRE(snapshot.renderer_clock_epoch == 1);
+  REQUIRE(snapshot.logical_consumed_frames == 0);
+  REQUIRE(snapshot.clock_confidence == ClockConfidence::invalid);
+}
+
+void clear_anchor_removes_clock_estimate() {
+  MovieAudioRenderer renderer{test_config()};
+  renderer.set_playback_anchor(AudioClockAnchor{
+      .control_sequence = 1,
+      .host_source_sequence = 1,
+      .playback_generation = 0,
+      .audio_epoch = 0,
+      .media_pts_ms = 123,
+      .consumed_frames = 0,
+      .sample_rate = kTestFormat.sample_rate,
+      .channel_count = kTestFormat.channel_count,
+  });
+  activates(renderer, std::make_unique<FakeOutputDevice>(78));
+  renderer.pump(MonotonicTime{});
+  REQUIRE(renderer.snapshot().estimated_playout_pts_ms == 123);
+
+  renderer.clear_playback_anchor();
+  renderer.pump(MonotonicTime{} + std::chrono::milliseconds{1});
+  REQUIRE(renderer.snapshot().estimated_playout_pts_ms == 0);
+}
+
+void rejects_untagged_candidate_snapshots() {
+  MovieAudioRenderer renderer{test_config()};
+  auto candidate = std::make_unique<FakeOutputDevice>(0);
+  const auto result = renderer.activate_output(std::move(candidate));
+  REQUIRE(result.status == ActivationStatus::candidate_stale);
+  REQUIRE(renderer.snapshot().route_generation == 0);
+}
+
+void invalid_write_result_is_fail_closed() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(79);
+  auto* device_ptr = device.get();
+  device_ptr->write_override = WriteResult{
+      .status = WriteStatus::accepted,
+      .accepted_frames = 11,
+      .failure_category = std::nullopt,
+  };
+  activates(renderer, std::move(device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  REQUIRE(renderer.snapshot().last_write_status == WriteStatus::accepted);
+  REQUIRE(renderer.snapshot().discontinuity_count == 1);
+  REQUIRE(renderer.snapshot().ready_frame_count == 10);
+}
+
+void concurrent_shutdown_leaves_no_post_close_blocks() {
+  MovieAudioRenderer renderer{test_config(8, 8)};
+  auto bytes = pcm_bytes(10);
+  const auto view = view_for(bytes, 10);
+  std::atomic<bool> stop_callback{false};
+  std::thread callback([&] {
+    std::uint64_t sequence = 1;
+    while (!stop_callback.load(std::memory_order_relaxed)) {
+      const auto result = renderer.try_enqueue(view, sequence++);
+      (void)result;
+    }
+  });
+
+  std::this_thread::yield();
+  renderer.shutdown();
+  stop_callback.store(true, std::memory_order_relaxed);
+  callback.join();
+
+  const auto snapshot = renderer.snapshot();
+  REQUIRE(snapshot.ready_block_count == 0);
+  REQUIRE(snapshot.replay_block_count == 0);
+  REQUIRE(snapshot.in_flight_block_count == 0);
+  REQUIRE(!snapshot.accepting_callbacks);
 }
 
 void underrun_facts_degrade_renderer_confidence() {
@@ -575,7 +902,20 @@ int main() {
   unknown_consumption_freezes_clock_and_does_not_replay();
   ignores_delayed_snapshots_without_regressing_logical_consumption();
   failed_candidate_retains_old_output_identity();
+  failed_candidate_does_not_replay_into_old_output();
+  output_loss_releases_in_flight_and_marks_unknown();
+  stale_quiesce_resumes_the_same_output();
+  exact_handoff_recovers_after_unknown_transition();
+  rejects_device_accepted_frames_not_written_by_renderer();
+  rejects_regressing_device_counters();
+  partial_backend_writes_preserve_in_flight_suffix();
+  pure_underrun_degrades_clock_confidence();
+  invalid_deactivation_marks_unknown_consumption();
+  clear_anchor_removes_clock_estimate();
+  rejects_untagged_candidate_snapshots();
+  invalid_write_result_is_fail_closed();
   underrun_facts_degrade_renderer_confidence();
   teardown_ingress_is_bounded_and_rejects_without_copying();
+  concurrent_shutdown_leaves_no_post_close_blocks();
   return EXIT_SUCCESS;
 }
