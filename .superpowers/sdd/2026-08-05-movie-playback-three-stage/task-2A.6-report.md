@@ -274,3 +274,75 @@ ctest --test-dir build/movie-call-dev --output-on-failure \
 
 Windows native media behavior and live native output remain
 environment-dependent and are not claimed by this macOS verification.
+
+## Review-Fix Round 3
+
+Status: VERIFIED_WITH_CONCERNS
+Platform: macOS Darwin arm64
+Implementation commit: `34fc3b9` (`fix: close final Stage 2A review gaps`)
+
+This final allowed review-fix round addresses the remaining three Important
+findings and one Minor handoff finding without starting Stage 2B or changing
+the existing route/controller APIs:
+
+- An accepted increase in playback generation or host audio epoch now closes
+  renderer callback ingress, releases all stale renderer-owned PCM blocks once,
+  stops the current output, reopens it with the configured format, starts it,
+  validates a fresh zero-queue snapshot, and re-baselines device facts. The
+  existing `route_generation` remains unchanged. Reopen, start, or snapshot
+  failure stops the local output, records `audio_output_failure`, and
+  invalidates the renderer clock while leaving the peer alive. A paused output
+  follows the same stop/reopen/start path and is paused again before new PCM
+  can play.
+- The viewer's audio anchor now uses the current renderer
+  `logical_consumed_frames` rather than a constant zero origin.
+- Accepted remote playback-state transitions call renderer pause/resume on the
+  controller thread. The existing observational video scheduler continues to
+  receive `playing=false` while paused, and queued audio survives an ordinary
+  pause/resume without a route-generation change.
+- Qt sink classification treats both `QAudio::ActiveState` and
+  `QAudio::IdleState` as writable when an I/O device exists. Suspended and error
+  states remain non-writable.
+- The dynamic handoff now records `34fc3b9`; audio correlation remains
+  `blocked-on-audio-correlation`, and Stage 2B tasks 2B.2 and 2B.3 remain
+  unstarted.
+
+### Review-Fix TDD Evidence
+
+The RED checks were observed before the production implementation:
+
+- the renderer target failed to compile because `pause_output()` and
+  `resume_output()` did not yet exist;
+- the CLI contract failed in
+  `test_final_movie_audio_review_contracts` because the controller still used
+  a zero anchor origin and lacked the new lifecycle/static contracts.
+
+The renderer RED coverage then drove deterministic tests for stale-block
+release, stop/open/start ordering, fresh-output validation, reopen failure,
+route-generation preservation, ordinary pause/resume, and scope change while
+paused.
+
+### Review-Fix Verification
+
+- Focused regression passed `5/5` for `movie_audio_renderer`,
+  `movie_video_scheduler`, `movie_audio_peer`, `video_preview_adapter`, and
+  `rtc_demo_cli_contract`.
+- Five consecutive `movie_audio_peer` runs passed.
+- Full configured build passed with
+  `cmake --build --preset build-movie-call-dev --parallel 4`.
+- Full configured CTest passed `57/57` on macOS arm64.
+- Required registered contracts passed `3/3`:
+  `rtc_demo_cli_contract`, `movie_drift_study_contract`, and
+  `movie_performance_study_contract`.
+- `git diff --check` passed with no output.
+- The portable `client/core` forbidden-header scan reported no matches for Qt,
+  FFmpeg/libav, WebRTC, Windows, Direct3D, WASAPI, CoreAudio, or other OS
+  headers.
+- The repository-external WebRTC cache at
+  `/Users/dio/Library/Caches/ShareMe/webrtc` was preserved and not staged,
+  cleaned, or rebuilt.
+
+Windows native media behavior, live native output, route changes, and physical
+acoustic/display synchronization remain environment-dependent and are not
+claimed by this macOS verification. No video correction, estimator, route API,
+Stage 2B measurement, or hard-resync wiring was added.

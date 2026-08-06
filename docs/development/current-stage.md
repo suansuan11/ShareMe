@@ -64,13 +64,16 @@ for exact proof and evidence boundaries.
 
 ### Stage 2A checkpoint
 
-The isolated branch `codex/movie-playback-stage2a` completed Stage 2A at
-`750f7c9` (`feat: integrate Stage 2A movie playback`). The controller now owns
-renderer and scheduler lifecycle orchestration only: viewer PCM callbacks use
-the renderer's bounded ingress, Qt timers pump audio and advance the
-observational scheduler, accepted host audio anchors feed the renderer, and
-existing playout reports publish renderer/scheduler snapshots. Production video
-hold, drop, and hard-resync application remain disabled.
+The isolated branch `codex/movie-playback-stage2a` completed the final Stage 2A
+review-fix round at `34fc3b9` (`fix: close final Stage 2A review gaps`). The
+controller now owns renderer and scheduler lifecycle orchestration only: viewer
+PCM callbacks use the renderer's bounded ingress, accepted media-scope changes
+discard stale renderer/output PCM through stop/reopen/start on the owning
+thread, remote pause/resume controls renderer output, Qt timers pump audio and
+advance the observational scheduler, accepted host audio anchors use the
+renderer logical-consumption origin, and existing playout reports publish
+renderer/scheduler snapshots. Production video hold, drop, and hard-resync
+application remain disabled.
 
 Focused and full macOS verification passed: the deterministic 500 ms and 2 s
 video-stall tests cover bounded held tokens, candidate and clock-blocked
@@ -84,7 +87,8 @@ Correlation feasibility is `blocked-on-audio-correlation`: the locked
 `RemoteAudioSource` API does not expose the sender media timestamp, and the
 viewer callback has no shared source/decoded sequence. Anchors therefore remain
 provisional and cannot authorize Stage 2B measurement or correction wiring.
-Tasks 2B.2 and 2B.3 were not started. This SHA is the Stage 2B rollback point.
+Tasks 2B.2 and 2B.3 were not started. This implementation SHA is the Stage 2B
+rollback point.
 
 ### Movie Playback Boundary Stage 1 Handoff
 
@@ -255,7 +259,7 @@ satisfied. Windows validation remains a separate, environment-dependent stage.
   worktree with uncommitted source/test changes for nonblocking diagnostics and
   concurrent media metrics.
 - `codex/movie-playback-stage2a` contains the accepted Stage 2A implementation
-  at `750f7c9`; its detailed evidence is in
+  at `34fc3b9`; its detailed evidence is in
   `.superpowers/sdd/2026-08-05-movie-playback-three-stage/task-2A.6-report.md`.
 - The latest ignored macOS artifacts are under
   `build/movie-call-dev/movie-performance-diagnostics-20260805-queue-rerun8`;
