@@ -508,7 +508,7 @@ struct MovieAudioRenderer::Impl {
         is_valid_candidate_snapshot(commit_snapshot) &&
         commit_snapshot.device_instance_id ==
             candidate_snapshot.device_instance_id &&
-        commit_snapshot.snapshot_sequence >=
+        commit_snapshot.snapshot_sequence >
             candidate_snapshot.snapshot_sequence;
     if (!candidate_still_valid) {
       try {
@@ -900,6 +900,13 @@ struct MovieAudioRenderer::Impl {
                               std::memory_order_release);
   }
 
+  void append_ready_index(std::size_t index) noexcept {
+    const auto head = ready_head_.load(std::memory_order_relaxed);
+    ready_indices_[static_cast<std::size_t>(head % config_.ready_capacity)] =
+        index;
+    ready_head_.store(head + 1, std::memory_order_release);
+  }
+
   void remove_in_flight_front() noexcept {
     if (in_flight_count_ == 0) {
       return;
@@ -1000,7 +1007,7 @@ struct MovieAudioRenderer::Impl {
     if (output_ == nullptr) {
       return false;
     }
-    rebuild_after_handoff(false);
+    restore_exact_handoff_ownership();
     return resume_old_output(device_instance_id_);
   }
 
@@ -1249,6 +1256,47 @@ struct MovieAudioRenderer::Impl {
       block.accepted_frames = block.consumed_frames;
       block.state.store(SlotState::ready, std::memory_order_release);
       append_replay_after_handoff(index);
+    }
+  }
+
+  void restore_exact_handoff_ownership() noexcept {
+    const auto live_count = replay_count_;
+    for (std::size_t offset = 0; offset < live_count; ++offset) {
+      rebuild_order_[offset] = replay_indices_[static_cast<std::size_t>(
+          (replay_tail_ + offset) % replay_indices_.size())];
+    }
+
+    ready_tail_.store(0, std::memory_order_release);
+    ready_head_.store(0, std::memory_order_release);
+    in_flight_tail_ = 0;
+    in_flight_head_ = 0;
+    in_flight_count_ = 0;
+    replay_tail_ = 0;
+    replay_head_ = 0;
+    replay_count_ = 0;
+
+    for (std::size_t offset = 0; offset < live_count; ++offset) {
+      const auto index = rebuild_order_[offset];
+      auto& block = slots_[index];
+      const auto old_accepted_frames = block.accepted_frames +
+          block.replay_pending_frames;
+      block.accepted_frames = old_accepted_frames;
+      block.replay_pending_frames = 0;
+
+      if (block.accepted_frames == block.consumed_frames &&
+          block.accepted_frames == block.metadata.frame_count) {
+        release_slot(index);
+        continue;
+      }
+      if (block.accepted_frames > block.consumed_frames) {
+        append_in_flight(index);
+      }
+      if (block.accepted_frames < block.metadata.frame_count) {
+        append_ready_index(index);
+        if (block.accepted_frames == block.consumed_frames) {
+          block.state.store(SlotState::ready, std::memory_order_release);
+        }
+      }
     }
   }
 

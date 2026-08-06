@@ -235,10 +235,12 @@ shareme::core::AudioDeviceSnapshot QtAudioOutputDevice::snapshot() {
 
 shareme::core::FinalDeviceSnapshot
 QtAudioOutputDevice::quiesce_and_snapshot() {
-  controlled_suspension_ = sink_ != nullptr &&
-      (active_ || sink_->state() == QAudio::SuspendedState);
-  if (sink_ != nullptr && active_) {
+  if (sink_ != nullptr && active_ &&
+      sink_->state() == QAudio::ActiveState) {
+    controlled_suspension_ = true;
     sink_->suspend();
+  } else if (!controlled_suspension_) {
+    controlled_suspension_ = false;
   }
   active_ = false;
   const auto ordinary = read_snapshot();

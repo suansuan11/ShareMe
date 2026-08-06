@@ -93,6 +93,7 @@ class FakeOutputDevice final : public AudioOutputDevice {
   std::uint64_t quiesce_calls = 0;
   bool opened = false;
   bool active = false;
+  bool throw_on_write = false;
   std::vector<CapturedWrite> writes;
 
   OpenResult open(AudioOutputFormat format) override {
@@ -130,6 +131,9 @@ class FakeOutputDevice final : public AudioOutputDevice {
           .accepted_frames = 0,
           .failure_category = PlaybackCategory::audio_output_device_lost,
       };
+    }
+    if (throw_on_write) {
+      throw 1;
     }
 
     writes.push_back(CapturedWrite{
@@ -599,9 +603,14 @@ void candidate_loss_after_old_quiesce_restores_old_route() {
   REQUIRE(renderer.snapshot().output_active);
   REQUIRE(renderer.snapshot().route_generation == route_generation);
   REQUIRE(renderer.snapshot().logical_consumed_frames == 4);
-  REQUIRE(renderer.snapshot().released_pcm_block_count == 1);
+  REQUIRE(renderer.snapshot().released_pcm_block_count == 0);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 1);
+  old_device_ptr->consumed_frames = 10;
   renderer.pump(MonotonicTime{});
   REQUIRE(old_device_ptr->writes.size() == 1);
+  REQUIRE(renderer.snapshot().logical_consumed_frames == 10);
+  REQUIRE(renderer.snapshot().released_pcm_block_count == 1);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 0);
 }
 
 void output_loss_releases_in_flight_and_marks_unknown() {
@@ -911,6 +920,63 @@ void zero_frame_write_result_rebuilds_unknown_ownership() {
   REQUIRE(renderer.snapshot().renderer_clock_epoch == 1);
 }
 
+void malformed_write_protocols_rebuild_unknown_ownership() {
+  const auto assert_unknown = [](std::optional<WriteResult> override_result,
+                                 bool throw_on_write, std::uint64_t instance) {
+    MovieAudioRenderer renderer{test_config()};
+    auto device = std::make_unique<FakeOutputDevice>(instance);
+    device->write_override = std::move(override_result);
+    device->throw_on_write = throw_on_write;
+    activates(renderer, std::move(device));
+    REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+    renderer.pump(MonotonicTime{});
+    REQUIRE(!renderer.snapshot().output_active);
+    REQUIRE(renderer.snapshot().renderer_clock_epoch == 1);
+  };
+
+  assert_unknown(
+      WriteResult{
+          .status = WriteStatus::failed,
+          .accepted_frames = 0,
+          .failure_category = std::nullopt,
+      },
+      false, 801);
+  assert_unknown(
+      WriteResult{
+          .status = WriteStatus::would_block,
+          .accepted_frames = 1,
+          .failure_category = std::nullopt,
+      },
+      false, 802);
+  assert_unknown(std::nullopt, true, 803);
+}
+
+void invalid_final_lifecycle_state_resumes_old_output() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(804);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+  device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 804,
+      .snapshot_sequence = 3,
+      .accepted_frames_total = 0,
+      .device_consumed_frames_total = 0,
+      .device_queue_frames = 0,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = true,
+      .quiesced = false,
+      .exact_consumption = true,
+  };
+
+  const auto result = renderer.quiesce_output();
+  REQUIRE(result.status == QuiesceStatus::invalid_snapshot);
+  REQUIRE(device_ptr->active);
+  REQUIRE(renderer.snapshot().output_active);
+}
+
 void confidence_override_recovers_after_valid_observation() {
   MovieAudioRenderer renderer{test_config(2, 2)};
   REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
@@ -930,6 +996,9 @@ void backend_discontinuity_delta_is_counted() {
   device_ptr->discontinuity_count = 3;
   renderer.pump(MonotonicTime{});
   REQUIRE(renderer.snapshot().discontinuity_count == 3);
+  device_ptr->discontinuity_count = 5;
+  renderer.pump(MonotonicTime{});
+  REQUIRE(renderer.snapshot().discontinuity_count == 5);
 }
 
 void shutdown_waits_for_prior_shutdown_completion() {
@@ -945,10 +1014,15 @@ void shutdown_waits_for_prior_shutdown_completion() {
   }
 
   std::atomic<bool> second_finished{false};
+  std::atomic<bool> second_started{false};
   std::thread second_shutdown([&] {
+    second_started.store(true, std::memory_order_release);
     renderer.shutdown();
     second_finished.store(true, std::memory_order_release);
   });
+  while (!second_started.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
   for (int attempt = 0; attempt < 10'000; ++attempt) {
     std::this_thread::yield();
   }
@@ -1041,6 +1115,8 @@ int main() {
   invalid_write_result_is_fail_closed();
   device_loss_write_rebuilds_unknown_ownership();
   zero_frame_write_result_rebuilds_unknown_ownership();
+  malformed_write_protocols_rebuild_unknown_ownership();
+  invalid_final_lifecycle_state_resumes_old_output();
   confidence_override_recovers_after_valid_observation();
   backend_discontinuity_delta_is_counted();
   shutdown_waits_for_prior_shutdown_completion();
