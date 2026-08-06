@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -89,6 +91,59 @@ void monitor_rejects_stale_and_shutdown_notifications() {
   REQUIRE(std::chrono::steady_clock::now() - start <
           std::chrono::milliseconds{250});
   REQUIRE(callback_count == 1);
+}
+
+void monitor_stop_is_bounded_and_safe_during_an_admitted_callback() {
+  auto monitor = std::make_unique<AudioRouteMonitor>();
+  auto *monitor_pointer = monitor.get();
+  std::atomic<bool> callback_entered{false};
+  std::atomic<bool> release_callback{false};
+  std::atomic<bool> notify_result{false};
+
+  REQUIRE(monitor->start([&](AudioRouteEvent) {
+    callback_entered.store(true, std::memory_order_release);
+    while (!release_callback.load(std::memory_order_acquire))
+      std::this_thread::yield();
+  }));
+
+  std::thread notifier([&] {
+    notify_result.store(monitor_pointer->notify(route_event(1, 10)),
+                        std::memory_order_release);
+  });
+
+  const auto callback_deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds{1};
+  while (!callback_entered.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < callback_deadline)
+    std::this_thread::yield();
+  const auto callback_started =
+      callback_entered.load(std::memory_order_acquire);
+
+  std::atomic<bool> stop_finished{false};
+  std::thread stopper([&] {
+    monitor_pointer->stop();
+    stop_finished.store(true, std::memory_order_release);
+  });
+
+  const auto stop_deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds{250};
+  while (!stop_finished.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < stop_deadline)
+    std::this_thread::yield();
+  const auto bounded_stop = stop_finished.load(std::memory_order_acquire);
+  const auto late_notification_rejected =
+      !monitor->notify(route_event(2, 11));
+
+  if (bounded_stop)
+    monitor.reset();
+  release_callback.store(true, std::memory_order_release);
+  stopper.join();
+  notifier.join();
+
+  REQUIRE(callback_started);
+  REQUIRE(bounded_stop);
+  REQUIRE(late_notification_rejected);
+  REQUIRE(notify_result.load(std::memory_order_acquire));
 }
 
 void notifications_coalesce_without_generation_change_and_reject_stale_events() {
@@ -325,10 +380,63 @@ void route_transition_video_policy_has_distinct_bounded_pass_through() {
   REQUIRE(time_limit.released_frame_count == 1);
 }
 
+void locked_new_clock_never_enables_route_correction() {
+  const auto result = evaluate_audio_route_video_policy(
+      AudioRouteVideoPolicyInput{
+          .held_frame_count = 0,
+          .held_duration = std::chrono::milliseconds{0},
+          .stale_pre_switch_clock = false,
+          .new_clock_locked = true,
+          .correction_requested = true,
+      });
+
+  REQUIRE(!result.correction_allowed);
+  REQUIRE(result.route_transition);
+  REQUIRE(result.released_frame_count == 0);
+}
+
+void handoff_requires_nonzero_identity_and_snapshot_sequence() {
+  const std::vector<std::uint64_t> in_flight{10};
+  const auto valid_input = AudioRouteHandoffInput{
+      .expected_device_instance_id = AudioRouteDeviceId{61},
+      .minimum_snapshot_sequence = 1,
+      .last_device_consumed_frames = 0,
+      .logical_consumed_frames = 0,
+      .renderer_clock_epoch = 0,
+      .clock_confidence = ClockConfidence::locked,
+      .in_flight_block_frames = in_flight,
+  };
+  const auto valid_snapshot = final_snapshot(61, 2, 10, 0, 10, true);
+
+  auto missing_guards = valid_input;
+  missing_guards.expected_device_instance_id = 0;
+  missing_guards.minimum_snapshot_sequence = 0;
+  REQUIRE(plan_audio_route_handoff(missing_guards, valid_snapshot).status ==
+          AudioRouteHandoffStatus::invalid_snapshot);
+
+  auto zero_identity = valid_input;
+  zero_identity.expected_device_instance_id = 0;
+  REQUIRE(plan_audio_route_handoff(zero_identity, valid_snapshot).status ==
+          AudioRouteHandoffStatus::invalid_snapshot);
+
+  auto zero_sequence = valid_input;
+  zero_sequence.minimum_snapshot_sequence = 0;
+  REQUIRE(plan_audio_route_handoff(zero_sequence, valid_snapshot).status ==
+          AudioRouteHandoffStatus::invalid_snapshot);
+
+  REQUIRE(plan_audio_route_handoff(valid_input, final_snapshot(
+              0, 2, 10, 0, 10, true))
+              .status == AudioRouteHandoffStatus::invalid_snapshot);
+  REQUIRE(plan_audio_route_handoff(valid_input, final_snapshot(
+              61, 0, 10, 0, 10, true))
+              .status == AudioRouteHandoffStatus::invalid_snapshot);
+}
+
 }  // namespace
 
 int main() {
   monitor_rejects_stale_and_shutdown_notifications();
+  monitor_stop_is_bounded_and_safe_during_an_admitted_callback();
   notifications_coalesce_without_generation_change_and_reject_stale_events();
   stale_candidates_and_candidate_loss_never_commit_a_generation();
   shutdown_rejects_route_events_and_activation_results();
@@ -337,5 +445,7 @@ int main() {
   unknown_consumption_stops_at_last_provable_value_and_invalidates_clock();
   stale_final_snapshots_are_rejected_before_handoff();
   route_transition_video_policy_has_distinct_bounded_pass_through();
+  locked_new_clock_never_enables_route_correction();
+  handoff_requires_nonzero_identity_and_snapshot_sequence();
   return EXIT_SUCCESS;
 }

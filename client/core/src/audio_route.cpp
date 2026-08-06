@@ -5,8 +5,6 @@
 namespace shareme::core {
 namespace {
 
-thread_local AudioRouteMonitor *active_monitor_callback = nullptr;
-
 [[nodiscard]] bool same_candidate(const AudioRouteCandidate &left,
                                   const AudioRouteCandidate &right) noexcept {
   return left.event.event_sequence == right.event.event_sequence &&
@@ -55,76 +53,64 @@ thread_local AudioRouteMonitor *active_monitor_callback = nullptr;
 
 }  // namespace
 
+struct AudioRouteMonitor::State {
+  std::mutex mutex;
+  Callback callback;
+  AudioRouteEventSequence last_event_sequence{};
+  bool has_last_event_sequence{false};
+  bool started{false};
+  bool stopped{false};
+};
+
+AudioRouteMonitor::AudioRouteMonitor() : state_{std::make_shared<State>()} {}
+
 AudioRouteMonitor::~AudioRouteMonitor() { stop(); }
 
 bool AudioRouteMonitor::start(Callback callback) {
   if (!callback)
     return false;
 
-  std::lock_guard lock{mutex_};
-  if (started_ || stopped_)
+  const auto state = state_;
+  std::lock_guard lock{state->mutex};
+  if (state->started || state->stopped)
     return false;
-  callback_ = std::move(callback);
-  started_ = true;
+  state->callback = std::move(callback);
+  state->started = true;
   return true;
 }
 
 void AudioRouteMonitor::stop() noexcept {
-  std::unique_lock lock{mutex_};
-  stopped_ = true;
-  started_ = false;
-  callback_ = {};
-
-  // A callback may close its own monitor. Waiting for that callback would
-  // deadlock; it will decrement the in-flight count before returning.
-  const std::size_t current_callback_count =
-      active_monitor_callback == this ? 1U : 0U;
-  callback_finished_.wait(lock, [this, current_callback_count] {
-    return callbacks_in_flight_ <= current_callback_count;
-  });
+  const auto state = state_;
+  std::lock_guard lock{state->mutex};
+  state->stopped = true;
+  state->started = false;
+  state->callback = {};
 }
 
 bool AudioRouteMonitor::notify(AudioRouteEvent event) {
+  const auto state = state_;
   Callback callback;
   {
-    std::lock_guard lock{mutex_};
-    if (!started_ || stopped_ || !callback_)
+    std::lock_guard lock{state->mutex};
+    if (!state->started || state->stopped || !state->callback)
       return false;
-    if (has_last_event_sequence_ &&
-        event.event_sequence <= last_event_sequence_)
+    if (state->has_last_event_sequence &&
+        event.event_sequence <= state->last_event_sequence)
       return false;
 
-    last_event_sequence_ = event.event_sequence;
-    has_last_event_sequence_ = true;
-    ++callbacks_in_flight_;
-    callback = callback_;
+    state->last_event_sequence = event.event_sequence;
+    state->has_last_event_sequence = true;
+    callback = state->callback;
   }
 
-  const auto previous_monitor = active_monitor_callback;
-  active_monitor_callback = this;
-  try {
-    callback(event);
-  } catch (...) {
-    active_monitor_callback = previous_monitor;
-    complete_callback();
-    throw;
-  }
-  active_monitor_callback = previous_monitor;
-  complete_callback();
+  callback(event);
   return true;
 }
 
 bool AudioRouteMonitor::accepting() const noexcept {
-  std::lock_guard lock{mutex_};
-  return started_ && !stopped_ && static_cast<bool>(callback_);
-}
-
-void AudioRouteMonitor::complete_callback() noexcept {
-  std::lock_guard lock{mutex_};
-  if (callbacks_in_flight_ != 0)
-    --callbacks_in_flight_;
-  if (callbacks_in_flight_ == 0)
-    callback_finished_.notify_all();
+  const auto state = state_;
+  std::lock_guard lock{state->mutex};
+  return state->started && !state->stopped && static_cast<bool>(state->callback);
 }
 
 AudioRouteController::AudioRouteController(AudioRouteControllerConfig config)
@@ -318,10 +304,15 @@ AudioRouteTransactionResult AudioRouteController::transaction_result(
 
 AudioRouteHandoffResult plan_audio_route_handoff(
     AudioRouteHandoffInput input, FinalDeviceSnapshot final_snapshot) {
-  if ((input.expected_device_instance_id.has_value() &&
-       final_snapshot.device_instance_id != *input.expected_device_instance_id) ||
-      (input.minimum_snapshot_sequence.has_value() &&
-       final_snapshot.snapshot_sequence <= *input.minimum_snapshot_sequence)) {
+  if (input.expected_device_instance_id == 0 ||
+      input.minimum_snapshot_sequence == 0 ||
+      final_snapshot.device_instance_id == 0 ||
+      final_snapshot.snapshot_sequence == 0) {
+    return handoff_state(input, AudioRouteHandoffStatus::invalid_snapshot);
+  }
+
+  if (final_snapshot.device_instance_id != input.expected_device_instance_id ||
+      final_snapshot.snapshot_sequence <= input.minimum_snapshot_sequence) {
     return handoff_state(input, AudioRouteHandoffStatus::stale_snapshot);
   }
 

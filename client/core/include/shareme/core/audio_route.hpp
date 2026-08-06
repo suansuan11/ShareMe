@@ -4,11 +4,10 @@
 #include "shareme/core/movie_audio_clock.hpp"
 
 #include <chrono>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <mutex>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -46,7 +45,7 @@ class AudioRouteMonitor final {
  public:
   using Callback = std::function<void(AudioRouteEvent)>;
 
-  AudioRouteMonitor() = default;
+  AudioRouteMonitor();
   ~AudioRouteMonitor();
 
   AudioRouteMonitor(const AudioRouteMonitor &) = delete;
@@ -57,6 +56,12 @@ class AudioRouteMonitor final {
   // A monitor has one start/stop lifetime. A stopped monitor cannot be
   // restarted, which keeps late native notifications fail-closed.
   [[nodiscard]] bool start(Callback callback);
+
+  // stop() closes ingress and returns without waiting for an admitted callback.
+  // notify() invokes callbacks synchronously, and an admitted callback retains
+  // the monitor's control state until it returns. Callback code must therefore
+  // be bounded and must not access the monitor object after its owner destroys
+  // it; the monitor's own state remains lifetime-safe during that callback.
   void stop() noexcept;
 
   // Adapters use notify to feed value events. Delivery is synchronous and
@@ -65,16 +70,8 @@ class AudioRouteMonitor final {
   [[nodiscard]] bool accepting() const noexcept;
 
  private:
-  void complete_callback() noexcept;
-
-  mutable std::mutex mutex_;
-  std::condition_variable callback_finished_;
-  Callback callback_;
-  AudioRouteEventSequence last_event_sequence_{};
-  std::size_t callbacks_in_flight_{};
-  bool has_last_event_sequence_{false};
-  bool started_{false};
-  bool stopped_{false};
+  struct State;
+  std::shared_ptr<State> state_;
 };
 
 struct AudioRouteCandidate {
@@ -192,8 +189,9 @@ enum class AudioRouteHandoffStatus : std::uint8_t {
 };
 
 struct AudioRouteHandoffInput {
-  std::optional<AudioRouteDeviceId> expected_device_instance_id{};
-  std::optional<std::uint64_t> minimum_snapshot_sequence{};
+  // Both guards are required for every handoff plan. Zero is invalid.
+  AudioRouteDeviceId expected_device_instance_id{};
+  std::uint64_t minimum_snapshot_sequence{};
   std::uint64_t last_device_consumed_frames{};
   std::uint64_t logical_consumed_frames{};
   std::uint64_t renderer_clock_epoch{};
@@ -253,9 +251,9 @@ evaluate_audio_route_video_policy(AudioRouteVideoPolicyInput input) noexcept {
       .route_transition = true,
       .clock_blocked = input.stale_pre_switch_clock || !input.new_clock_locked ||
           bound_reached,
-      .correction_allowed = input.correction_requested &&
-          input.new_clock_locked && !input.stale_pre_switch_clock &&
-          !bound_reached,
+      // Task 3.1 records route policy state only; correction remains disabled
+      // until a later task explicitly wires and gates production behavior.
+      .correction_allowed = false,
   };
 }
 
