@@ -47,7 +47,9 @@ void MovieVideoPlayoutAdapter::shutdown() noexcept {
 MovieVideoPlayoutResult MovieVideoPlayoutAdapter::submit(
     const webrtc::VideoFrame &frame,
     std::optional<shareme::core::VideoFrameTiming> timing) {
-  std::lock_guard lock(mutex_);
+  std::unique_lock lock(mutex_, std::try_to_lock);
+  if (!lock.owns_lock())
+    return {};
   if (ingress_closed_)
     return {};
   if (!timing) {

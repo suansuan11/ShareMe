@@ -149,3 +149,72 @@ commit is the rollback point for any future experiment.
 - Stage 2B remains intentionally blocked until a shared correlation value or
   separately approved estimator exists. No drift or hard-resync measurement was
   started from this branch.
+
+## Review-Fix Round 1
+
+Status: VERIFIED_WITH_CONCERNS
+Platform: macOS Darwin arm64
+
+The first review-fix round addressed all five findings without changing the
+Stage 2A scope or enabling Stage 2B correction:
+
+- `MovieAudioCallbackSink` now admits PCM callbacks through an in-flight count
+  and `close_and_wait()` barrier. `MovieAudioPeer::stop()` closes and waits for
+  the sink before removing the WebRTC sink or allowing the peer implementation
+  to be destroyed. The direct sink test blocks an active callback and proves
+  that close cannot complete until the callback leaves.
+- `MovieVideoPlayoutSchedulerConfig::observational()` names the production
+  default. The controller passes that configuration explicitly; pure policy
+  tests continue to use `apply_policy=true` and production remains
+  pass-through.
+- `MovieVideoPlayoutAdapter::submit()` uses `std::try_to_lock` and returns a
+  pass-through result when the adapter mutex is busy. A blocking `ToI420()` test
+  proves a concurrent submit does not wait behind conversion.
+- The stall-test audio output now consumes 480 frames per snapshot, enforces a
+  960-frame device queue, and returns `would_block` at capacity. The 500 ms and
+  2 s tests assert consumption, logical progress, bounded device queue, and
+  backpressure without discontinuity.
+- Controller startup now checks `activate_output()`, reports
+  `movie-audio-output-activation-failed`, avoids starting the audio pump and
+  movie peer when output activation fails, and preserves the failure status.
+
+### Review-Fix TDD Evidence
+
+The RED checks were observed before the implementation:
+
+- the scheduler target failed because the named observational configuration did
+  not exist;
+- the video adapter test failed at the concurrent-submit completion assertion;
+- the CLI contract failed because the controller did not name observational
+  mode or inspect activation status; and
+- the direct callback-sink test failed to compile because the explicit barrier
+  did not exist.
+
+After the implementation, the focused command passed all four targets:
+
+```text
+ctest --test-dir build/movie-call-dev --output-on-failure \
+  -R '^(movie_audio_peer|video_preview_adapter|movie_video_scheduler|rtc_demo_cli_contract)$'
+100% tests passed, 0 tests failed out of 4
+```
+
+### Review-Fix Verification
+
+- Full configured build: `cmake --build --preset build-movie-call-dev --parallel 4`,
+  completed through `[35/35]`.
+- Full configured CTest:
+  `ctest --test-dir build/movie-call-dev --output-on-failure`, passed `57/57`
+  in `30.20 sec`.
+- Required registered contracts passed `3/3`:
+  `rtc_demo_cli_contract`, `movie_drift_study_contract`, and
+  `movie_performance_study_contract`.
+- `git diff --check`: passed with no output.
+- Portable scan: `client/core/include` and `client/core/src` reported
+  `portable client/core forbidden-header scan: no matches`.
+- The repository-external WebRTC cache at
+  `/Users/dio/Library/Caches/ShareMe/webrtc` was preserved and used read-only.
+
+Windows native media behavior, live native output, and physical acoustic or
+display synchronization remain environment-dependent and are not claimed by
+this macOS review-fix verification. Stage 2B correction remains unimplemented
+and disabled.

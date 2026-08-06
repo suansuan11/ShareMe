@@ -151,7 +151,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
       performance_counters_enabled_(
           std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
   movie_video_playout_adapter_ =
-      std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(this);
+      std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(
+          this,
+          shareme::core::MovieVideoPlayoutSchedulerConfig::observational());
   movie_video_playout_adapter_->set_submitted_callback(
       [this](std::uint32_t timestamp) {
     performance_sink_submissions_.fetch_add(1, std::memory_order_relaxed);
@@ -540,14 +542,24 @@ void RtcDemoController::startPeer() {
       failDriftScenario(QStringLiteral("peer-start-failure"));
     return;
   }
+  bool movie_audio_output_ready = true;
   if (movie_audio_renderer_) {
-    static_cast<void>(movie_audio_renderer_->activate_output(
-        std::make_unique<QtAudioOutputDevice>()));
+    const auto activation = movie_audio_renderer_->activate_output(
+        std::make_unique<QtAudioOutputDevice>());
+    if (activation.status != shareme::core::ActivationStatus::activated) {
+      movie_audio_output_ready = false;
+      recordDriftError("movie-audio-output-activation-failure");
+      setStatus(QStringLiteral("movie-audio-output-activation-failed"));
+      if (!drift_scenario_name_.isEmpty())
+        failDriftScenario(QStringLiteral("movie-audio-output-activation-failure"));
+    }
+  }
+  if (movie_audio_renderer_ && movie_audio_output_ready) {
     scheduler_started_at_ = std::chrono::steady_clock::now();
     scheduler_observation_sequence_ = 1;
     movie_audio_pump_timer_.start();
   }
-  if (movie_peer_ && movie_peer_->start()) {
+  if (movie_peer_ && movie_audio_output_ready && movie_peer_->start()) {
     movie_waiter_ = std::jthread([this] {
       const auto result = movie_peer_->wait(std::chrono::seconds(15));
       if (!result.error.empty()) {
@@ -559,13 +571,14 @@ void RtcDemoController::startPeer() {
             }, Qt::QueuedConnection);
       }
     });
-  } else if (movie_peer_) {
+  } else if (movie_peer_ && movie_audio_output_ready) {
     recordDriftError("movie-audio-start-failure");
     setStatus(QStringLiteral("movie-audio-start-failed"));
     if (!drift_scenario_name_.isEmpty())
       failDriftScenario(QStringLiteral("movie-audio-start-failure"));
   }
-  setStatus(QStringLiteral("negotiating"));
+  if (movie_audio_output_ready)
+    setStatus(QStringLiteral("negotiating"));
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
     refreshHostPlayback();
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())

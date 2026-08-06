@@ -96,6 +96,11 @@ struct VideoSchedulerSnapshot {
 };
 
 struct MovieVideoPlayoutSchedulerConfig {
+  [[nodiscard]] static constexpr MovieVideoPlayoutSchedulerConfig
+  observational() noexcept {
+    return {};
+  }
+
   bool apply_policy{false};
 };
 

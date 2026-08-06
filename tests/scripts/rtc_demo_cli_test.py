@@ -231,6 +231,15 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn('"viewer-voice"', peer)
         self.assertIn("SetAudioPlayout(false)", peer)
 
+    def test_controller_keeps_video_correction_observational(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("MovieVideoPlayoutSchedulerConfig::observational()", source)
+        self.assertIn("activation.status", source)
+        self.assertIn("movie_audio_output_ready = false", source)
+        self.assertIn("movie-audio-output-activation-failed", source)
+        self.assertIn("if (movie_audio_renderer_ && movie_audio_output_ready)", source)
+        self.assertNotIn(".apply_policy = true", source)
+
     def test_controller_teardown_is_dependency_safe(self):
         source = self.controller_source.read_text(encoding="utf-8")
         start = source.index("void RtcDemoController::stopPeer()")

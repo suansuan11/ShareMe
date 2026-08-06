@@ -350,6 +350,12 @@ void observational_mode_never_applies_policy() {
   REQUIRE(scheduler.snapshot().applied_action == VideoAppliedAction::pass_through);
 }
 
+void observational_configuration_is_explicit() {
+  const auto config =
+      shareme::core::MovieVideoPlayoutSchedulerConfig::observational();
+  REQUIRE(!config.apply_policy);
+}
+
 } // namespace
 
 int main() {
@@ -362,5 +368,6 @@ int main() {
   generation_and_route_resets_release_held_tokens();
   shutdown_releases_held_tokens();
   observational_mode_never_applies_policy();
+  observational_configuration_is_explicit();
   return EXIT_SUCCESS;
 }

@@ -8,18 +8,24 @@
 #include <QVideoSink>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <span>
+#include <thread>
 #include <utility>
 #include <vector>
 
+#include "api/ref_counted_base.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_frame_buffer.h"
 
 namespace {
 
@@ -35,6 +41,8 @@ void require(bool condition, const char* expression, int line) {
 
 class ContinuityAudioOutput final : public shareme::core::AudioOutputDevice {
  public:
+  static constexpr std::uint64_t kDeviceQueueCapacityFrames = 960;
+
   shareme::core::OpenResult open(
       shareme::core::AudioOutputFormat) override {
     opened_ = true;
@@ -52,17 +60,26 @@ class ContinuityAudioOutput final : public shareme::core::AudioOutputDevice {
       return {.status = shareme::core::WriteStatus::failed,
               .failure_category =
                   shareme::core::PlaybackCategory::audio_output_device_lost};
-    accepted_frames_ += pcm.frame_count;
+    const auto queued_frames = accepted_frames_ - consumed_frames_;
+    if (queued_frames >= kDeviceQueueCapacityFrames) {
+      ++would_block_count_;
+      return {.status = shareme::core::WriteStatus::would_block};
+    }
+    const auto accepted = std::min(
+        pcm.frame_count, kDeviceQueueCapacityFrames - queued_frames);
+    accepted_frames_ += accepted;
     return {.status = shareme::core::WriteStatus::accepted,
-            .accepted_frames = pcm.frame_count};
+            .accepted_frames = accepted};
   }
 
   shareme::core::AudioDeviceSnapshot snapshot() override {
+    if (active_)
+      consumed_frames_ = std::min(accepted_frames_, consumed_frames_ + 480);
     return {.device_instance_id = 1,
             .snapshot_sequence = ++snapshot_sequence_,
             .accepted_frames_total = accepted_frames_,
-            .device_consumed_frames_total = 0,
-            .device_queue_frames = accepted_frames_,
+            .device_consumed_frames_total = consumed_frames_,
+            .device_queue_frames = accepted_frames_ - consumed_frames_,
             .active = active_};
   }
 
@@ -81,12 +98,54 @@ class ContinuityAudioOutput final : public shareme::core::AudioOutputDevice {
 
   void pause() override { active_ = false; }
   void stop() override { active_ = false; }
+  [[nodiscard]] std::uint64_t would_block_count() const noexcept {
+    return would_block_count_;
+  }
 
  private:
   std::uint64_t accepted_frames_ = 0;
+  std::uint64_t consumed_frames_ = 0;
   std::uint64_t snapshot_sequence_ = 0;
+  std::uint64_t would_block_count_ = 0;
   bool opened_ = false;
   bool active_ = false;
+};
+
+struct BlockingVideoState {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool entered = false;
+  bool release = false;
+};
+
+class BlockingVideoBuffer final : private webrtc::RefCountedBase,
+                                  public webrtc::VideoFrameBuffer {
+ public:
+  explicit BlockingVideoBuffer(std::shared_ptr<BlockingVideoState> state)
+      : state_(std::move(state)), buffer_(webrtc::I420Buffer::Create(4, 4)) {}
+
+  Type type() const override { return Type::kI420; }
+  int width() const override { return buffer_->width(); }
+  int height() const override { return buffer_->height(); }
+
+  webrtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override {
+    std::unique_lock lock(state_->mutex);
+    state_->entered = true;
+    state_->cv.notify_all();
+    state_->cv.wait(lock, [&] { return state_->release; });
+    return buffer_;
+  }
+
+  void AddRef() const override { webrtc::RefCountedBase::AddRef(); }
+  webrtc::RefCountReleaseStatus Release() const override {
+    return webrtc::RefCountedBase::Release();
+  }
+
+ private:
+  ~BlockingVideoBuffer() override = default;
+
+  std::shared_ptr<BlockingVideoState> state_;
+  webrtc::scoped_refptr<webrtc::I420BufferInterface> buffer_;
 };
 
 std::vector<std::byte> audio_bytes() {
@@ -198,6 +257,60 @@ void observational_movie_adapter_preserves_preview_delivery(QGuiApplication& app
   REQUIRE(result.preview.submitted);
   app.processEvents();
   REQUIRE(sink.videoFrame().isValid());
+}
+
+void movie_adapter_submit_does_not_wait_on_conversion_lock(QGuiApplication&) {
+  QVideoSink sink;
+  shareme::tools::MovieVideoPlayoutAdapter adapter(&sink);
+  adapter.set_sink(&sink);
+
+  auto state = std::make_shared<BlockingVideoState>();
+  const webrtc::scoped_refptr<webrtc::VideoFrameBuffer> blocking_buffer(
+      new BlockingVideoBuffer(state));
+  const auto blocked_frame = webrtc::VideoFrame::Builder()
+                                 .set_video_frame_buffer(blocking_buffer)
+                                 .set_timestamp_us(42)
+                                 .set_rtp_timestamp(700)
+                                 .build();
+  std::thread blocked_submit([&] {
+    static_cast<void>(adapter.submit(blocked_frame));
+  });
+  {
+    std::unique_lock lock(state->mutex);
+    REQUIRE(state->cv.wait_for(lock, std::chrono::seconds(2), [&] {
+      return state->entered;
+    }));
+  }
+
+  std::mutex second_mutex;
+  std::condition_variable second_cv;
+  bool second_finished = false;
+  shareme::tools::MovieVideoPlayoutResult second_result;
+  std::thread second_submit([&] {
+    second_result = adapter.submit(frame(701));
+    {
+      std::lock_guard lock(second_mutex);
+      second_finished = true;
+    }
+    second_cv.notify_all();
+  });
+  bool second_completed_without_waiting = false;
+  {
+    std::unique_lock lock(second_mutex);
+    second_completed_without_waiting = second_cv.wait_for(
+        lock, std::chrono::milliseconds(200), [&] { return second_finished; });
+  }
+  {
+    std::lock_guard lock(state->mutex);
+    state->release = true;
+  }
+  state->cv.notify_all();
+  blocked_submit.join();
+  second_submit.join();
+
+  REQUIRE(second_completed_without_waiting);
+  REQUIRE(second_result.disposition ==
+          shareme::core::VideoFrameDisposition::pass_through);
 }
 
 void policy_adapter_releases_held_payloads(QGuiApplication& app) {
@@ -423,7 +536,9 @@ void deterministic_video_stalls_keep_audio_continuous_and_bound_policy(
                                   shareme::core::AudioSampleFormat::signed_int16,
                               .interleaving =
                                   shareme::core::AudioInterleaving::interleaved}}};
-    REQUIRE(renderer.activate_output(std::make_unique<ContinuityAudioOutput>())
+    auto output = std::make_unique<ContinuityAudioOutput>();
+    auto *output_ptr = output.get();
+    REQUIRE(renderer.activate_output(std::move(output))
                 .status == shareme::core::ActivationStatus::activated);
     auto bytes = audio_bytes();
     for (std::uint64_t sequence = 1; sequence <= 4; ++sequence)
@@ -440,6 +555,12 @@ void deterministic_video_stalls_keep_audio_continuous_and_bound_policy(
     const auto after = renderer.snapshot();
     REQUIRE(after.media_frames_enqueued_total ==
             before.media_frames_enqueued_total);
+    REQUIRE(after.device_consumed_frames_total >
+            before.device_consumed_frames_total);
+    REQUIRE(after.logical_consumed_frames > before.logical_consumed_frames);
+    REQUIRE(after.device_queue_frames <=
+            ContinuityAudioOutput::kDeviceQueueCapacityFrames);
+    REQUIRE(output_ptr->would_block_count() > 0);
     REQUIRE(after.discontinuity_count == before.discontinuity_count);
     REQUIRE(after.ready_block_count + after.in_flight_block_count <= 8);
   }
@@ -453,6 +574,7 @@ int main(int argc, char** argv) {
   rejects_without_sink(app);
   keeps_the_i420_buffer_alive_without_copying_planes(app);
   observational_movie_adapter_preserves_preview_delivery(app);
+  movie_adapter_submit_does_not_wait_on_conversion_lock(app);
   policy_adapter_releases_held_payloads(app);
   adapter_releases_older_tokens_before_current(app);
   duplicate_tokens_are_replaced_by_adapter_tokens(app);
