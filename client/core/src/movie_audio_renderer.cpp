@@ -1277,7 +1277,8 @@ struct MovieAudioRenderer::Impl {
     return true;
   }
 
-  void update_device_facts(AudioDeviceSnapshot snapshot) noexcept {
+  void update_device_facts(
+      AudioDeviceSnapshot snapshot, bool consumption_known = true) noexcept {
     if (snapshot.underrun_count >= last_device_underrun_raw_) {
       (void)saturating_add(
           underrun_count_, snapshot.underrun_count - last_device_underrun_raw_);
@@ -1294,11 +1295,15 @@ struct MovieAudioRenderer::Impl {
     }
     last_device_underrun_raw_ = snapshot.underrun_count;
     last_device_discontinuity_raw_ = snapshot.discontinuity_count;
-    last_device_consumed_raw_ = snapshot.device_consumed_frames_total;
+    if (consumption_known) {
+      last_device_consumed_raw_ = snapshot.device_consumed_frames_total;
+      device_consumed_frames_total_ =
+          snapshot.device_consumed_frames_total;
+    } else {
+      snapshot.device_consumed_frames_total = last_device_consumed_raw_;
+    }
     last_device_accepted_raw_ = snapshot.accepted_frames_total;
     last_snapshot_sequence_ = snapshot.snapshot_sequence;
-    device_consumed_frames_total_ =
-        snapshot.device_consumed_frames_total;
     device_snapshot_ = snapshot;
   }
 
@@ -1409,7 +1414,7 @@ struct MovieAudioRenderer::Impl {
       }
       exact_consumption = apply_consumed_frames(consumed_delta);
     }
-    update_device_facts(ordinary);
+    update_device_facts(ordinary, exact_consumption);
     output_active_ = false;
     output_quiesced_ = true;
     output_paused_ = false;

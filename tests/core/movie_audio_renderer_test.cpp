@@ -838,6 +838,53 @@ void failed_candidate_after_public_unknown_quiesce_preserves_old_ownership() {
   REQUIRE(renderer.snapshot().released_pcm_block_count == 1);
 }
 
+void public_unknown_quiesce_preserves_last_proven_consumption_baseline() {
+  MovieAudioRenderer renderer{test_config()};
+  auto old_device = std::make_unique<FakeOutputDevice>(551);
+  auto* old_device_ptr = old_device.get();
+  old_device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 551,
+      .snapshot_sequence = 7,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 8,
+      .device_queue_frames = 2,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = false,
+  };
+  activates(renderer, std::move(old_device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  old_device_ptr->consumed_frames = 4;
+  renderer.pump(MonotonicTime{});
+  REQUIRE(renderer.snapshot().logical_consumed_frames == 4);
+
+  REQUIRE(renderer.quiesce_output().status ==
+          QuiesceStatus::unknown_consumption);
+  old_device_ptr->next_snapshot_sequence = 8;
+
+  auto candidate = std::make_unique<FakeOutputDevice>(552);
+  candidate->open_succeeds = false;
+  REQUIRE(renderer.activate_output(std::move(candidate)).status ==
+          ActivationStatus::failed);
+  REQUIRE(renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().logical_consumed_frames == 4);
+  REQUIRE(renderer.snapshot().device_consumed_frames_total == 4);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 1);
+  REQUIRE(renderer.snapshot().released_pcm_block_count == 0);
+
+  old_device_ptr->consumed_frames = 10;
+  renderer.pump(MonotonicTime{});
+  REQUIRE(renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().logical_consumed_frames == 10);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 0);
+  REQUIRE(renderer.snapshot().released_pcm_block_count == 1);
+}
+
 void output_loss_releases_in_flight_and_marks_unknown() {
   MovieAudioRenderer renderer{test_config()};
   auto device = std::make_unique<FakeOutputDevice>(71);
@@ -1562,6 +1609,7 @@ int main() {
   failed_candidate_open_resumes_old_route_without_generation_change();
   failed_candidate_resumes_old_route_after_unknown_handoff();
   failed_candidate_after_public_unknown_quiesce_preserves_old_ownership();
+  public_unknown_quiesce_preserves_last_proven_consumption_baseline();
   output_loss_releases_in_flight_and_marks_unknown();
   stale_quiesce_resumes_the_same_output();
   malformed_final_identity_is_rejected_as_invalid();
