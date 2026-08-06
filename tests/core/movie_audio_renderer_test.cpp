@@ -865,6 +865,37 @@ void malformed_final_identity_is_rejected_as_invalid() {
   REQUIRE(renderer.snapshot().output_active);
 }
 
+void rejects_exact_snapshot_with_inconsistent_queue_facts() {
+  MovieAudioRenderer renderer{test_config()};
+  auto device = std::make_unique<FakeOutputDevice>(722);
+  auto* device_ptr = device.get();
+  activates(renderer, std::move(device));
+  REQUIRE(enqueue(renderer, 1, 10).status == EnqueueStatus::accepted);
+  renderer.pump(MonotonicTime{});
+  device_ptr->next_snapshot_sequence = 6;
+  device_ptr->final_override = FinalDeviceSnapshot{
+      .device_instance_id = 722,
+      .snapshot_sequence = 5,
+      .accepted_frames_total = 10,
+      .device_consumed_frames_total = 4,
+      .device_queue_frames = 0,
+      .output_latency_frames = std::nullopt,
+      .underrun_count = 0,
+      .discontinuity_count = 0,
+      .last_discontinuity_reason = std::nullopt,
+      .active = false,
+      .quiesced = true,
+      .exact_consumption = true,
+  };
+
+  const auto result = renderer.quiesce_output();
+  REQUIRE(result.status == QuiesceStatus::invalid_snapshot);
+  REQUIRE(device_ptr->active);
+  REQUIRE(renderer.snapshot().output_active);
+  REQUIRE(renderer.snapshot().logical_consumed_frames == 0);
+  REQUIRE(renderer.snapshot().in_flight_block_count == 1);
+}
+
 void exact_handoff_recovers_after_unknown_transition() {
   MovieAudioRenderer renderer{test_config()};
   auto old_device = std::make_unique<FakeOutputDevice>(73);
@@ -1472,6 +1503,7 @@ int main() {
   output_loss_releases_in_flight_and_marks_unknown();
   stale_quiesce_resumes_the_same_output();
   malformed_final_identity_is_rejected_as_invalid();
+  rejects_exact_snapshot_with_inconsistent_queue_facts();
   exact_handoff_recovers_after_unknown_transition();
   rejects_device_accepted_frames_not_written_by_renderer();
   rejects_regressing_device_counters();

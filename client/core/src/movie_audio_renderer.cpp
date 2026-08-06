@@ -1154,10 +1154,26 @@ struct MovieAudioRenderer::Impl {
             snapshot.device_consumed_frames_total,
             snapshot.device_queue_frames) &&
         snapshot.device_consumed_frames_total >= last_device_consumed_raw_ &&
-        snapshot.accepted_frames_total >= last_device_accepted_raw_ &&
-        snapshot.underrun_count >= last_device_underrun_raw_ &&
-        snapshot.discontinuity_count >= last_device_discontinuity_raw_ &&
+         snapshot.accepted_frames_total >= last_device_accepted_raw_ &&
+         snapshot.underrun_count >= last_device_underrun_raw_ &&
+         snapshot.discontinuity_count >= last_device_discontinuity_raw_ &&
         has_renderer_write_provenance(snapshot);
+  }
+
+  [[nodiscard]] bool in_flight_frame_count(
+      std::uint64_t& result) const noexcept {
+    result = 0;
+    for (std::size_t offset = 0; offset < in_flight_count_; ++offset) {
+      const auto index = in_flight_indices_[static_cast<std::size_t>(
+          (in_flight_tail_ + offset) % config_.in_flight_capacity)];
+      const auto& block = slots_[index];
+      if (block.consumed_frames > block.accepted_frames ||
+          !saturating_add(
+              result, block.accepted_frames - block.consumed_frames)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void handle_unknown_output(PlaybackCategory reason) noexcept {
@@ -1354,11 +1370,38 @@ struct MovieAudioRenderer::Impl {
       };
     }
 
+    std::uint64_t in_flight_frames = 0;
+    if (!in_flight_frame_count(in_flight_frames) ||
+        final_snapshot.device_queue_frames > in_flight_frames) {
+      const auto resumed = resume_old_output(device_instance_id_);
+      if (!resumed) {
+        handle_unknown_output(PlaybackCategory::audio_output_failure);
+      }
+      return QuiesceResult{
+          .status = QuiesceStatus::invalid_snapshot,
+          .final_snapshot = final_snapshot,
+          .failure_category = PlaybackCategory::audio_output_failure,
+      };
+    }
+
     bool exact_consumption = final_snapshot.exact_consumption;
     if (exact_consumption) {
       const auto consumed_delta =
           final_snapshot.device_consumed_frames_total -
           last_device_consumed_raw_;
+      const auto expected_consumed_delta =
+          in_flight_frames - final_snapshot.device_queue_frames;
+      if (consumed_delta != expected_consumed_delta) {
+        const auto resumed = resume_old_output(device_instance_id_);
+        if (!resumed) {
+          handle_unknown_output(PlaybackCategory::audio_output_failure);
+        }
+        return QuiesceResult{
+            .status = QuiesceStatus::invalid_snapshot,
+            .final_snapshot = final_snapshot,
+            .failure_category = PlaybackCategory::audio_output_failure,
+        };
+      }
       exact_consumption = apply_consumed_frames(consumed_delta);
     }
     update_device_facts(ordinary);
