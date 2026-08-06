@@ -301,7 +301,9 @@ shareme::core::AudioDeviceSnapshot QtAudioOutputDevice::read_snapshot() {
 
   std::uint64_t queue_frames = 0;
   queue_facts_valid_ = false;
-  if (sink_ != nullptr) {
+  const bool facts_allowed = !controlled_suspension_pending_ &&
+      (active_ || controlled_suspension_) && processed_duration_valid_;
+  if (sink_ != nullptr && facts_allowed) {
     const auto buffer_size = sink_->bufferSize();
     const auto bytes_free = sink_->bytesFree();
     if (buffer_size > 0 && bytes_free >= 0 && bytes_free <= buffer_size) {
