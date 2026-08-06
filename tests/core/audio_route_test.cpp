@@ -96,12 +96,12 @@ void monitor_rejects_stale_and_shutdown_notifications() {
 void monitor_stop_is_bounded_and_safe_during_an_admitted_callback() {
   auto monitor = std::make_unique<AudioRouteMonitor>();
   auto *monitor_pointer = monitor.get();
-  std::atomic<bool> callback_entered{false};
+  std::atomic<bool> callback_admitted{false};
   std::atomic<bool> release_callback{false};
   std::atomic<bool> notify_result{false};
 
   REQUIRE(monitor->start([&](AudioRouteEvent) {
-    callback_entered.store(true, std::memory_order_release);
+    callback_admitted.store(true, std::memory_order_release);
     while (!release_callback.load(std::memory_order_acquire))
       std::this_thread::yield();
   }));
@@ -113,11 +113,16 @@ void monitor_stop_is_bounded_and_safe_during_an_admitted_callback() {
 
   const auto callback_deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds{1};
-  while (!callback_entered.load(std::memory_order_acquire) &&
+  while (!callback_admitted.load(std::memory_order_acquire) &&
          std::chrono::steady_clock::now() < callback_deadline)
     std::this_thread::yield();
   const auto callback_started =
-      callback_entered.load(std::memory_order_acquire);
+      callback_admitted.load(std::memory_order_acquire);
+  if (!callback_started) {
+    release_callback.store(true, std::memory_order_release);
+    notifier.join();
+    REQUIRE(callback_started);
+  }
 
   std::atomic<bool> stop_finished{false};
   std::thread stopper([&] {
@@ -134,14 +139,12 @@ void monitor_stop_is_bounded_and_safe_during_an_admitted_callback() {
   const auto late_notification_rejected =
       !monitor->notify(route_event(2, 11));
 
-  if (bounded_stop)
-    monitor.reset();
+  REQUIRE(bounded_stop);
+  monitor.reset();
   release_callback.store(true, std::memory_order_release);
   stopper.join();
   notifier.join();
 
-  REQUIRE(callback_started);
-  REQUIRE(bounded_stop);
   REQUIRE(late_notification_rejected);
   REQUIRE(notify_result.load(std::memory_order_acquire));
 }

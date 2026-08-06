@@ -1,6 +1,7 @@
 #include "shareme/core/audio_route.hpp"
 
 #include <limits>
+#include <mutex>
 
 namespace shareme::core {
 namespace {
