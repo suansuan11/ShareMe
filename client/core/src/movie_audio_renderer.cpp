@@ -345,9 +345,11 @@ struct MovieAudioRenderer::Impl {
 
       const auto write_view = make_write_view(block, remaining_frames);
       WriteResult result;
+      bool write_threw = false;
       try {
         result = output_->try_write(write_view);
       } catch (...) {
+        write_threw = true;
         result = WriteResult{
             .status = WriteStatus::failed,
             .accepted_frames = 0,
@@ -355,16 +357,21 @@ struct MovieAudioRenderer::Impl {
         };
       }
       last_write_status_ = result.status;
-      if (!is_valid_write_result(result) ||
+      if (write_threw || !is_valid_write_result(result) ||
           (result.status == WriteStatus::accepted &&
            result.accepted_frames > remaining_frames)) {
-        record_discontinuity(PlaybackCategory::audio_output_failure);
+        handle_unknown_output(PlaybackCategory::audio_output_failure);
         break;
       }
       if (result.status == WriteStatus::would_block) {
         break;
       }
       if (result.status == WriteStatus::failed) {
+        if (result.failure_category ==
+            PlaybackCategory::audio_output_device_lost) {
+          handle_unknown_output(PlaybackCategory::audio_output_device_lost);
+          break;
+        }
         record_discontinuity(result.failure_category.value_or(
             PlaybackCategory::audio_output_failure));
         break;
@@ -386,7 +393,9 @@ struct MovieAudioRenderer::Impl {
       ++attempts;
     }
 
-    observe_output_snapshot(monotonic_now);
+    if (output_active_ && output_ != nullptr) {
+      observe_output_snapshot(monotonic_now);
+    }
   }
 
   [[nodiscard]] ActivationResult activate_output(
@@ -464,6 +473,7 @@ struct MovieAudioRenderer::Impl {
     }
 
     const auto old_device_instance_id = device_instance_id_;
+    bool old_handoff_exact = false;
     if (had_old_output && output_active_) {
       const auto quiesce = quiesce_impl();
       if (quiesce.status == QuiesceStatus::stale_snapshot ||
@@ -485,6 +495,40 @@ struct MovieAudioRenderer::Impl {
             .failure_category = PlaybackCategory::audio_output_device_lost,
         };
       }
+      old_handoff_exact = quiesce.status == QuiesceStatus::quiesced;
+    }
+
+    AudioDeviceSnapshot commit_snapshot;
+    try {
+      commit_snapshot = candidate->snapshot();
+    } catch (...) {
+      commit_snapshot.active = false;
+    }
+    const bool candidate_still_valid =
+        is_valid_candidate_snapshot(commit_snapshot) &&
+        commit_snapshot.device_instance_id ==
+            candidate_snapshot.device_instance_id &&
+        commit_snapshot.snapshot_sequence >=
+            candidate_snapshot.snapshot_sequence;
+    if (!candidate_still_valid) {
+      try {
+        candidate->stop();
+      } catch (...) {
+      }
+      if (old_handoff_exact && output_quiesced_ &&
+          restore_exact_old_output_after_candidate_failure()) {
+        return ActivationResult{
+            .status = ActivationStatus::candidate_stale,
+            .failure_category = PlaybackCategory::route_candidate_stale,
+        };
+      }
+      if (had_old_output && output_ != nullptr) {
+        handle_unknown_output(PlaybackCategory::audio_output_device_lost);
+      }
+      return ActivationResult{
+          .status = ActivationStatus::candidate_stale,
+          .failure_category = PlaybackCategory::route_candidate_stale,
+      };
     }
 
     if (output_ != nullptr) {
@@ -496,7 +540,7 @@ struct MovieAudioRenderer::Impl {
     output_ = std::move(candidate);
     output_active_ = true;
     output_quiesced_ = false;
-    set_device_baseline(candidate_snapshot, true);
+    set_device_baseline(commit_snapshot, true);
     if (route_generation_ != std::numeric_limits<std::uint64_t>::max()) {
       ++route_generation_;
     }
@@ -548,6 +592,9 @@ struct MovieAudioRenderer::Impl {
     if (!shutting_down_.compare_exchange_strong(
             expected, true, std::memory_order_acq_rel,
             std::memory_order_acquire)) {
+      while (!shutdown_complete_.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
       return;
     }
     IngressBarrier ingress{*this};
@@ -582,6 +629,7 @@ struct MovieAudioRenderer::Impl {
     in_flight_count_ = 0;
     replay_tail_ = replay_head_;
     replay_count_ = 0;
+    shutdown_complete_.store(true, std::memory_order_release);
   }
 
   [[nodiscard]] MovieAudioRendererSnapshot snapshot() const noexcept {
@@ -947,6 +995,15 @@ struct MovieAudioRenderer::Impl {
     rebuild_after_handoff(false);
   }
 
+  [[nodiscard]] bool restore_exact_old_output_after_candidate_failure()
+      noexcept {
+    if (output_ == nullptr) {
+      return false;
+    }
+    rebuild_after_handoff(false);
+    return resume_old_output(device_instance_id_);
+  }
+
   void observe_output_snapshot(MonotonicTime monotonic_now) {
     if (output_ == nullptr) {
       return;
@@ -1038,8 +1095,10 @@ struct MovieAudioRenderer::Impl {
       const auto new_events = snapshot.discontinuity_count -
           last_device_discontinuity_raw_;
       if (new_events != 0) {
-        record_discontinuity(snapshot.last_discontinuity_reason.value_or(
-            PlaybackCategory::audio_output_failure));
+        record_discontinuity(
+            snapshot.last_discontinuity_reason.value_or(
+                PlaybackCategory::audio_output_failure),
+            new_events);
       }
     }
     last_device_underrun_raw_ = snapshot.underrun_count;
@@ -1302,6 +1361,10 @@ struct MovieAudioRenderer::Impl {
     };
     const auto result = clock_.observe(observation, monotonic_now);
     renderer_clock_epoch_ = result.renderer_clock_epoch;
+    if (consumption_known && !discontinuity && !underrun &&
+        result.confidence != ClockConfidence::invalid) {
+      confidence_invalidated_.store(false, std::memory_order_release);
+    }
   }
 
   [[nodiscard]] MonotonicTime clock_time() const noexcept {
@@ -1311,8 +1374,9 @@ struct MovieAudioRenderer::Impl {
     return std::chrono::steady_clock::now();
   }
 
-  void record_discontinuity(PlaybackCategory reason) noexcept {
-    saturating_atomic_add(discontinuity_count_, 1);
+  void record_discontinuity(
+      PlaybackCategory reason, std::uint64_t count = 1) noexcept {
+    saturating_atomic_add(discontinuity_count_, count);
     last_discontinuity_reason_.store(reason, std::memory_order_release);
     has_discontinuity_reason_.store(true, std::memory_order_release);
     confidence_invalidated_.store(true, std::memory_order_release);
@@ -1326,6 +1390,8 @@ struct MovieAudioRenderer::Impl {
   std::vector<std::size_t> replay_indices_;
   std::vector<std::size_t> rebuild_order_;
 
+  // Ring cursors intentionally use unsigned modulo arithmetic. Their
+  // differences stay bounded by the corresponding fixed-capacity ring.
   std::atomic<std::uint64_t> ready_head_{0};
   std::atomic<std::uint64_t> ready_tail_{0};
   std::uint64_t in_flight_head_ = 0;
@@ -1339,6 +1405,7 @@ struct MovieAudioRenderer::Impl {
   std::atomic<std::uint64_t> callback_lifecycle_{0};
   std::atomic<bool> accepting_callbacks_{true};
   std::atomic<bool> shutting_down_{false};
+  std::atomic<bool> shutdown_complete_{false};
   std::atomic<std::uint64_t> media_frames_enqueued_total_{0};
   std::atomic<std::uint64_t> overflow_count_{0};
   std::atomic<std::uint64_t> discontinuity_count_{0};

@@ -105,6 +105,7 @@ bool QtAudioOutputDevice::start() {
   if (!opened_ || sink_ == nullptr) {
     return false;
   }
+  controlled_suspension_ = false;
   if (sink_->state() == QAudio::SuspendedState) {
     sink_->resume();
   } else {
@@ -113,8 +114,7 @@ bool QtAudioOutputDevice::start() {
   refresh_sink_state();
   if (sink_->error() == QAudio::NoError) {
     const auto state = sink_->state();
-    active_ = io_device_ != nullptr &&
-        (state == QAudio::ActiveState || state == QAudio::IdleState);
+    active_ = io_device_ != nullptr && state == QAudio::ActiveState;
   }
   return active_;
 }
@@ -235,6 +235,8 @@ shareme::core::AudioDeviceSnapshot QtAudioOutputDevice::snapshot() {
 
 shareme::core::FinalDeviceSnapshot
 QtAudioOutputDevice::quiesce_and_snapshot() {
+  controlled_suspension_ = sink_ != nullptr &&
+      (active_ || sink_->state() == QAudio::SuspendedState);
   if (sink_ != nullptr && active_) {
     sink_->suspend();
   }
@@ -257,6 +259,7 @@ QtAudioOutputDevice::quiesce_and_snapshot() {
 }
 
 void QtAudioOutputDevice::pause() {
+  controlled_suspension_ = sink_ != nullptr;
   if (sink_ != nullptr && active_) {
     sink_->suspend();
   }
@@ -269,12 +272,21 @@ void QtAudioOutputDevice::stop() {
   }
   io_device_ = nullptr;
   active_ = false;
+  controlled_suspension_ = false;
+  processed_duration_valid_ = false;
+  queue_facts_valid_ = false;
   opened_ = false;
 }
 
 shareme::core::AudioDeviceSnapshot QtAudioOutputDevice::read_snapshot() {
   refresh_sink_state();
-  std::uint64_t consumed = processed_frames();
+  std::uint64_t consumed = device_consumed_frames_total_;
+  if (active_ || controlled_suspension_) {
+    consumed = processed_frames();
+  } else {
+    processed_duration_valid_ = false;
+    queue_facts_valid_ = false;
+  }
   if (consumed > accepted_frames_total_) {
     consumed = accepted_frames_total_;
   }
@@ -328,6 +340,7 @@ std::uint64_t QtAudioOutputDevice::processed_frames() noexcept {
   if (processed_usecs < 0 ||
       static_cast<std::uint64_t>(processed_usecs) < last_processed_usecs_) {
     processed_duration_valid_ = false;
+    active_ = false;
     return device_consumed_frames_total_;
   }
   last_processed_usecs_ = static_cast<std::uint64_t>(processed_usecs);
@@ -337,16 +350,19 @@ std::uint64_t QtAudioOutputDevice::processed_frames() noexcept {
   const auto sample_rate = static_cast<std::uint64_t>(format_.sample_rate);
   if (sample_rate == 0) {
     processed_duration_valid_ = false;
+    active_ = false;
     return device_consumed_frames_total_;
   }
   if (whole_seconds > std::numeric_limits<std::uint64_t>::max() / sample_rate) {
     processed_duration_valid_ = false;
+    active_ = false;
     return std::numeric_limits<std::uint64_t>::max();
   }
   auto frames = whole_seconds * sample_rate;
   const auto fractional_frames = remainder_usecs * sample_rate / 1'000'000U;
   if (fractional_frames > std::numeric_limits<std::uint64_t>::max() - frames) {
     processed_duration_valid_ = false;
+    active_ = false;
     return std::numeric_limits<std::uint64_t>::max();
   }
   frames += fractional_frames;
@@ -385,10 +401,20 @@ void QtAudioOutputDevice::refresh_sink_state() noexcept {
   last_audio_error_ = static_cast<int>(QAudio::NoError);
 
   const auto state = sink_->state();
+  if (controlled_suspension_) {
+    if (state != QAudio::SuspendedState) {
+      active_ = false;
+      processed_duration_valid_ = false;
+      queue_facts_valid_ = false;
+    }
+    return;
+  }
   const bool running = io_device_ != nullptr &&
-      (state == QAudio::ActiveState || state == QAudio::IdleState);
+      state == QAudio::ActiveState;
   if (!running) {
     active_ = false;
+    processed_duration_valid_ = false;
+    queue_facts_valid_ = false;
   }
 }
 
@@ -402,6 +428,7 @@ void QtAudioOutputDevice::reset_runtime_state() noexcept {
   last_audio_error_ = -1;
   io_device_ = nullptr;
   active_ = false;
+  controlled_suspension_ = false;
   processed_duration_valid_ = false;
   queue_facts_valid_ = false;
   device_instance_id_ = allocate_device_instance_id();

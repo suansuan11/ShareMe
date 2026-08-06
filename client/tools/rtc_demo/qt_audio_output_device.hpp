@@ -51,6 +51,7 @@ class QtAudioOutputDevice final : public shareme::core::AudioOutputDevice {
   int last_audio_error_ = -1;
   bool opened_ = false;
   bool active_ = false;
+  bool controlled_suspension_ = false;
   bool processed_duration_valid_ = false;
   bool queue_facts_valid_ = false;
 };
