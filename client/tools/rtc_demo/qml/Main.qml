@@ -179,7 +179,9 @@ ApplicationWindow {
 
             Label {
                 anchors.centerIn: parent
-                visible: window.controller.status !== "connected"
+                visible: window.controller.viewer
+                        ? !window.controller.remoteVideoAvailable
+                        : window.controller.status !== "connected"
                 text: window.controller.viewer
                       ? "Waiting for remote video"
                       : "Share this room code with the viewer"

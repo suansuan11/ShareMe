@@ -179,10 +179,15 @@ RtcDemoController::RtcDemoController(QUrl server_url,
           shareme::core::MovieVideoPlayoutSchedulerConfig::observational());
   movie_video_playout_adapter_->set_submitted_callback(
       [this](std::uint32_t timestamp) {
-    performance_sink_submissions_.fetch_add(1, std::memory_order_relaxed);
-    ++drift_sink_submissions_;
-    if (viewer())
-      recordRenderedFrame(timestamp);
+        performance_sink_submissions_.fetch_add(1, std::memory_order_relaxed);
+        ++drift_sink_submissions_;
+        if (viewer()) {
+          if (!remote_video_available_) {
+            remote_video_available_ = true;
+            emit remoteVideoAvailableChanged();
+          }
+          recordRenderedFrame(timestamp);
+        }
       });
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
@@ -277,6 +282,10 @@ QString RtcDemoController::roomId() const { return room_id_; }
 
 bool RtcDemoController::viewer() const noexcept {
   return role_ == shareme::rtc::SignaledRole::viewer;
+}
+
+bool RtcDemoController::remoteVideoAvailable() const noexcept {
+  return remote_video_available_;
 }
 
 QString RtcDemoController::remotePlaybackState() const {

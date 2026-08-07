@@ -537,6 +537,17 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("config.remote_video_frame", source)
         self.assertIn("if (role_ == shareme::rtc::SignaledRole::viewer)", source)
 
+    def test_receiver_waiting_overlay_tracks_submitted_video(self):
+        controller = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        qml = self.qml.read_text(encoding="utf-8")
+        self.assertIn("remoteVideoAvailable", header)
+        self.assertIn("remote_video_available_", controller)
+        self.assertIn("remoteVideoAvailableChanged", controller)
+        overlay = qml[qml.index("anchors.centerIn: parent"):]
+        self.assertIn("remoteVideoAvailable", overlay)
+        self.assertIn("window.controller.viewer", overlay)
+
     def test_controller_records_remote_dimensions_for_performance_counters(self):
         source = self.controller_source.read_text(encoding="utf-8")
         self.assertIn("performance_frame_width_.store", source)

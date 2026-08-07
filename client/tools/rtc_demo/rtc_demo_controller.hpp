@@ -45,6 +45,7 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(QString status READ status NOTIFY statusChanged)
   Q_PROPERTY(QString roomId READ roomId NOTIFY roomIdChanged)
   Q_PROPERTY(bool viewer READ viewer CONSTANT)
+  Q_PROPERTY(bool remoteVideoAvailable READ remoteVideoAvailable NOTIFY remoteVideoAvailableChanged)
   Q_PROPERTY(QString remotePlaybackState READ remotePlaybackState NOTIFY remotePlaybackChanged)
   Q_PROPERTY(qint64 remotePlaybackPositionMs READ remotePlaybackPositionMs NOTIFY remotePlaybackChanged)
   Q_PROPERTY(QString hostPlaybackState READ hostPlaybackState NOTIFY hostPlaybackChanged)
@@ -85,6 +86,7 @@ public:
   [[nodiscard]] QString status() const;
   [[nodiscard]] QString roomId() const;
   [[nodiscard]] bool viewer() const noexcept;
+  [[nodiscard]] bool remoteVideoAvailable() const noexcept;
   [[nodiscard]] QString remotePlaybackState() const;
   [[nodiscard]] qint64 remotePlaybackPositionMs() const noexcept;
   [[nodiscard]] QString hostPlaybackState() const;
@@ -118,6 +120,7 @@ public:
 signals:
   void statusChanged();
   void roomIdChanged();
+  void remoteVideoAvailableChanged();
   void remotePlaybackChanged();
   void hostPlaybackChanged();
   void playoutReportChanged();
@@ -166,6 +169,7 @@ private:
   webrtc::scoped_refptr<shareme::rtc::MovieVideoSource> movie_video_source_;
   QString status_{QStringLiteral("idle")};
   QString room_id_;
+  bool remote_video_available_{false};
   QPointer<QVideoSink> video_sink_;
   QtSignalingClient signaling_;
   std::unique_ptr<shareme::rtc::SignaledPeer> peer_;
