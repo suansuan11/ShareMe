@@ -109,8 +109,28 @@ The accepted Stage 1 handoff `32b7de4` is locally merged into `main` as
 Stage 2B is explicitly gated as `blocked-on-audio-correlation`. No shared
 sender/decoded PCM correlation value or approved bounded-error estimator exists,
 so no Audio Clock Gate measurement, experiment branch, correction wiring, or
-Tasks 2B.1-2B.3 execution is authorized. The next authorized task is Stage 3
-Task 3.1, with `c05fe48` and merge `202090a` as rollback evidence.
+Tasks 2B.1-2B.3 execution is authorized. Stage 3 was completed from this
+rollback boundary; its accepted implementation tip is `a7afce1` and its local
+merge is recorded below.
+
+### Local Stage 3 Integration
+
+The accepted Stage 3 branch `codex/movie-playback-stage3` is locally merged into
+`main` as `41ce8ea` from implementation tip `a7afce1`. Tasks 3.1-3.4 deliver
+portable route transactions, atomic renderer/device handoff, Qt and guarded
+platform route monitors, controller route lifecycle integration, bounded
+route-transition scheduler signaling, and sanitized diagnostics. Stage 2B
+remains blocked and no estimator, Audio Clock Gate, correction, or hard resync
+was added.
+
+Fresh macOS Darwin arm64 verification passed movie-call CTest `59/59`, Qt/core
+CTest `16/16`, direct CLI contracts `34/34`, the configured `shareme_rtc_demo`
+build, the portable-core build, the portable-core forbidden-header scan, and
+`git diff --check`. Qt/CoreAudio compilation and Qt offscreen route/output tests
+are verified on macOS. Windows/Linux native route builds, live endpoint
+switching, physical acoustic continuity, and native callback-failure injection
+remain environment-dependent or unverified. Stage 3 rollback evidence is
+Stage 2A merge `202090a`; no push or deployment occurred.
 
 ### Movie Playback Boundary Stage 1 Handoff
 
