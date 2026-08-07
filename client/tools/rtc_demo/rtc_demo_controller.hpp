@@ -7,8 +7,10 @@
 #include "playback_state.hpp"
 #include "playout_report.hpp"
 #include "shareme/core/drift_metrics.hpp"
+#include "shareme/core/audio_route.hpp"
 #include "shareme/core/movie_audio_renderer.hpp"
 #include "movie_video_playout_adapter.hpp"
+#include "qt_audio_route_monitor.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -149,6 +151,8 @@ private:
   std::unique_ptr<shareme::rtc::SignaledPeer> peer_;
   std::unique_ptr<shareme::rtc::MovieAudioPeer> movie_peer_;
   std::unique_ptr<shareme::core::MovieAudioRenderer> movie_audio_renderer_;
+  std::unique_ptr<QtAudioRouteMonitor> audio_route_monitor_;
+  shareme::core::AudioRouteController audio_route_controller_;
   std::jthread waiter_;
   std::jthread movie_waiter_;
   std::unique_ptr<shareme::tools::MovieVideoPlayoutAdapter>

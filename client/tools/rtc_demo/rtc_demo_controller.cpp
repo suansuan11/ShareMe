@@ -150,6 +150,7 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                  nullptr),
       performance_counters_enabled_(
           std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
+  audio_route_monitor_ = std::make_unique<QtAudioRouteMonitor>();
   movie_video_playout_adapter_ =
       std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(
           this,
@@ -333,6 +334,23 @@ void RtcDemoController::start() {
   if (start_requested_)
     return;
   start_requested_ = true;
+  if (audio_route_monitor_) {
+    const QPointer<RtcDemoController> owner{this};
+    static_cast<void>(audio_route_monitor_->start(
+        [owner](shareme::core::AudioRouteEvent event) {
+          if (!owner)
+            return;
+          QMetaObject::invokeMethod(
+              owner.data(),
+              [owner, event] {
+                if (!owner || owner->shutting_down_)
+                  return;
+                static_cast<void>(owner->audio_route_controller_
+                                      .on_route_notification(event));
+              },
+              Qt::QueuedConnection);
+        }));
+  }
   setStatus(QStringLiteral("connecting"));
   signaling_.connectTo(server_url_);
 }
@@ -635,6 +653,9 @@ void RtcDemoController::stopPeer() noexcept {
   if (shutting_down_)
     return;
   shutting_down_ = true;
+  if (audio_route_monitor_)
+    audio_route_monitor_->stop();
+  audio_route_controller_.shutdown();
   if (movie_audio_renderer_)
     movie_audio_renderer_->close_ingress();
   if (movie_video_playout_adapter_)
