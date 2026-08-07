@@ -1,11 +1,202 @@
 #include "qt_audio_route_monitor.hpp"
 
+#if defined(SHAREME_HAS_PIPEWIRE)
+#include <pipewire/extensions/metadata.h>
+#include <pipewire/keys.h>
+#include <pipewire/pipewire.h>
+#include <spa/utils/dict.h>
+#else
 #include <pulse/pulseaudio.h>
+#endif
 
 #include <atomic>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <thread>
 #include <utility>
 
 namespace {
+
+using shareme::core::AudioRouteChangeKind;
+using shareme::core::AudioRouteDefaultRole;
+
+#if defined(SHAREME_HAS_PIPEWIRE)
+
+class LinuxPipeWireAudioRouteMonitor final : public AudioRouteNativeMonitor {
+ public:
+  explicit LinuxPipeWireAudioRouteMonitor(Callback callback)
+      : callback_{std::move(callback)} {}
+
+  ~LinuxPipeWireAudioRouteMonitor() override { stop(); }
+
+  bool start() override {
+    if (started_)
+      return false;
+
+    pw_init(nullptr, nullptr);
+    initialized_ = true;
+    mainloop_ = pw_main_loop_new(nullptr);
+    if (mainloop_ == nullptr) {
+      stop();
+      return false;
+    }
+    context_ = pw_context_new(pw_main_loop_get_loop(mainloop_), nullptr, 0);
+    if (context_ == nullptr) {
+      stop();
+      return false;
+    }
+    core_ = pw_context_connect(context_, nullptr, 0);
+    if (core_ == nullptr) {
+      stop();
+      return false;
+    }
+    registry_ = pw_core_get_registry(core_, PW_VERSION_REGISTRY, 0);
+    if (registry_ == nullptr) {
+      stop();
+      return false;
+    }
+
+    static const pw_registry_events registry_events{
+        .version = PW_VERSION_REGISTRY_EVENTS,
+        .global = &registry_global,
+        .global_remove = &registry_global_remove,
+    };
+    if (pw_registry_add_listener(registry_, &registry_listener_,
+                                 &registry_events, this) < 0) {
+      stop();
+      return false;
+    }
+
+    accepting_.store(true, std::memory_order_release);
+    worker_ = std::thread([this] { pw_main_loop_run(mainloop_); });
+    started_ = true;
+    return true;
+  }
+
+  void stop() noexcept override {
+    accepting_.store(false, std::memory_order_release);
+    if (mainloop_ != nullptr)
+      pw_main_loop_quit(mainloop_);
+    if (worker_.joinable())
+      worker_.join();
+
+    if (metadata_ != nullptr) {
+      spa_hook_remove(&metadata_listener_);
+      pw_proxy_destroy(reinterpret_cast<pw_proxy *>(metadata_));
+      metadata_ = nullptr;
+    }
+    if (registry_ != nullptr) {
+      spa_hook_remove(&registry_listener_);
+      pw_proxy_destroy(reinterpret_cast<pw_proxy *>(registry_));
+      registry_ = nullptr;
+    }
+    if (core_ != nullptr) {
+      pw_core_disconnect(core_);
+      core_ = nullptr;
+    }
+    if (context_ != nullptr) {
+      pw_context_destroy(context_);
+      context_ = nullptr;
+    }
+    if (mainloop_ != nullptr) {
+      pw_main_loop_destroy(mainloop_);
+      mainloop_ = nullptr;
+    }
+    if (initialized_) {
+      pw_deinit();
+      initialized_ = false;
+    }
+    started_ = false;
+  }
+
+ private:
+  static void registry_global(void *user_data, uint32_t id, uint32_t,
+                              const char *type, uint32_t, const spa_dict *props) {
+    auto *monitor = static_cast<LinuxPipeWireAudioRouteMonitor *>(user_data);
+    if (monitor == nullptr ||
+        !monitor->accepting_.load(std::memory_order_acquire))
+      return;
+
+    if (type != nullptr &&
+        std::strcmp(type, PW_TYPE_INTERFACE_Metadata) == 0 &&
+        monitor->metadata_ == nullptr) {
+      monitor->metadata_id_ = id;
+      monitor->metadata_ = static_cast<pw_metadata *>(pw_registry_bind(
+          monitor->registry_, id, type, PW_VERSION_METADATA, 0));
+      if (monitor->metadata_ != nullptr) {
+        static const pw_metadata_events metadata_events{
+            .version = PW_VERSION_METADATA_EVENTS,
+            .property = &metadata_property,
+        };
+        static_cast<void>(pw_metadata_add_listener(
+            monitor->metadata_, &monitor->metadata_listener_,
+            &metadata_events, monitor));
+      }
+    }
+
+    const auto media_class = props == nullptr
+        ? nullptr
+        : spa_dict_lookup(props, PW_KEY_MEDIA_CLASS);
+    if (media_class != nullptr &&
+        std::strcmp(media_class, "Audio/Sink") == 0)
+      monitor->emit(AudioRouteChangeKind::device_list_changed,
+                    AudioRouteDefaultRole::none);
+  }
+
+  static void registry_global_remove(void *user_data, uint32_t id) {
+    auto *monitor = static_cast<LinuxPipeWireAudioRouteMonitor *>(user_data);
+    if (monitor == nullptr ||
+        !monitor->accepting_.load(std::memory_order_acquire))
+      return;
+    if (id == monitor->metadata_id_ && monitor->metadata_ != nullptr) {
+      spa_hook_remove(&monitor->metadata_listener_);
+      pw_proxy_destroy(reinterpret_cast<pw_proxy *>(monitor->metadata_));
+      monitor->metadata_ = nullptr;
+      monitor->metadata_id_ = std::numeric_limits<std::uint32_t>::max();
+    }
+    monitor->emit(AudioRouteChangeKind::device_list_changed,
+                  AudioRouteDefaultRole::none);
+  }
+
+  static int metadata_property(void *user_data, uint32_t, const char *key,
+                               const char *, const char *) {
+    auto *monitor = static_cast<LinuxPipeWireAudioRouteMonitor *>(user_data);
+    if (monitor == nullptr || key == nullptr ||
+        std::strcmp(key, "default.audio.sink") != 0)
+      return 0;
+    monitor->emit(AudioRouteChangeKind::default_output_changed,
+                  AudioRouteDefaultRole::default_output);
+    return 0;
+  }
+
+  void emit(AudioRouteChangeKind change_kind,
+            AudioRouteDefaultRole default_role) noexcept {
+    if (!accepting_.load(std::memory_order_acquire))
+      return;
+    try {
+      if (callback_)
+        callback_(change_kind, default_role);
+    } catch (...) {
+    }
+  }
+
+  Callback callback_;
+  pw_main_loop *mainloop_{nullptr};
+  pw_context *context_{nullptr};
+  pw_core *core_{nullptr};
+  pw_registry *registry_{nullptr};
+  pw_metadata *metadata_{nullptr};
+  spa_hook registry_listener_{};
+  spa_hook metadata_listener_{};
+  std::thread worker_;
+  std::atomic_bool accepting_{false};
+  std::uint32_t metadata_id_{std::numeric_limits<std::uint32_t>::max()};
+  bool initialized_{false};
+  bool started_{false};
+};
+
+#else
 
 class LinuxAudioRouteMonitor final : public AudioRouteNativeMonitor {
  public:
@@ -138,9 +329,15 @@ class LinuxAudioRouteMonitor final : public AudioRouteNativeMonitor {
   std::atomic_bool accepting_{false};
 };
 
+#endif
+
 } // namespace
 
 std::unique_ptr<AudioRouteNativeMonitor>
 create_audio_route_native_monitor(AudioRouteNativeMonitor::Callback callback) {
+#if defined(SHAREME_HAS_PIPEWIRE)
+  return std::make_unique<LinuxPipeWireAudioRouteMonitor>(std::move(callback));
+#else
   return std::make_unique<LinuxAudioRouteMonitor>(std::move(callback));
+#endif
 }

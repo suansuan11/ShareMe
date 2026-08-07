@@ -4,14 +4,61 @@
 #include <mmdeviceapi.h>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <memory>
+#include <mutex>
 #include <utility>
 
 namespace {
 
+struct WindowsAudioRouteCallbackState {
+  AudioRouteNativeMonitor::Callback callback;
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool accepting{false};
+  std::size_t in_flight{0};
+
+  void open() noexcept {
+    std::lock_guard lock{mutex};
+    accepting = true;
+  }
+
+  void close() noexcept {
+    std::lock_guard lock{mutex};
+    accepting = false;
+  }
+
+  [[nodiscard]] bool admit() noexcept {
+    std::lock_guard lock{mutex};
+    if (!accepting)
+      return false;
+    ++in_flight;
+    return true;
+  }
+
+  void complete() noexcept {
+    std::lock_guard lock{mutex};
+    if (in_flight != 0)
+      --in_flight;
+    if (in_flight == 0)
+      changed.notify_all();
+  }
+
+  [[nodiscard]] bool wait_for_quiescence(
+      std::chrono::milliseconds timeout) noexcept {
+    std::unique_lock lock{mutex};
+    return changed.wait_for(lock, timeout,
+                            [this] { return in_flight == 0; });
+  }
+};
+
 class WindowsAudioRouteNotification final : public IMMNotificationClient {
  public:
-  explicit WindowsAudioRouteNotification(AudioRouteNativeMonitor::Callback callback)
-      : callback_{std::move(callback)} {}
+  explicit WindowsAudioRouteNotification(
+      std::shared_ptr<WindowsAudioRouteCallbackState> state)
+      : state_{std::move(state)} {}
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID interface_id,
                                            void **object) override {
@@ -49,9 +96,16 @@ class WindowsAudioRouteNotification final : public IMMNotificationClient {
 
   HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow, ERole,
                                                    LPCWSTR) override {
-    if (flow == eRender && callback_)
-      callback_(shareme::core::AudioRouteChangeKind::default_output_changed,
-                shareme::core::AudioRouteDefaultRole::default_output);
+    if (flow != eRender || !state_->admit())
+      return S_OK;
+    try {
+      if (state_->callback)
+        state_->callback(
+            shareme::core::AudioRouteChangeKind::default_output_changed,
+            shareme::core::AudioRouteDefaultRole::default_output);
+    } catch (...) {
+    }
+    state_->complete();
     return S_OK;
   }
 
@@ -64,19 +118,23 @@ class WindowsAudioRouteNotification final : public IMMNotificationClient {
   ~WindowsAudioRouteNotification() override = default;
 
   std::atomic<ULONG> reference_count_{1};
-  AudioRouteNativeMonitor::Callback callback_;
+  std::shared_ptr<WindowsAudioRouteCallbackState> state_;
 };
 
 class WindowsAudioRouteMonitor final : public AudioRouteNativeMonitor {
  public:
   explicit WindowsAudioRouteMonitor(Callback callback)
-      : callback_{std::move(callback)} {}
+      : callback_state_{
+            std::make_shared<WindowsAudioRouteCallbackState>()} {
+    callback_state_->callback = std::move(callback);
+  }
 
   ~WindowsAudioRouteMonitor() override { stop(); }
 
   bool start() override {
-    if (started_)
+    if (started_ || registered_)
       return false;
+    callback_state_->open();
 
     const auto com_result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(com_result) && com_result != RPC_E_CHANGED_MODE)
@@ -91,7 +149,7 @@ class WindowsAudioRouteMonitor final : public AudioRouteNativeMonitor {
       return false;
     }
 
-    auto *notification = new WindowsAudioRouteNotification(callback_);
+    auto *notification = new WindowsAudioRouteNotification(callback_state_);
     result = enumerator_->RegisterEndpointNotificationCallback(notification);
     if (FAILED(result)) {
       notification->Release();
@@ -99,23 +157,30 @@ class WindowsAudioRouteMonitor final : public AudioRouteNativeMonitor {
       return false;
     }
     notification_ = notification;
+    registered_ = true;
     started_ = true;
     return true;
   }
 
   void stop() noexcept override {
-    if (enumerator_ != nullptr && notification_ != nullptr)
-      static_cast<void>(enumerator_->UnregisterEndpointNotificationCallback(
-          notification_));
-    if (notification_ != nullptr) {
+    callback_state_->close();
+    if (registered_ && enumerator_ != nullptr && notification_ != nullptr) {
+      last_unregister_status_ =
+          enumerator_->UnregisterEndpointNotificationCallback(notification_);
+      if (SUCCEEDED(last_unregister_status_))
+        registered_ = false;
+    }
+    const auto callbacks_drained = callback_state_->wait_for_quiescence(
+        std::chrono::milliseconds{250});
+    if (!registered_ && callbacks_drained && notification_ != nullptr) {
       notification_->Release();
       notification_ = nullptr;
     }
-    if (enumerator_ != nullptr) {
+    if (!registered_ && enumerator_ != nullptr) {
       enumerator_->Release();
       enumerator_ = nullptr;
     }
-    if (com_initialized_) {
+    if (!registered_ && notification_ == nullptr && com_initialized_) {
       CoUninitialize();
       com_initialized_ = false;
     }
@@ -123,10 +188,12 @@ class WindowsAudioRouteMonitor final : public AudioRouteNativeMonitor {
   }
 
  private:
-  Callback callback_;
+  std::shared_ptr<WindowsAudioRouteCallbackState> callback_state_;
   IMMDeviceEnumerator *enumerator_{nullptr};
   WindowsAudioRouteNotification *notification_{nullptr};
+  HRESULT last_unregister_status_{S_OK};
   bool com_initialized_{false};
+  bool registered_{false};
   bool started_{false};
 };
 

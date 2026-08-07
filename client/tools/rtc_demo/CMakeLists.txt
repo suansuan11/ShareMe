@@ -1,5 +1,6 @@
 set(shareme_rtc_demo_native_route_sources)
 set(shareme_rtc_demo_has_native_route_supplement OFF)
+set(shareme_rtc_demo_linux_audio_backend)
 if(WIN32)
   list(APPEND shareme_rtc_demo_native_route_sources
        windows_audio_route_monitor.cpp)
@@ -16,16 +17,24 @@ elseif(APPLE)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_package(PkgConfig QUIET)
   if(PkgConfig_FOUND)
+    pkg_check_modules(SHAREME_PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
     pkg_check_modules(SHAREME_PULSEAUDIO QUIET IMPORTED_TARGET libpulse)
   endif()
-  if(TARGET PkgConfig::SHAREME_PULSEAUDIO)
+  if(TARGET PkgConfig::SHAREME_PIPEWIRE)
     list(APPEND shareme_rtc_demo_native_route_sources
          linux_audio_route_monitor.cpp)
     set(shareme_rtc_demo_has_native_route_supplement ON)
+    set(shareme_rtc_demo_linux_audio_backend pipewire)
+  elseif(TARGET PkgConfig::SHAREME_PULSEAUDIO)
+    list(APPEND shareme_rtc_demo_native_route_sources
+         linux_audio_route_monitor.cpp)
+    set(shareme_rtc_demo_has_native_route_supplement ON)
+    set(shareme_rtc_demo_linux_audio_backend pulseaudio)
   else()
     message(STATUS
       "ShareMe RTC demo: Linux native audio route supplement disabled; "
-      "libpulse development files are unavailable. Qt QMediaDevices remains enabled.")
+      "libpipewire-0.3 and libpulse development files are unavailable. "
+      "Qt QMediaDevices remains enabled.")
   endif()
 endif()
 
@@ -100,7 +109,14 @@ if(shareme_rtc_demo_has_native_route_supplement)
     target_link_libraries(shareme_rtc_demo PRIVATE Mmdevapi ole32 uuid)
   elseif(APPLE)
     target_link_libraries(shareme_rtc_demo PRIVATE "-framework CoreAudio")
-  elseif(TARGET PkgConfig::SHAREME_PULSEAUDIO)
+  elseif(shareme_rtc_demo_linux_audio_backend STREQUAL "pipewire")
+    target_compile_definitions(
+      shareme_rtc_demo PRIVATE SHAREME_HAS_PIPEWIRE=1
+    )
+    target_link_libraries(
+      shareme_rtc_demo PRIVATE PkgConfig::SHAREME_PIPEWIRE
+    )
+  elseif(shareme_rtc_demo_linux_audio_backend STREQUAL "pulseaudio")
     target_link_libraries(
       shareme_rtc_demo PRIVATE PkgConfig::SHAREME_PULSEAUDIO
     )

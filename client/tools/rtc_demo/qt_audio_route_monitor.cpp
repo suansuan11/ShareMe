@@ -1,10 +1,10 @@
 #include "qt_audio_route_monitor.hpp"
 
 #include <QAudioDevice>
+#include <QCoreApplication>
 #include <QHash>
 #include <QMediaDevices>
 #include <QMetaObject>
-#include <QPointer>
 
 #include <atomic>
 #include <chrono>
@@ -92,6 +92,44 @@ struct QtAudioRouteMonitor::State {
         device.isNull() ? shareme::core::AudioRouteDefaultRole::none
                          : shareme::core::AudioRouteDefaultRole::default_output));
   }
+
+  [[nodiscard]] static bool post_key(
+      QCoreApplication *dispatch_context, std::weak_ptr<State> weak_state,
+      QByteArray device_key, shareme::core::AudioRouteChangeKind change_kind,
+      shareme::core::AudioRouteDefaultRole default_role) {
+    if (dispatch_context == nullptr)
+      return false;
+    return QMetaObject::invokeMethod(
+        dispatch_context,
+        [weak_state, device_key = std::move(device_key), change_kind,
+         default_role] {
+          if (const auto state = weak_state.lock();
+              state && state->is_accepting())
+            static_cast<void>(state->notify_key(device_key, change_kind,
+                                                 default_role));
+        },
+        Qt::QueuedConnection);
+  }
+
+  [[nodiscard]] static bool post_native_change(
+      QCoreApplication *dispatch_context, std::weak_ptr<State> weak_state,
+      shareme::core::AudioRouteChangeKind change_kind,
+      shareme::core::AudioRouteDefaultRole default_role) {
+    if (dispatch_context == nullptr)
+      return false;
+    return QMetaObject::invokeMethod(
+        dispatch_context,
+        [weak_state, change_kind, default_role] {
+          if (const auto state = weak_state.lock();
+              state && state->is_accepting()) {
+            const auto device = QMediaDevices::defaultAudioOutput();
+            static_cast<void>(state->notify_key(
+                device.isNull() ? QByteArray{} : device.id(), change_kind,
+                default_role));
+          }
+        },
+        Qt::QueuedConnection);
+  }
 };
 
 #if !defined(SHAREME_HAS_NATIVE_AUDIO_ROUTE_SUPPLEMENT)
@@ -119,27 +157,13 @@ bool QtAudioRouteMonitor::start(Callback callback) {
   state->observe_qt_outputs();
 
   const auto weak_state = std::weak_ptr<State>{state_};
-  const QPointer<QMediaDevices> context{media_devices_.get()};
+  auto *dispatch_context = QCoreApplication::instance();
   native_monitor_ = create_audio_route_native_monitor(
-      [weak_state, context](shareme::core::AudioRouteChangeKind change_kind,
-                            shareme::core::AudioRouteDefaultRole default_role) {
-        if (!context)
-          return;
-        const auto state = weak_state.lock();
-        if (!state || !state->is_accepting())
-          return;
-        QMetaObject::invokeMethod(
-            context.data(),
-            [weak_state, change_kind, default_role] {
-              if (const auto state = weak_state.lock();
-                  state && state->is_accepting()) {
-                const auto device = QMediaDevices::defaultAudioOutput();
-                static_cast<void>(state->notify_key(
-                    device.isNull() ? QByteArray{} : device.id(), change_kind,
-                    default_role));
-              }
-            },
-            Qt::QueuedConnection);
+      [weak_state, dispatch_context](
+          shareme::core::AudioRouteChangeKind change_kind,
+          shareme::core::AudioRouteDefaultRole default_role) {
+        static_cast<void>(State::post_native_change(
+            dispatch_context, weak_state, change_kind, default_role));
       });
   if (native_monitor_ && !native_monitor_->start())
     native_monitor_.reset();
@@ -164,6 +188,14 @@ bool QtAudioRouteMonitor::notify_for_test(
     QByteArray device_key, shareme::core::AudioRouteChangeKind change_kind,
     shareme::core::AudioRouteDefaultRole default_role) {
   return state_->notify_key(std::move(device_key), change_kind, default_role);
+}
+
+bool QtAudioRouteMonitor::post_for_test(QByteArray device_key) {
+  return State::post_key(QCoreApplication::instance(),
+                         std::weak_ptr<State>{state_}, std::move(device_key),
+                         shareme::core::AudioRouteChangeKind::
+                             default_output_changed,
+                         shareme::core::AudioRouteDefaultRole::default_output);
 }
 
 QMediaDevices *QtAudioRouteMonitor::media_devices_for_test() const noexcept {

@@ -334,14 +334,13 @@ void RtcDemoController::start() {
   if (start_requested_)
     return;
   start_requested_ = true;
-  if (audio_route_monitor_) {
+  auto *dispatch_context = QCoreApplication::instance();
+  if (audio_route_monitor_ && dispatch_context != nullptr) {
     const QPointer<RtcDemoController> owner{this};
     static_cast<void>(audio_route_monitor_->start(
-        [owner](shareme::core::AudioRouteEvent event) {
-          if (!owner)
-            return;
+        [owner, dispatch_context](shareme::core::AudioRouteEvent event) {
           QMetaObject::invokeMethod(
-              owner.data(),
+              dispatch_context,
               [owner, event] {
                 if (!owner || owner->shutting_down_)
                   return;

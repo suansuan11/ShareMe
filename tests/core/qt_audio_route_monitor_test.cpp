@@ -67,10 +67,12 @@ void shutdown_closes_the_qt_monitor_ingress() {
   REQUIRE(monitor.start([&](AudioRouteEvent) { ++callback_count; }));
   REQUIRE(monitor.notify_for_test(QByteArrayLiteral("test-output-b")));
   const auto before_stop = callback_count;
+  REQUIRE(monitor.post_for_test(QByteArrayLiteral("test-output-queued")));
 
   monitor.stop();
   REQUIRE(!monitor.accepting());
   REQUIRE(!monitor.notify_for_test(QByteArrayLiteral("test-output-c")));
+  QCoreApplication::processEvents();
   REQUIRE(!monitor.start([](AudioRouteEvent) {}));
   REQUIRE(callback_count == before_stop);
 }

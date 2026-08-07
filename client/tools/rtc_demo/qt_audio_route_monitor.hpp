@@ -58,6 +58,10 @@ class QtAudioRouteMonitor final {
       shareme::core::AudioRouteDefaultRole default_role =
           shareme::core::AudioRouteDefaultRole::default_output);
 
+  // Queues the same value-only path used by native callbacks. The seam lets
+  // shutdown tests post a notification and close ingress before dispatch.
+  [[nodiscard]] bool post_for_test(QByteArray device_key);
+
   // The returned object is owned by this monitor and is exposed only so the
   // registered Qt signal can be triggered without physical hardware in tests.
   [[nodiscard]] QMediaDevices *media_devices_for_test() const noexcept;
