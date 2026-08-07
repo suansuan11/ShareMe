@@ -1,3 +1,43 @@
+set(shareme_rtc_demo_native_route_sources)
+set(shareme_rtc_demo_has_native_route_supplement OFF)
+set(shareme_rtc_demo_linux_audio_backend)
+if(WIN32)
+  list(APPEND shareme_rtc_demo_native_route_sources
+       windows_audio_route_monitor.cpp)
+  set(shareme_rtc_demo_has_native_route_supplement ON)
+elseif(APPLE)
+  enable_language(OBJCXX)
+  list(APPEND shareme_rtc_demo_native_route_sources
+       macos_audio_route_monitor.mm)
+  set_source_files_properties(
+    macos_audio_route_monitor.mm
+    PROPERTIES COMPILE_OPTIONS "-fblocks"
+  )
+  set(shareme_rtc_demo_has_native_route_supplement ON)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(SHAREME_PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
+    pkg_check_modules(SHAREME_PULSEAUDIO QUIET IMPORTED_TARGET libpulse)
+  endif()
+  if(TARGET PkgConfig::SHAREME_PIPEWIRE)
+    list(APPEND shareme_rtc_demo_native_route_sources
+         linux_audio_route_monitor.cpp)
+    set(shareme_rtc_demo_has_native_route_supplement ON)
+    set(shareme_rtc_demo_linux_audio_backend pipewire)
+  elseif(TARGET PkgConfig::SHAREME_PULSEAUDIO)
+    list(APPEND shareme_rtc_demo_native_route_sources
+         linux_audio_route_monitor.cpp)
+    set(shareme_rtc_demo_has_native_route_supplement ON)
+    set(shareme_rtc_demo_linux_audio_backend pulseaudio)
+  else()
+    message(STATUS
+      "ShareMe RTC demo: Linux native audio route supplement disabled; "
+      "libpipewire-0.3 and libpulse development files are unavailable. "
+      "Qt QMediaDevices remains enabled.")
+  endif()
+endif()
+
 set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
                               playout_report.cpp playout_report.hpp
                               movie_audio_clock_message.cpp movie_audio_clock_message.hpp
@@ -7,7 +47,9 @@ set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
                               video_preview_adapter.cpp video_preview_adapter.hpp
                               movie_video_playout_adapter.cpp movie_video_playout_adapter.hpp
                               qt_audio_output_device.cpp qt_audio_output_device.hpp
-                              rtc_demo_controller.cpp rtc_demo_controller.hpp)
+                              qt_audio_route_monitor.cpp qt_audio_route_monitor.hpp
+                              rtc_demo_controller.cpp rtc_demo_controller.hpp
+                              ${shareme_rtc_demo_native_route_sources})
 if(WIN32)
   list(APPEND shareme_rtc_demo_sources app.manifest)
 endif()
@@ -56,6 +98,29 @@ if(TARGET ShareMe::DesktopRTC)
     shareme_rtc_demo
     PRIVATE SHAREME_HAS_DESKTOP_CAPTURE=1
   )
+endif()
+
+if(shareme_rtc_demo_has_native_route_supplement)
+  target_compile_definitions(
+    shareme_rtc_demo
+    PRIVATE SHAREME_HAS_NATIVE_AUDIO_ROUTE_SUPPLEMENT=1
+  )
+  if(WIN32)
+    target_link_libraries(shareme_rtc_demo PRIVATE Mmdevapi ole32 uuid)
+  elseif(APPLE)
+    target_link_libraries(shareme_rtc_demo PRIVATE "-framework CoreAudio")
+  elseif(shareme_rtc_demo_linux_audio_backend STREQUAL "pipewire")
+    target_compile_definitions(
+      shareme_rtc_demo PRIVATE SHAREME_HAS_PIPEWIRE=1
+    )
+    target_link_libraries(
+      shareme_rtc_demo PRIVATE PkgConfig::SHAREME_PIPEWIRE
+    )
+  elseif(shareme_rtc_demo_linux_audio_backend STREQUAL "pulseaudio")
+    target_link_libraries(
+      shareme_rtc_demo PRIVATE PkgConfig::SHAREME_PULSEAUDIO
+    )
+  endif()
 endif()
 
 shareme_set_project_warnings(shareme_rtc_demo)

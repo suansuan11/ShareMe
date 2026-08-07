@@ -83,6 +83,24 @@ ApplicationWindow {
         }
 
         Label {
+            id: audioDiagnostics
+            Layout.fillWidth: true
+            visible: window.controller.viewer
+            text: "Audio diagnostics: route "
+                  + window.controller.audioRouteGeneration
+                  + " · renderer queue "
+                  + window.controller.audioRendererQueueDurationMs + " ms"
+                  + " · device queue "
+                  + window.controller.audioDeviceQueueDurationMs + " ms"
+                  + " · underruns " + window.controller.audioUnderrunCount
+                  + " · discontinuity "
+                  + window.controller.audioLastDiscontinuityCategory
+                  + " · route monitor "
+                  + window.controller.audioRouteMonitorStatus
+            color: "#b7c8f2"
+        }
+
+        Label {
             Layout.fillWidth: true
             visible: window.controller.viewer
             text: "Host playback: " + window.controller.remotePlaybackState

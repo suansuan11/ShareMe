@@ -1,6 +1,7 @@
 add_library(
   shareme_core
   STATIC
+  src/audio_route.cpp
   src/movie_audio_clock.cpp
   src/movie_audio_pts_mapper.cpp
   src/movie_audio_renderer.cpp

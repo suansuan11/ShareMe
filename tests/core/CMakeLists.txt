@@ -56,6 +56,11 @@ add_test(
   COMMAND shareme_audio_output_contract_test
 )
 
+add_executable(shareme_audio_route_test audio_route_test.cpp)
+target_link_libraries(shareme_audio_route_test PRIVATE ShareMe::Core)
+
+add_test(NAME audio_route COMMAND shareme_audio_route_test)
+
 add_executable(
   shareme_movie_audio_pts_mapper_test
   movie_audio_pts_mapper_test.cpp
@@ -109,5 +114,28 @@ add_test(
 )
 set_tests_properties(
   qt_audio_output_device_offscreen
+  PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
+add_executable(
+  shareme_qt_audio_route_monitor_test
+  qt_audio_route_monitor_test.cpp
+  "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qt_audio_route_monitor.cpp"
+)
+target_include_directories(
+  shareme_qt_audio_route_monitor_test
+  PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+)
+target_link_libraries(
+  shareme_qt_audio_route_monitor_test
+  PRIVATE ShareMe::Core Qt6::Core Qt6::Multimedia
+)
+
+add_test(
+  NAME qt_audio_route_monitor_offscreen
+  COMMAND shareme_qt_audio_route_monitor_test
+)
+set_tests_properties(
+  qt_audio_route_monitor_offscreen
   PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
