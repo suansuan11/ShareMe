@@ -60,6 +60,11 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(QString viewerSuggestedAction READ viewerSuggestedAction NOTIFY playoutReportChanged)
   Q_PROPERTY(QString viewerAppliedAction READ viewerAppliedAction NOTIFY playoutReportChanged)
   Q_PROPERTY(QString audioClockConfidence READ audioClockConfidence NOTIFY playoutReportChanged)
+  Q_PROPERTY(qulonglong audioRouteGeneration READ audioRouteGeneration NOTIFY playoutReportChanged)
+  Q_PROPERTY(qulonglong audioRendererQueueDurationMs READ audioRendererQueueDurationMs NOTIFY playoutReportChanged)
+  Q_PROPERTY(qulonglong audioDeviceQueueDurationMs READ audioDeviceQueueDurationMs NOTIFY playoutReportChanged)
+  Q_PROPERTY(qulonglong audioUnderrunCount READ audioUnderrunCount NOTIFY playoutReportChanged)
+  Q_PROPERTY(QString audioLastDiscontinuityCategory READ audioLastDiscontinuityCategory NOTIFY playoutReportChanged)
   Q_PROPERTY(QString driftScenarioPhase READ driftScenarioPhase NOTIFY driftScenarioChanged)
   Q_PROPERTY(bool driftScenarioActive READ driftScenarioActive NOTIFY driftScenarioChanged)
 
@@ -94,6 +99,11 @@ public:
   [[nodiscard]] QString viewerSuggestedAction() const;
   [[nodiscard]] QString viewerAppliedAction() const;
   [[nodiscard]] QString audioClockConfidence() const;
+  [[nodiscard]] qulonglong audioRouteGeneration() const noexcept;
+  [[nodiscard]] qulonglong audioRendererQueueDurationMs() const noexcept;
+  [[nodiscard]] qulonglong audioDeviceQueueDurationMs() const noexcept;
+  [[nodiscard]] qulonglong audioUnderrunCount() const noexcept;
+  [[nodiscard]] QString audioLastDiscontinuityCategory() const;
   [[nodiscard]] QString driftScenarioPhase() const;
   [[nodiscard]] bool driftScenarioActive() const noexcept;
 
@@ -131,6 +141,11 @@ private:
   void recordDriftError(std::string category, bool notify_viewer = true);
   void emitDriftDiagnostics();
   void emitPerformanceCounters();
+  void startAudioRouteMonitor();
+  void handleAudioRouteEvent(shareme::core::AudioRouteEvent event);
+  void refreshAudioDiagnostics(
+      const shareme::core::MovieAudioRendererSnapshot &audio,
+      const shareme::core::VideoSchedulerSnapshot &scheduler);
 
   QUrl server_url_;
   shareme::rtc::SignaledRole role_;
@@ -227,6 +242,12 @@ private:
   QString viewer_suggested_action_{QStringLiteral("none")};
   QString viewer_applied_action_{QStringLiteral("none")};
   QString audio_clock_confidence_{QStringLiteral("unavailable")};
+  qulonglong audio_route_generation_{0};
+  qulonglong audio_renderer_queue_duration_ms_{0};
+  qulonglong audio_device_queue_duration_ms_{0};
+  qulonglong audio_underrun_count_{0};
+  QString audio_last_discontinuity_category_{QStringLiteral("none")};
+  bool audio_route_transition_pending_{false};
   bool peer_started_{false};
   bool movie_audio_output_ready_{true};
   bool start_requested_{false};

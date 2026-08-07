@@ -287,6 +287,8 @@ class RtcDemoCliTest(unittest.TestCase):
         teardown = source[start:end]
         ordered_markers = [
             "shutting_down_ = true",
+            "audio_route_monitor_->stop",
+            "audio_route_controller_.shutdown",
             "movie_audio_renderer_->close_ingress",
             "movie_video_playout_adapter_->close_ingress",
             "movie_audio_pump_timer_.stop",
@@ -300,6 +302,88 @@ class RtcDemoCliTest(unittest.TestCase):
         ]
         positions = [teardown.index(marker) for marker in ordered_markers]
         self.assertEqual(positions, sorted(positions))
+
+    def test_controller_starts_route_monitor_after_renderer_activation(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        start_method = source.index("void RtcDemoController::start()")
+        start_peer = source.index("void RtcDemoController::startPeer()")
+        self.assertNotIn(
+            "audio_route_monitor_->start",
+            source[start_method:start_peer],
+        )
+
+        stop_peer = source.index("void RtcDemoController::stopPeer()", start_peer)
+        activation = source.index("movie_audio_renderer_->activate_output", start_peer)
+        self.assertLess(activation, stop_peer)
+        monitor_start = source.index("startAudioRouteMonitor();", activation)
+        self.assertLess(activation, monitor_start)
+        monitor_helper = source.index("void RtcDemoController::startAudioRouteMonitor")
+        self.assertIn("audio_route_monitor_->start", source[monitor_helper:activation])
+        self.assertIn("audio_route_controller_.on_route_notification", source)
+        self.assertIn("movie_audio_renderer_->activate_output", source)
+        self.assertIn("complete_candidate_activation", source)
+        self.assertIn("audio_route_transition_pending_", source)
+        pump_start = source.index("void RtcDemoController::pumpMovieAudio()")
+        pump_end = source.index("\nvoid RtcDemoController::recordRenderedFrame", pump_start)
+        pump = source[pump_start:pump_end]
+        self.assertIn("audio_route_transition_pending_ = false", pump)
+        self.assertIn(".route_transition = route_transition", pump)
+
+    def test_route_replacement_preserves_independent_peer_paths(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        start = source.index("void RtcDemoController::handleAudioRouteEvent")
+        end = source.index("\nvoid RtcDemoController::startPeer()", start)
+        route_handler = source[start:end]
+        self.assertIn("AudioRouteActivationResult", route_handler)
+        self.assertIn("complete_candidate_activation", route_handler)
+        self.assertNotIn("movie_peer_->stop", route_handler)
+        self.assertNotIn("peer_->stop", route_handler)
+        self.assertNotIn("movie_peer_.reset", route_handler)
+        self.assertNotIn("peer_.reset", route_handler)
+
+    def test_controller_exposes_route_renderer_and_scheduler_diagnostics(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        qml = self.qml.read_text(encoding="utf-8")
+        for property_name in (
+            "audioRouteGeneration",
+            "audioRendererQueueDurationMs",
+            "audioDeviceQueueDurationMs",
+            "audioUnderrunCount",
+            "audioLastDiscontinuityCategory",
+        ):
+            self.assertIn(property_name, header)
+            self.assertIn(property_name, qml)
+        for field in (
+            "route_generation",
+            "clock_confidence",
+            "renderer_queue_duration",
+            "device_queue_duration",
+            "underrun_count",
+            "last_discontinuity_reason",
+        ):
+            self.assertIn(field, source)
+        self.assertIn("playback_category_name", source)
+        self.assertIn("viewerSuggestedAction", qml)
+        self.assertIn("viewerAppliedAction", qml)
+
+    def test_route_diagnostics_do_not_expose_identifiers_or_wire_fields(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        qml = self.qml.read_text(encoding="utf-8")
+        start = source.index("void RtcDemoController::refreshAudioDiagnostics")
+        end = source.index("\nvoid RtcDemoController::publishPlayoutReport", start)
+        diagnostics = source[start:end]
+        for forbidden in (
+            "stable_device_id",
+            "device_instance_id",
+            "room_id_",
+            "sdp",
+            "candidate",
+            "movie_path_",
+        ):
+            self.assertNotIn(forbidden, diagnostics)
+        qml_diagnostics = qml[qml.index("id: audioDiagnostics") :]
+        self.assertNotIn("roomId", qml_diagnostics)
 
     def test_controller_routes_host_local_and_viewer_remote_video(self):
         source = self.controller_source.read_text(encoding="utf-8")
