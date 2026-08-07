@@ -744,12 +744,14 @@ void unconfirmed_quiescence_blocks_candidate_activation() {
   old_device_ptr->backend_active_after_unconfirmed_quiesce = true;
   activates(renderer, std::move(old_device));
 
+  std::vector<std::string> candidate_lifecycle;
   auto candidate = std::make_unique<FakeOutputDevice>(548);
-  auto* candidate_ptr = candidate.get();
+  candidate->shared_lifecycle = &candidate_lifecycle;
   const auto result = renderer.activate_output(std::move(candidate));
 
   REQUIRE(result.status == ActivationStatus::failed);
-  REQUIRE(candidate_ptr->open_calls == 0);
+  REQUIRE(std::find(candidate_lifecycle.begin(), candidate_lifecycle.end(),
+                    "open") == candidate_lifecycle.end());
   REQUIRE(old_device_ptr->quiesce_calls == 1);
   REQUIRE(old_device_ptr->active);
   REQUIRE(renderer.snapshot().output_active);
