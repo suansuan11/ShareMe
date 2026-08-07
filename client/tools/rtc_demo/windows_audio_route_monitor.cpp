@@ -55,7 +55,7 @@ class WindowsAudioRouteNotification final : public IMMNotificationClient {
     return S_OK;
   }
 
-  HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY &)
+  HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY)
       override {
     return S_OK;
   }
