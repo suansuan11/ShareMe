@@ -239,7 +239,8 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("activation.status", source)
         self.assertIn("movie_audio_output_ready_ = false", source)
         self.assertIn("movie-audio-output-activation-failed", source)
-        self.assertIn("if (movie_audio_renderer_ && movie_audio_output_ready_)", source)
+        self.assertIn("startMovieAudioViewerPath", source)
+        self.assertIn("markAudioRouteTransition", source)
         self.assertNotIn(".apply_policy = true", source)
 
     def test_controller_preserves_local_output_failure_status(self):
@@ -340,6 +341,84 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertNotIn("peer_->stop", route_handler)
         self.assertNotIn("movie_peer_.reset", route_handler)
         self.assertNotIn("peer_.reset", route_handler)
+
+    def test_route_transition_blocks_scheduler_before_remote_video_submission(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        remote_sink = (self.controller_source.parent.parent.parent / "rtc" /
+                       "webrtc" / "src" / "remote_video_sink.hpp").read_text(
+                           encoding="utf-8"
+                       )
+        route_start = source.index("void RtcDemoController::handleAudioRouteEvent")
+        route_end = source.index("\nvoid RtcDemoController::startPeer()", route_start)
+        route_handler = source[route_start:route_end]
+        self.assertLess(
+            route_handler.index("markAudioRouteTransition()"),
+            route_handler.index("movie_audio_renderer_->activate_output"),
+        )
+        transition_start = source.index(
+            "void RtcDemoController::markAudioRouteTransition"
+        )
+        transition_end = source.index(
+            "\nvoid RtcDemoController::handleAudioRouteEvent", transition_start
+        )
+        transition = source[transition_start:transition_end]
+        self.assertIn("movie_video_playout_adapter_->advance", transition)
+        self.assertIn("ClockConfidence::invalid", transition)
+        self.assertIn(".route_transition = true", transition)
+        deliver_start = source.index("void RtcDemoController::deliverRemoteFrame")
+        deliver_end = source.index("\nvoid RtcDemoController::pumpMovieAudio", deliver_start)
+        self.assertIn("movie_video_playout_adapter_->submit", source[deliver_start:deliver_end])
+        self.assertIn("callback_(frame)", remote_sink)
+
+    def test_initial_route_observation_is_adopted_without_renderer_handoff(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        self.assertIn("audio_route_monitor_initial_observation_pending_", header)
+        monitor_start = source.index("void RtcDemoController::startAudioRouteMonitor")
+        monitor_end = source.index("\nvoid RtcDemoController::handleAudioRouteEvent", monitor_start)
+        monitor = source[monitor_start:monitor_end]
+        self.assertIn(
+            "audio_route_monitor_initial_observation_pending_ =\n      movie_audio_output_ready_",
+            monitor,
+        )
+        handler_start = source.index("void RtcDemoController::handleAudioRouteEvent")
+        initial_start = source.index(
+            "if (audio_route_monitor_initial_observation_pending_)", handler_start
+        )
+        activation = source.index("movie_audio_renderer_->activate_output", initial_start)
+        initial = source[initial_start:activation]
+        self.assertIn("audio_route_controller_.on_route_notification", initial)
+        self.assertIn("complete_candidate_activation", initial)
+        self.assertIn("return;", initial)
+
+    def test_failed_initial_output_keeps_route_recovery_and_peer_startable(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        self.assertIn("movie_audio_peer_started_", header)
+        handler_start = source.index("void RtcDemoController::handleAudioRouteEvent")
+        handler_end = source.index("\nvoid RtcDemoController::startPeer()", handler_start)
+        handler = source[handler_start:handler_end]
+        self.assertNotIn("!movie_audio_output_ready_", handler[:handler.index("const auto notification")])
+        self.assertIn("startMovieAudioViewerPath()", handler)
+        self.assertIn("|| movie_audio_peer_started_)", source)
+        peer_start = source.index("void RtcDemoController::startMovieAudioPeer")
+        peer_end = source.index("\nvoid RtcDemoController::startMovieAudioViewerPath", peer_start)
+        self.assertIn("movie_peer_->start()", source[peer_start:peer_end])
+        self.assertIn("movie_waiter_ = std::jthread", source[peer_start:peer_end])
+
+    def test_route_attempt_restores_paused_output_state(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        start = source.index("void RtcDemoController::handleAudioRouteEvent")
+        end = source.index("\nvoid RtcDemoController::startPeer()", start)
+        handler = source[start:end]
+        self.assertIn("const bool playback_paused", handler)
+        activation = handler.index("movie_audio_renderer_->activate_output")
+        snapshot = handler.index("const auto renderer_snapshot", activation)
+        pause = handler.index("movie_audio_renderer_->pause_output()", snapshot)
+        complete = handler.index("complete_candidate_activation", pause)
+        self.assertLess(activation, snapshot)
+        self.assertLess(snapshot, pause)
+        self.assertLess(pause, complete)
 
     def test_controller_exposes_route_renderer_and_scheduler_diagnostics(self):
         source = self.controller_source.read_text(encoding="utf-8")

@@ -142,6 +142,9 @@ private:
   void emitDriftDiagnostics();
   void emitPerformanceCounters();
   void startAudioRouteMonitor();
+  void startMovieAudioPeer();
+  void startMovieAudioViewerPath();
+  void markAudioRouteTransition();
   void handleAudioRouteEvent(shareme::core::AudioRouteEvent event);
   void refreshAudioDiagnostics(
       const shareme::core::MovieAudioRendererSnapshot &audio,
@@ -248,6 +251,9 @@ private:
   qulonglong audio_underrun_count_{0};
   QString audio_last_discontinuity_category_{QStringLiteral("none")};
   bool audio_route_transition_pending_{false};
+  bool audio_route_monitor_started_{false};
+  bool audio_route_monitor_initial_observation_pending_{false};
+  bool movie_audio_peer_started_{false};
   bool peer_started_{false};
   bool movie_audio_output_ready_{true};
   bool start_requested_{false};

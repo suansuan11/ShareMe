@@ -360,16 +360,18 @@ void RtcDemoController::setVideoSink(QVideoSink *sink) {
 }
 
 void RtcDemoController::startAudioRouteMonitor() {
-  if (shutting_down_ || !movie_audio_renderer_ ||
-      !movie_audio_output_ready_ || !audio_route_monitor_)
+  if (shutting_down_ || !movie_audio_renderer_ || !audio_route_monitor_ ||
+      audio_route_monitor_started_)
     return;
 
   auto *dispatch_context = QCoreApplication::instance();
   if (dispatch_context == nullptr)
     return;
 
+  audio_route_monitor_initial_observation_pending_ =
+      movie_audio_output_ready_;
   const QPointer<RtcDemoController> owner{this};
-  static_cast<void>(audio_route_monitor_->start(
+  const auto started = audio_route_monitor_->start(
       [owner, dispatch_context](shareme::core::AudioRouteEvent event) {
         QMetaObject::invokeMethod(
             dispatch_context,
@@ -379,14 +381,102 @@ void RtcDemoController::startAudioRouteMonitor() {
               owner->handleAudioRouteEvent(event);
             },
             Qt::QueuedConnection);
-      }));
+      });
+  if (!started)
+    audio_route_monitor_initial_observation_pending_ = false;
+  else
+    audio_route_monitor_started_ = true;
+}
+
+void RtcDemoController::startMovieAudioPeer() {
+  if (!movie_peer_ || !movie_audio_output_ready_ || movie_audio_peer_started_)
+    return;
+  if (!movie_peer_->start()) {
+    recordDriftError("movie-audio-start-failure");
+    setStatus(QStringLiteral("movie-audio-start-failed"));
+    if (!drift_scenario_name_.isEmpty())
+      failDriftScenario(QStringLiteral("movie-audio-start-failure"));
+    return;
+  }
+
+  movie_audio_peer_started_ = true;
+  movie_waiter_ = std::jthread([this] {
+    const auto result = movie_peer_->wait(std::chrono::seconds(15));
+    if (!result.error.empty()) {
+      QMetaObject::invokeMethod(
+          this, [this, error = result.error] {
+            recordDriftError("movie-audio-wait-failure");
+            setStatus(QStringLiteral("movie-audio-error: ") +
+                      QString::fromStdString(error));
+          }, Qt::QueuedConnection);
+    }
+  });
+}
+
+void RtcDemoController::startMovieAudioViewerPath() {
+  if (!movie_audio_renderer_ || !movie_audio_output_ready_)
+    return;
+
+  if (scheduler_started_at_ == std::chrono::steady_clock::time_point{})
+    scheduler_started_at_ = std::chrono::steady_clock::now();
+  if (!movie_audio_pump_timer_.isActive())
+    movie_audio_pump_timer_.start();
+  startMovieAudioPeer();
+  if (!movie_peer_ || movie_audio_peer_started_)
+    setStatus(QStringLiteral("negotiating"));
+}
+
+void RtcDemoController::markAudioRouteTransition() {
+  if (!movie_video_playout_adapter_)
+    return;
+
+  const auto now = std::chrono::steady_clock::now();
+  if (scheduler_started_at_ == std::chrono::steady_clock::time_point{})
+    scheduler_started_at_ = now;
+  const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              now - scheduler_started_at_)
+                              .count();
+  const auto audio = movie_audio_renderer_
+                         ? movie_audio_renderer_->snapshot()
+                         : shareme::core::MovieAudioRendererSnapshot{};
+  const auto observation_sequence = scheduler_observation_sequence_ ==
+          std::numeric_limits<std::uint64_t>::max()
+      ? scheduler_observation_sequence_
+      : scheduler_observation_sequence_++;
+  static_cast<void>(movie_video_playout_adapter_->advance({
+      .clock_confidence = shareme::core::ClockConfidence::invalid,
+      .audio_playout_pts_ms = 0,
+      .playback_generation = audio.playback_generation,
+      .route_generation = audio.route_generation,
+      .playing = remote_playback_state_ == QStringLiteral("playing"),
+      .observation_sequence = observation_sequence,
+      .observation_time_ms = elapsed_ms,
+      .route_transition = true}));
+  audio_route_transition_pending_ = true;
 }
 
 void RtcDemoController::handleAudioRouteEvent(
     shareme::core::AudioRouteEvent event) {
-  if (shutting_down_ || !movie_audio_renderer_ ||
-      !movie_audio_output_ready_)
+  if (shutting_down_ || !movie_audio_renderer_)
     return;
+
+  if (audio_route_monitor_initial_observation_pending_) {
+    audio_route_monitor_initial_observation_pending_ = false;
+    if (movie_audio_output_ready_) {
+      const auto notification =
+          audio_route_controller_.on_route_notification(std::move(event));
+      if (notification.candidate) {
+        const shareme::core::AudioRouteActivationResult activation_result{
+            .candidate = *notification.candidate,
+            .status = shareme::core::AudioRouteActivationStatus::active,
+            .old_route_resumed = true,
+        };
+        static_cast<void>(audio_route_controller_.complete_candidate_activation(
+            activation_result));
+      }
+      return;
+    }
+  }
 
   const auto notification =
       audio_route_controller_.on_route_notification(std::move(event));
@@ -398,9 +488,15 @@ void RtcDemoController::handleAudioRouteEvent(
     return;
 
   const auto candidate = *notification.candidate;
+  markAudioRouteTransition();
+  const bool playback_paused =
+      remote_playback_state_ == QStringLiteral("paused");
   const auto activation = movie_audio_renderer_->activate_output(
       std::make_unique<QtAudioOutputDevice>());
   const auto renderer_snapshot = movie_audio_renderer_->snapshot();
+  const bool output_active = renderer_snapshot.output_active;
+  if (playback_paused)
+    movie_audio_renderer_->pause_output();
 
   shareme::core::AudioRouteActivationStatus route_status =
       shareme::core::AudioRouteActivationStatus::failed;
@@ -425,12 +521,17 @@ void RtcDemoController::handleAudioRouteEvent(
   const shareme::core::AudioRouteActivationResult activation_result{
       .candidate = candidate,
       .status = route_status,
-      .old_route_resumed = renderer_snapshot.output_active,
+      .old_route_resumed = output_active,
   };
   const auto transaction = audio_route_controller_.complete_candidate_activation(
       activation_result);
   if (transaction.route_transition)
     audio_route_transition_pending_ = true;
+  movie_audio_output_ready_ = activation.status ==
+          shareme::core::ActivationStatus::activated ||
+      output_active;
+  if (movie_audio_output_ready_)
+    startMovieAudioViewerPath();
 }
 
 void RtcDemoController::start() {
@@ -646,8 +747,9 @@ void RtcDemoController::startPeer() {
       failDriftScenario(QStringLiteral("peer-start-failure"));
     return;
   }
-  movie_audio_output_ready_ = true;
+  movie_audio_output_ready_ = movie_audio_renderer_ == nullptr;
   if (movie_audio_renderer_) {
+    movie_audio_output_ready_ = true;
     const auto activation = movie_audio_renderer_->activate_output(
         std::make_unique<QtAudioOutputDevice>());
     if (activation.status != shareme::core::ActivationStatus::activated) {
@@ -657,32 +759,17 @@ void RtcDemoController::startPeer() {
       if (!drift_scenario_name_.isEmpty())
         failDriftScenario(QStringLiteral("movie-audio-output-activation-failure"));
     }
-  }
-  if (movie_audio_renderer_ && movie_audio_output_ready_) {
     startAudioRouteMonitor();
-    scheduler_started_at_ = std::chrono::steady_clock::now();
-    scheduler_observation_sequence_ = 1;
-    movie_audio_pump_timer_.start();
+    if (movie_audio_output_ready_) {
+      scheduler_started_at_ = std::chrono::steady_clock::now();
+      scheduler_observation_sequence_ = 1;
+      startMovieAudioViewerPath();
+    }
+  } else {
+    startMovieAudioPeer();
   }
-  if (movie_peer_ && movie_audio_output_ready_ && movie_peer_->start()) {
-    movie_waiter_ = std::jthread([this] {
-      const auto result = movie_peer_->wait(std::chrono::seconds(15));
-      if (!result.error.empty()) {
-        QMetaObject::invokeMethod(
-            this, [this, error = result.error] {
-              recordDriftError("movie-audio-wait-failure");
-              setStatus(QStringLiteral("movie-audio-error: ") +
-                        QString::fromStdString(error));
-            }, Qt::QueuedConnection);
-      }
-    });
-  } else if (movie_peer_ && movie_audio_output_ready_) {
-    recordDriftError("movie-audio-start-failure");
-    setStatus(QStringLiteral("movie-audio-start-failed"));
-    if (!drift_scenario_name_.isEmpty())
-      failDriftScenario(QStringLiteral("movie-audio-start-failure"));
-  }
-  if (movie_audio_output_ready_)
+  if (movie_audio_output_ready_ &&
+      (!movie_peer_ || movie_audio_peer_started_))
     setStatus(QStringLiteral("negotiating"));
   if (role_ == shareme::rtc::SignaledRole::host && !movie_path_.empty())
     refreshHostPlayback();
@@ -751,6 +838,9 @@ void RtcDemoController::stopPeer() noexcept {
   playout_report_timer_.stop();
   movie_audio_pump_timer_.stop();
   audio_route_transition_pending_ = false;
+  audio_route_monitor_started_ = false;
+  audio_route_monitor_initial_observation_pending_ = false;
+  movie_audio_peer_started_ = false;
   drift_scenario_timer_.stop();
   performance_timer_.stop();
   if (performance_stats_worker_.joinable()) {
