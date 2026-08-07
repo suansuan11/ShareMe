@@ -93,6 +93,21 @@ struct QtAudioRouteMonitor::State {
                          : shareme::core::AudioRouteDefaultRole::default_output));
   }
 
+  [[nodiscard]] std::optional<QAudioDevice> resolve_device_for_event(
+      const shareme::core::AudioRouteEvent &event) {
+    const auto device = QMediaDevices::defaultAudioOutput();
+    if (device.isNull()) {
+      if (event.stable_device_id == 0)
+        return QAudioDevice{};
+      return std::nullopt;
+    }
+
+    const auto current_id = stable_id_for(device.id());
+    if (current_id == 0 || current_id != event.stable_device_id)
+      return std::nullopt;
+    return device;
+  }
+
   [[nodiscard]] static bool post_key(
       QCoreApplication *dispatch_context, std::weak_ptr<State> weak_state,
       QByteArray device_key, shareme::core::AudioRouteChangeKind change_kind,
@@ -165,8 +180,16 @@ bool QtAudioRouteMonitor::start(Callback callback) {
         static_cast<void>(State::post_native_change(
             dispatch_context, weak_state, change_kind, default_role));
       });
-  if (native_monitor_ && !native_monitor_->start())
-    native_monitor_.reset();
+  native_supplement_status_ = AudioRouteNativeSupplementStatus::unavailable;
+  if (native_monitor_) {
+    if (native_monitor_->start()) {
+      native_supplement_status_ = AudioRouteNativeSupplementStatus::started;
+    } else {
+      native_supplement_status_ =
+          AudioRouteNativeSupplementStatus::start_failed;
+      native_monitor_.reset();
+    }
+  }
   return true;
 }
 
@@ -182,6 +205,16 @@ void QtAudioRouteMonitor::stop() noexcept {
 
 bool QtAudioRouteMonitor::accepting() const noexcept {
   return state_->is_accepting();
+}
+
+std::optional<QAudioDevice> QtAudioRouteMonitor::resolve_device_for_event(
+    const shareme::core::AudioRouteEvent &event) {
+  return state_->resolve_device_for_event(event);
+}
+
+AudioRouteNativeSupplementStatus
+QtAudioRouteMonitor::native_supplement_status() const noexcept {
+  return native_supplement_status_;
 }
 
 bool QtAudioRouteMonitor::notify_for_test(

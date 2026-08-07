@@ -1,5 +1,6 @@
 #include "qt_audio_route_monitor.hpp"
 
+#include <QAudioDevice>
 #include <QCoreApplication>
 #include <QMediaDevices>
 #include <QMetaObject>
@@ -77,6 +78,40 @@ void shutdown_closes_the_qt_monitor_ingress() {
   REQUIRE(callback_count == before_stop);
 }
 
+void route_events_resolve_only_to_the_current_qt_device() {
+  QtAudioRouteMonitor monitor;
+  std::vector<AudioRouteEvent> events;
+  REQUIRE(monitor.start([&](AudioRouteEvent event) {
+    events.push_back(event);
+  }));
+
+  const auto current = QMediaDevices::defaultAudioOutput();
+  const auto current_key = current.isNull() ? QByteArray{}
+                                             : current.id();
+  REQUIRE(monitor.notify_for_test(current_key));
+  const auto current_event = events.back();
+  const auto resolved = monitor.resolve_device_for_event(current_event);
+  REQUIRE(resolved.has_value());
+  REQUIRE(resolved->isNull() == current.isNull());
+  if (!current.isNull())
+    REQUIRE(resolved->id() == current.id());
+
+  const auto stale_key = current.isNull()
+      ? QByteArrayLiteral("not-the-current-output")
+      : current.id() + QByteArrayLiteral("-stale");
+  REQUIRE(monitor.notify_for_test(stale_key));
+  REQUIRE(!monitor.resolve_device_for_event(events.back()).has_value());
+}
+
+void native_supplement_status_distinguishes_qt_only_monitoring() {
+  QtAudioRouteMonitor monitor;
+  REQUIRE(monitor.start([](AudioRouteEvent) {}));
+  // This target deliberately compiles only the common Qt monitor source, so
+  // the absent supplement must be observable rather than implied as started.
+  REQUIRE(monitor.native_supplement_status() ==
+          AudioRouteNativeSupplementStatus::unavailable);
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -84,5 +119,7 @@ int main(int argc, char **argv) {
   static_cast<void>(application);
   qt_signal_registration_and_value_conversion_are_observable();
   shutdown_closes_the_qt_monitor_ingress();
+  route_events_resolve_only_to_the_current_qt_device();
+  native_supplement_status_distinguishes_qt_only_monitoring();
   return EXIT_SUCCESS;
 }

@@ -74,6 +74,34 @@ int main(int argc, char** argv) {
     return EXIT_SUCCESS;
   }
 
+  // Pause hands off immediately in the renderer, so the adapter must either
+  // confirm its controlled suspension or fail closed without reporting active.
+  QtAudioOutputDevice paused_device{output};
+  const auto paused_open = paused_device.open(kMovieFormat);
+  if (paused_open.status == OpenStatus::opened && paused_device.start()) {
+    paused_device.pause();
+    const auto paused_final = paused_device.quiesce_and_snapshot();
+    REQUIRE(!paused_final.active);
+    if (!paused_final.quiesced)
+      REQUIRE(!paused_final.exact_consumption);
+    paused_device.stop();
+  }
+
+  // An idle sink is still writable in Qt, but route handoff must not leave it
+  // falsely active when suspension cannot be confirmed.
+  QtAudioOutputDevice idle_device{output};
+  const auto idle_open = idle_device.open(kMovieFormat);
+  if (idle_open.status == OpenStatus::opened && idle_device.start()) {
+    QCoreApplication::processEvents();
+    if (idle_device.snapshot().active) {
+      const auto idle_final = idle_device.quiesce_and_snapshot();
+      REQUIRE(!idle_final.active);
+      if (!idle_final.quiesced)
+        REQUIRE(!idle_final.exact_consumption);
+    }
+    idle_device.stop();
+  }
+
   auto snapshot = device.snapshot();
   REQUIRE(snapshot.active);
 

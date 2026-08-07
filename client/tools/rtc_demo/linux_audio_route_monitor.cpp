@@ -294,10 +294,9 @@ class LinuxAudioRouteMonitor final : public AudioRouteNativeMonitor {
     if (monitor == nullptr ||
         !monitor->accepting_.load(std::memory_order_acquire))
       return;
-    if (monitor->callback_)
-      monitor->callback_(
-          shareme::core::AudioRouteChangeKind::default_output_changed,
-          shareme::core::AudioRouteDefaultRole::default_output);
+    monitor->notify(
+        shareme::core::AudioRouteChangeKind::default_output_changed,
+        shareme::core::AudioRouteDefaultRole::default_output);
   }
 
   static void subscription_changed(pa_context *context,
@@ -316,10 +315,21 @@ class LinuxAudioRouteMonitor final : public AudioRouteNativeMonitor {
         pa_operation_unref(operation);
       return;
     }
-    if (facility == PA_SUBSCRIPTION_EVENT_SINK && monitor->callback_)
-      monitor->callback_(
+    if (facility == PA_SUBSCRIPTION_EVENT_SINK)
+      monitor->notify(
           shareme::core::AudioRouteChangeKind::device_list_changed,
           shareme::core::AudioRouteDefaultRole::none);
+  }
+
+  void notify(shareme::core::AudioRouteChangeKind change_kind,
+              shareme::core::AudioRouteDefaultRole default_role) noexcept {
+    if (!accepting_.load(std::memory_order_acquire))
+      return;
+    try {
+      if (callback_)
+        callback_(change_kind, default_role);
+    } catch (...) {
+    }
   }
 
   Callback callback_;

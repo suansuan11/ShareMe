@@ -95,6 +95,8 @@ ApplicationWindow {
                   + " · underruns " + window.controller.audioUnderrunCount
                   + " · discontinuity "
                   + window.controller.audioLastDiscontinuityCategory
+                  + " · route monitor "
+                  + window.controller.audioRouteMonitorStatus
             color: "#b7c8f2"
         }
 

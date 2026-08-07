@@ -65,6 +65,7 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(qulonglong audioDeviceQueueDurationMs READ audioDeviceQueueDurationMs NOTIFY playoutReportChanged)
   Q_PROPERTY(qulonglong audioUnderrunCount READ audioUnderrunCount NOTIFY playoutReportChanged)
   Q_PROPERTY(QString audioLastDiscontinuityCategory READ audioLastDiscontinuityCategory NOTIFY playoutReportChanged)
+  Q_PROPERTY(QString audioRouteMonitorStatus READ audioRouteMonitorStatus NOTIFY playoutReportChanged)
   Q_PROPERTY(QString driftScenarioPhase READ driftScenarioPhase NOTIFY driftScenarioChanged)
   Q_PROPERTY(bool driftScenarioActive READ driftScenarioActive NOTIFY driftScenarioChanged)
 
@@ -104,6 +105,7 @@ public:
   [[nodiscard]] qulonglong audioDeviceQueueDurationMs() const noexcept;
   [[nodiscard]] qulonglong audioUnderrunCount() const noexcept;
   [[nodiscard]] QString audioLastDiscontinuityCategory() const;
+  [[nodiscard]] QString audioRouteMonitorStatus() const;
   [[nodiscard]] QString driftScenarioPhase() const;
   [[nodiscard]] bool driftScenarioActive() const noexcept;
 
@@ -250,6 +252,7 @@ private:
   qulonglong audio_device_queue_duration_ms_{0};
   qulonglong audio_underrun_count_{0};
   QString audio_last_discontinuity_category_{QStringLiteral("none")};
+  QString audio_route_monitor_status_{QStringLiteral("not-started")};
   bool audio_route_transition_pending_{false};
   bool audio_route_monitor_started_{false};
   bool audio_route_monitor_initial_observation_pending_{false};

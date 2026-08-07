@@ -420,6 +420,72 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertLess(snapshot, pause)
         self.assertLess(pause, complete)
 
+    def test_route_event_activates_the_exact_resolved_qt_device(self):
+        controller = self.controller_source.read_text(encoding="utf-8")
+        route = (self.controller_source.parent / "qt_audio_route_monitor.cpp").read_text(
+            encoding="utf-8"
+        )
+        handler_start = controller.index("void RtcDemoController::handleAudioRouteEvent")
+        handler_end = controller.index("\nvoid RtcDemoController::startPeer()", handler_start)
+        handler = controller[handler_start:handler_end]
+        self.assertIn("resolve_device_for_event", route)
+        self.assertIn("if (!candidate_device)", handler)
+        self.assertLess(
+            handler.index("resolve_device_for_event"),
+            handler.index("audio_route_controller_.on_route_notification"),
+        )
+        self.assertIn("std::make_unique<QtAudioOutputDevice>(*candidate_device)", handler)
+        self.assertNotIn(
+            "std::make_unique<QtAudioOutputDevice>()",
+            handler,
+        )
+        self.assertIn("QAudioDevice{}", route)
+
+    def test_qt_output_preserves_pause_state_and_handles_idle_fail_closed(self):
+        source = self.qt_audio_source.read_text(encoding="utf-8")
+        pause_start = source.index("void QtAudioOutputDevice::pause()")
+        pause_end = source.index("\nvoid QtAudioOutputDevice::stop()", pause_start)
+        pause = source[pause_start:pause_end]
+        quiesce_start = source.index(
+            "QtAudioOutputDevice::quiesce_and_snapshot()"
+        )
+        quiesce_end = source.index("\nvoid QtAudioOutputDevice::pause()", quiesce_start)
+        quiesce = source[quiesce_start:quiesce_end]
+        self.assertNotIn("controlled_suspension_ = false", pause)
+        self.assertIn("controlled_suspension_pending_", quiesce)
+        self.assertIn("is_writable_sink_state", quiesce)
+        self.assertIn("exact_consumption = quiesced", quiesce)
+
+    def test_native_route_status_and_pulse_callbacks_are_observable_and_contained(self):
+        route_header = (self.controller_source.parent / "qt_audio_route_monitor.hpp").read_text(
+            encoding="utf-8"
+        )
+        route = (self.controller_source.parent / "qt_audio_route_monitor.cpp").read_text(
+            encoding="utf-8"
+        )
+        controller = self.controller_source.read_text(encoding="utf-8")
+        linux = (self.controller_source.parent / "linux_audio_route_monitor.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("native_supplement_status", route_header)
+        self.assertIn("AudioRouteNativeSupplementStatus::start_failed", route)
+        self.assertIn("native_supplement_status()", controller)
+        self.assertIn("audioRouteMonitorStatus", self.controller_header.read_text(encoding="utf-8"))
+        self.assertIn("audioRouteMonitorStatus", self.qml.read_text(encoding="utf-8"))
+
+        pulse_server = linux[linux.index("static void server_info_ready"):linux.index("static void subscription_changed")]
+        subscription_start = linux.index("static void subscription_changed")
+        pulse_subscription = linux[subscription_start:linux.index("Callback callback_", subscription_start)]
+        self.assertIn("monitor->notify(", pulse_server)
+        self.assertIn("monitor->notify(", pulse_subscription)
+        self.assertNotIn("monitor->callback_", pulse_server)
+        self.assertNotIn("monitor->callback_", pulse_subscription)
+        notify_start = linux.index("void notify(", subscription_start)
+        notify_end = linux.index("Callback callback_", notify_start)
+        notify = linux[notify_start:notify_end]
+        self.assertIn("try", notify)
+        self.assertIn("catch (...)", notify)
+
     def test_controller_exposes_route_renderer_and_scheduler_diagnostics(self):
         source = self.controller_source.read_text(encoding="utf-8")
         header = self.controller_header.read_text(encoding="utf-8")

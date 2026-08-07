@@ -240,13 +240,17 @@ shareme::core::AudioDeviceSnapshot QtAudioOutputDevice::snapshot() {
 
 shareme::core::FinalDeviceSnapshot
 QtAudioOutputDevice::quiesce_and_snapshot() {
-  if (sink_ != nullptr && active_ &&
-      sink_->state() == QAudio::ActiveState) {
+  const auto state = sink_ == nullptr ? QAudio::StoppedState : sink_->state();
+  if (sink_ != nullptr && !controlled_suspension_ &&
+      !controlled_suspension_pending_ && active_ &&
+      is_writable_sink_state(state)) {
     controlled_suspension_pending_ = true;
     sink_->suspend();
-  } else if (!controlled_suspension_) {
-    controlled_suspension_pending_ = false;
-    controlled_suspension_ = false;
+  } else if (sink_ != nullptr && controlled_suspension_pending_ &&
+             is_writable_sink_state(state)) {
+    // pause() may have requested suspension just before route handoff. Keep
+    // that admission state and give backends another chance to confirm it.
+    sink_->suspend();
   }
   active_ = false;
   const auto ordinary = read_snapshot();
@@ -269,10 +273,13 @@ QtAudioOutputDevice::quiesce_and_snapshot() {
 }
 
 void QtAudioOutputDevice::pause() {
-  controlled_suspension_ = false;
-  controlled_suspension_pending_ = sink_ != nullptr && active_ &&
-      sink_->state() == QAudio::ActiveState;
-  if (controlled_suspension_pending_) {
+  if (controlled_suspension_) {
+    active_ = false;
+    return;
+  }
+  if (!controlled_suspension_pending_ && sink_ != nullptr && active_ &&
+      is_writable_sink_state(sink_->state())) {
+    controlled_suspension_pending_ = true;
     sink_->suspend();
   }
   active_ = false;

@@ -115,6 +115,19 @@ QString audio_discontinuity_category_name(
       shareme::core::playback_category_name(*category)));
 }
 
+QString audio_route_monitor_status_name(
+    AudioRouteNativeSupplementStatus status) {
+  switch (status) {
+  case AudioRouteNativeSupplementStatus::unavailable:
+    return QStringLiteral("qt-only-native-unavailable");
+  case AudioRouteNativeSupplementStatus::started:
+    return QStringLiteral("qt-and-native");
+  case AudioRouteNativeSupplementStatus::start_failed:
+    return QStringLiteral("qt-only-native-start-failed");
+  }
+  return QStringLiteral("qt-only-native-unavailable");
+}
+
 QString drift_phase_name(shareme::core::DriftPhase phase) {
   switch (phase) {
   case shareme::core::DriftPhase::warmup:
@@ -344,6 +357,10 @@ QString RtcDemoController::audioLastDiscontinuityCategory() const {
   return audio_last_discontinuity_category_;
 }
 
+QString RtcDemoController::audioRouteMonitorStatus() const {
+  return audio_route_monitor_status_;
+}
+
 QString RtcDemoController::driftScenarioPhase() const {
   return drift_phase_name(drift_phase_);
 }
@@ -382,10 +399,15 @@ void RtcDemoController::startAudioRouteMonitor() {
             },
             Qt::QueuedConnection);
       });
-  if (!started)
+  if (!started) {
     audio_route_monitor_initial_observation_pending_ = false;
-  else
+    audio_route_monitor_status_ = QStringLiteral("qt-monitor-start-failed");
+  } else {
+    audio_route_monitor_status_ = audio_route_monitor_status_name(
+        audio_route_monitor_->native_supplement_status());
     audio_route_monitor_started_ = true;
+  }
+  emit playoutReportChanged();
 }
 
 void RtcDemoController::startMovieAudioPeer() {
@@ -457,14 +479,19 @@ void RtcDemoController::markAudioRouteTransition() {
 
 void RtcDemoController::handleAudioRouteEvent(
     shareme::core::AudioRouteEvent event) {
-  if (shutting_down_ || !movie_audio_renderer_)
+  if (shutting_down_ || !movie_audio_renderer_ || !audio_route_monitor_)
+    return;
+
+  const auto candidate_device =
+      audio_route_monitor_->resolve_device_for_event(event);
+  if (!candidate_device)
     return;
 
   if (audio_route_monitor_initial_observation_pending_) {
     audio_route_monitor_initial_observation_pending_ = false;
     if (movie_audio_output_ready_) {
       const auto notification =
-          audio_route_controller_.on_route_notification(std::move(event));
+          audio_route_controller_.on_route_notification(event);
       if (notification.candidate) {
         const shareme::core::AudioRouteActivationResult activation_result{
             .candidate = *notification.candidate,
@@ -479,7 +506,7 @@ void RtcDemoController::handleAudioRouteEvent(
   }
 
   const auto notification =
-      audio_route_controller_.on_route_notification(std::move(event));
+      audio_route_controller_.on_route_notification(event);
   if (!notification.candidate ||
       (notification.status !=
            shareme::core::AudioRouteNotificationStatus::candidate_pending &&
@@ -492,7 +519,7 @@ void RtcDemoController::handleAudioRouteEvent(
   const bool playback_paused =
       remote_playback_state_ == QStringLiteral("paused");
   const auto activation = movie_audio_renderer_->activate_output(
-      std::make_unique<QtAudioOutputDevice>());
+      std::make_unique<QtAudioOutputDevice>(*candidate_device));
   const auto renderer_snapshot = movie_audio_renderer_->snapshot();
   const bool output_active = renderer_snapshot.output_active;
   if (playback_paused)

@@ -2,11 +2,13 @@
 
 #include "shareme/core/audio_route.hpp"
 
+#include <QAudioDevice>
 #include <QByteArray>
 #include <QMetaObject>
 
 #include <functional>
 #include <memory>
+#include <optional>
 
 class QMediaDevices;
 
@@ -33,6 +35,12 @@ class AudioRouteNativeMonitor {
 [[nodiscard]] std::unique_ptr<AudioRouteNativeMonitor>
 create_audio_route_native_monitor(AudioRouteNativeMonitor::Callback callback);
 
+enum class AudioRouteNativeSupplementStatus {
+  unavailable,
+  started,
+  start_failed,
+};
+
 class QtAudioRouteMonitor final {
  public:
   using Callback = shareme::core::AudioRouteMonitor::Callback;
@@ -48,6 +56,13 @@ class QtAudioRouteMonitor final {
   [[nodiscard]] bool start(Callback callback);
   void stop() noexcept;
   [[nodiscard]] bool accepting() const noexcept;
+
+  // Must be called on the owning Qt thread. An engaged null QAudioDevice is
+  // the explicit no-output result; nullopt means the event is stale.
+  [[nodiscard]] std::optional<QAudioDevice> resolve_device_for_event(
+      const shareme::core::AudioRouteEvent &event);
+  [[nodiscard]] AudioRouteNativeSupplementStatus
+  native_supplement_status() const noexcept;
 
   // Narrow deterministic seam for conversion and lifecycle tests. Production
   // route changes arrive through QMediaDevices or a native supplement.
@@ -73,4 +88,6 @@ class QtAudioRouteMonitor final {
   std::unique_ptr<QMediaDevices> media_devices_;
   std::unique_ptr<AudioRouteNativeMonitor> native_monitor_;
   QMetaObject::Connection output_connection_;
+  AudioRouteNativeSupplementStatus native_supplement_status_{
+      AudioRouteNativeSupplementStatus::unavailable};
 };
