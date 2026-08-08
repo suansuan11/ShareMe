@@ -79,6 +79,7 @@ target_link_libraries(
     ShareMe::QtSignaling
     ShareMe::Core
     ShareMe::WebRTC
+    ShareMe::ScreenRTC
     Qt6::Core
     Qt6::Gui
     Qt6::Qml

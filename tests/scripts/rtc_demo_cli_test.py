@@ -36,7 +36,8 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("--role", result.stdout)
         self.assertIn("--room", result.stdout)
         self.assertIn("--source", result.stdout)
-        self.assertIn("test, desktop, or movie", result.stdout)
+        self.assertIn("test, desktop, movie, or screen", result.stdout)
+        self.assertIn("--screen-profile", result.stdout)
         self.assertIn("host or viewer", result.stdout)
         self.assertIn("--movie", result.stdout)
         self.assertIn("--movie-audio", result.stdout)
@@ -85,6 +86,26 @@ class RtcDemoCliTest(unittest.TestCase):
             "desktop",
         )
         self.assertEqual(viewer.returncode, 2)
+
+    def test_screen_source_and_profile_contract_on_macos(self):
+        if sys.platform != "darwin":
+            self.skipTest("screen source contract is macOS-specific")
+
+        host = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "screen", "--screen-profile", "quality", "--validate"
+        )
+        self.assertEqual(host.returncode, 0)
+        viewer = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "viewer",
+            "--room", "ABC234", "--source", "screen", "--validate"
+        )
+        self.assertEqual(viewer.returncode, 0)
+        invalid_profile = self.run_demo(
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "test", "--screen-profile", "quality", "--validate"
+        )
+        self.assertEqual(invalid_profile.returncode, 2)
 
     def test_movie_source_contract_and_path_redaction(self):
         movie = "/private/super-secret-movie.mp4"
@@ -537,6 +558,23 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("config.remote_video_frame", source)
         self.assertIn("if (role_ == shareme::rtc::SignaledRole::viewer)", source)
 
+    def test_screen_encoder_and_capture_are_host_only(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        create_peer = source.index("bool RtcDemoController::createPeer()")
+        start = source.index("if (screen_source_", create_peer)
+        end = source.index("#if defined(SHAREME_HAS_MOVIE_RTC)", start)
+        screen_setup = source[start:end]
+        self.assertIn("role_ == shareme::rtc::SignaledRole::host", screen_setup)
+        self.assertIn("selection.capture_profile", screen_setup)
+
+    def test_screen_capture_uses_a_valid_bounded_stream_queue(self):
+        capture_source = (
+            self.controller_source.parent.parent.parent
+            / "rtc" / "screen" / "src" / "macos_screen_capture_source.mm"
+        ).read_text(encoding="utf-8")
+        self.assertIn("configuration.queueDepth = 3", capture_source)
+        self.assertNotIn("configuration.queueDepth = 2", capture_source)
+
     def test_receiver_waiting_overlay_tracks_submitted_video(self):
         controller = self.controller_source.read_text(encoding="utf-8")
         header = self.controller_header.read_text(encoding="utf-8")
@@ -552,6 +590,44 @@ class RtcDemoCliTest(unittest.TestCase):
         source = self.controller_source.read_text(encoding="utf-8")
         self.assertIn("performance_frame_width_.store", source)
         self.assertIn("performance_frame_height_.store", source)
+
+    def test_controller_monitors_late_screen_capture_failures(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        peer = self.peer_source.read_text(encoding="utf-8")
+        self.assertIn("screen_capture_error_timer_", header)
+        self.assertIn("checkScreenCaptureError", source)
+        self.assertIn("video_source_error", peer)
+        self.assertIn('screen-capture-error:', source)
+
+    def test_controller_exposes_screen_encoder_and_presentation_diagnostics(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        qml = self.qml.read_text(encoding="utf-8")
+        for property_name in (
+            "videoSource",
+            "screenProfile",
+            "videoCaptureProfile",
+            "videoEncoderImplementation",
+            "videoNegotiatedCodec",
+            "videoHardwareStatus",
+            "presentationCallbacks",
+            "presentationSubmissions",
+            "presentationCoalesced",
+            "presentationDelayP95Ms",
+            "presentationDelayMaxMs",
+        ):
+            self.assertIn(property_name, header)
+            self.assertIn(property_name, qml)
+        self.assertIn("video_encoder_diagnostics_", source)
+        self.assertIn("presentation_callback_delay_p95", source)
+        self.assertIn("videoHardwareStatus", source)
+        self.assertIn("webrtc_encoder", source)
+        self.assertIn("encoder_implementation", source)
+        self.assertIn("bitrate_bps", source)
+        self.assertIn("videoEncoderImplementation()", source)
+        self.assertIn('return QStringLiteral("receive-only")', source)
+        self.assertIn('return QStringLiteral("remote-unreported")', source)
 
     def test_performance_stats_do_not_block_counter_timer(self):
         source = self.controller_source.read_text(encoding="utf-8")

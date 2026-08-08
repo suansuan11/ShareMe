@@ -1,4 +1,5 @@
 #include "rtc_demo_controller.hpp"
+#include "shareme/core/screen_stream_profile.hpp"
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
@@ -48,9 +49,14 @@ int main(int argc, char **argv) {
                                  QStringLiteral("Room ID for viewer"),
                                  QStringLiteral("room"));
   QCommandLineOption source_option(QStringList{QStringLiteral("source")},
-                                   QStringLiteral("test, desktop, or movie"),
-                                   QStringLiteral("source"),
-                                   QStringLiteral("test"));
+                                    QStringLiteral(
+                                        "test, desktop, movie, or screen"),
+                                    QStringLiteral("source"),
+                                    QString());
+  QCommandLineOption screen_profile_option(
+      QStringList{QStringLiteral("screen-profile")},
+      QStringLiteral("Screen profile: standard, quality, or cinema"),
+      QStringLiteral("profile"), QStringLiteral("standard"));
   QCommandLineOption movie_option(QStringList{QStringLiteral("movie")},
                                   QStringLiteral("Movie path for a movie host"),
                                   QStringLiteral("path"));
@@ -78,6 +84,7 @@ int main(int argc, char **argv) {
   parser.addOption(role_option);
   parser.addOption(room_option);
   parser.addOption(source_option);
+  parser.addOption(screen_profile_option);
   parser.addOption(movie_option);
   parser.addOption(movie_audio_option);
   parser.addOption(video_acceleration_option);
@@ -95,7 +102,19 @@ int main(int argc, char **argv) {
   }
 
   const auto role_text = parser.value(role_option);
-  const auto source_text = parser.value(source_option);
+  auto source_text = parser.value(source_option);
+  if (source_text.isEmpty()) {
+#if defined(__APPLE__)
+    source_text = role_text == QStringLiteral("host")
+                      ? QStringLiteral("screen")
+                      : QStringLiteral("test");
+#else
+    source_text = QStringLiteral("test");
+#endif
+  }
+  const auto screen_profile_value = parser.value(screen_profile_option);
+  const auto screen_profile = shareme::core::parse_screen_stream_profile(
+      screen_profile_value.toStdString());
   const auto movie_path = local_path(parser.value(movie_option));
   const auto video_acceleration = parser.value(video_acceleration_option);
   const auto metrics_path = local_path(parser.value(metrics_option));
@@ -123,26 +142,36 @@ int main(int argc, char **argv) {
        role_text != QStringLiteral("viewer")) ||
       (role_text == QStringLiteral("viewer") &&
        !parser.isSet(room_option)) ||
-      (source_text != QStringLiteral("test") && source_text != QStringLiteral("desktop") &&
-       source_text != QStringLiteral("movie")) ||
-      (role_text == QStringLiteral("viewer") &&
-       source_text != QStringLiteral("test")) ||
-      (source_text == QStringLiteral("movie") && !parser.isSet(movie_option)) ||
-      (source_text != QStringLiteral("movie") && parser.isSet(movie_option)) ||
+       (source_text != QStringLiteral("test") &&
+        source_text != QStringLiteral("desktop") &&
+        source_text != QStringLiteral("movie") &&
+        source_text != QStringLiteral("screen")) ||
+       (role_text == QStringLiteral("viewer") &&
+        source_text != QStringLiteral("test") &&
+        source_text != QStringLiteral("screen")) ||
+       (source_text == QStringLiteral("movie") &&
+        !parser.isSet(movie_option)) ||
+       (source_text != QStringLiteral("movie") &&
+        parser.isSet(movie_option)) ||
+       !screen_profile.has_value() ||
+       (parser.isSet(screen_profile_option) &&
+        source_text != QStringLiteral("screen")) ||
        (video_acceleration != QStringLiteral("auto") &&
         video_acceleration != QStringLiteral("software")) ||
        (parser.isSet(video_acceleration_option) &&
         (source_text != QStringLiteral("movie") ||
          role_text != QStringLiteral("host"))) ||
-      (parser.isSet(movie_audio_option) && source_text != QStringLiteral("movie")) ||
-      (parser.isSet(metrics_option) &&
-       (role_text != QStringLiteral("host") ||
-        source_text != QStringLiteral("movie") || metrics_path.empty() ||
-        metrics_matches_movie)) ||
+       (parser.isSet(movie_audio_option) &&
+        source_text != QStringLiteral("movie")) ||
+       (parser.isSet(metrics_option) &&
+        (role_text != QStringLiteral("host") ||
+         source_text != QStringLiteral("movie") || metrics_path.empty() ||
+         metrics_matches_movie)) ||
       !scenario_valid) {
     std::cerr << "required: --server URL --role host|viewer "
-                 "[--room ROOM] [--source test|desktop|movie] [--movie PATH] [--movie-audio] "
-                 "[--video-acceleration auto|software] "
+                 "[--room ROOM] [--source test|desktop|movie|screen] "
+                 "[--screen-profile standard|quality|cinema] [--movie PATH] "
+                 "[--movie-audio] [--video-acceleration auto|software] "
                  "[--metrics-jsonl PATH] [--drift-scenario drift-study-v1 "
                  "--measurement-duration-seconds 300]"
               << std::endl;
@@ -151,6 +180,12 @@ int main(int argc, char **argv) {
 #if !defined(SHAREME_HAS_DESKTOP_CAPTURE)
   if (source_text == QStringLiteral("desktop")) {
     std::cerr << "desktop source is only available on Windows" << std::endl;
+    exit_cli(2);
+  }
+#endif
+#if !defined(__APPLE__)
+  if (source_text == QStringLiteral("screen")) {
+    std::cerr << "screen source is only available on macOS" << std::endl;
     exit_cli(2);
   }
 #endif
@@ -169,6 +204,8 @@ int main(int argc, char **argv) {
   RtcDemoController controller(QUrl(parser.value(server_option)), role,
                                parser.value(room_option),
                                source_text == QStringLiteral("desktop"),
+                               source_text == QStringLiteral("screen"),
+                               *screen_profile,
                                movie_path, parser.isSet(movie_audio_option),
                                video_acceleration,
                                parser.value(metrics_option),

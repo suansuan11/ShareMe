@@ -47,6 +47,28 @@ ApplicationWindow {
 
         Label {
             Layout.fillWidth: true
+            text: "Video: " + window.controller.videoSource
+                  + " · profile " + window.controller.screenProfile
+                  + " (capture " + window.controller.videoCaptureProfile + ")"
+                  + " · " + window.controller.videoNegotiatedCodec
+                  + " / " + window.controller.videoEncoderImplementation
+                  + " · hardware " + window.controller.videoHardwareStatus
+            color: "#8bd5ff"
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: "Presentation: " + window.controller.presentationCallbacks
+                  + " callbacks · " + window.controller.presentationSubmissions
+                  + " sink submissions · " + window.controller.presentationCoalesced
+                  + " latest-frame replacements · delay p95 "
+                  + window.controller.presentationDelayP95Ms + " ms / max "
+                  + window.controller.presentationDelayMaxMs + " ms"
+            color: "#b7c8f2"
+        }
+
+        Label {
+            Layout.fillWidth: true
             visible: !window.controller.viewer
                      && window.controller.driftScenarioActive
             text: "Drift study phase: " + window.controller.driftScenarioPhase

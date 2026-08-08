@@ -1,0 +1,621 @@
+#!/usr/bin/env python3
+
+"""Run a bounded macOS screen-stream smoke call and record sanitized evidence."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import queue
+import re
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from run_signaled_call_smoke import (  # noqa: E402
+    popen_group_options,
+    start_managed_process,
+    start_signaling_server,
+    terminate_process_group,
+    wait_for_health,
+)
+
+
+PROFILE_BOUNDS = {
+    "standard": (1920, 1080, 60),
+    "quality": (2560, 1440, 60),
+    "cinema": (3840, 2160, 30),
+}
+ROOM_PATTERN = re.compile(r"^ROOM ([A-Z2-7]{6})$")
+INTEGER_KEYS = {
+    "version",
+    "cpu_percent",
+    "rss_bytes",
+    "width",
+    "height",
+    "offered",
+    "encoded",
+    "received",
+    "decoded",
+    "callback",
+    "submitted",
+    "bytes_sent",
+    "bytes_received",
+    "bitrate_bps",
+    "coalesced",
+    "dropped",
+    "max_pending",
+    "conversion_failures",
+    "fallback_copies",
+    "source_pending",
+    "source_pending_bytes",
+    "source_peak_pending",
+    "source_peak_pending_bytes",
+    "session_video_pending",
+    "session_video_bytes",
+    "session_audio_pending",
+    "session_audio_bytes",
+    "render_queue",
+    "pending_callbacks",
+    "pending_callback_bytes",
+    "owned_bytes",
+    "owned_peak_bytes",
+    "backpressure_events",
+    "stats_unavailable",
+    "cadence_num",
+    "cadence_den",
+    "pixel_aspect_num",
+    "pixel_aspect_den",
+}
+ALLOWED_KEYS = INTEGER_KEYS | {
+    "role",
+    "color_range",
+    "color_space",
+    "codec",
+    "profile",
+    "requested_mode",
+    "decoder_path",
+    "webrtc_encoder",
+    "hardware_encoder_status",
+    "encoder_implementation",
+    "state",
+    "candidate",
+}
+SENSITIVE_WORDS = ("ROOM", "room", "TOKEN", "token", "SDP", "sdp", "ICE", "ice")
+
+
+class SmokeRuntimeError(RuntimeError):
+    pass
+
+
+def redact_diagnostic(message: str) -> str:
+    redacted = re.sub(r"/(?:[^\s/]+/)+[^\s]+", "[path-redacted]", message)
+    redacted = re.sub(r"\b(?:ROOM|room)\s+[A-Z2-7]{6}\b", "[redacted]", redacted)
+    redacted = re.sub(
+        r"\b(?:ROOM|room|TOKEN|token|SDP|sdp|ICE|ice)\b[^\s]*",
+        "[redacted]",
+        redacted,
+    )
+    return redacted
+
+
+def profile_bounds(profile: str) -> tuple[int, int, int]:
+    try:
+        return PROFILE_BOUNDS[profile]
+    except KeyError as error:
+        raise ValueError(f"unsupported screen profile: {profile}") from error
+
+
+def build_host_command(
+    demo: Path, server_url: str, profile: str
+) -> list[str]:
+    return [
+        str(demo),
+        "--server",
+        server_url,
+        "--role",
+        "host",
+        "--source",
+        "screen",
+        "--screen-profile",
+        profile,
+    ]
+
+
+def build_viewer_command(
+    demo: Path, server_url: str, room: str
+) -> list[str]:
+    return [
+        str(demo),
+        "--server",
+        server_url,
+        "--role",
+        "viewer",
+        "--room",
+        room,
+        "--source",
+        "screen",
+    ]
+
+
+def parse_counter_line(line: str) -> dict | None:
+    fields = line.strip().split()
+    if not fields or fields[0] != "PERF_COUNTERS":
+        return None
+    parsed: dict[str, object] = {}
+    try:
+        for field in fields[1:]:
+            key, value = field.split("=", 1)
+            if key in parsed or key not in ALLOWED_KEYS:
+                return None
+            if key in INTEGER_KEYS:
+                parsed[key] = int(value, 10)
+                if parsed[key] < 0:
+                    return None
+            else:
+                if not re.fullmatch(r"[A-Za-z0-9_.:+-]+", value):
+                    return None
+                parsed[key] = value
+    except (TypeError, ValueError):
+        return None
+    if (
+        parsed.get("version") != 1
+        or parsed.get("role") not in {"host", "viewer"}
+        or any(word in line for word in SENSITIVE_WORDS)
+    ):
+        return None
+    return parsed
+
+
+def _latest(records: list[dict], role: str) -> dict:
+    matching = [record for record in records if record.get("role") == role]
+    if not matching:
+        raise SmokeRuntimeError(f"missing {role} performance counters")
+    return matching[-1]
+
+
+def _require_positive(record: dict, keys: tuple[str, ...], role: str) -> None:
+    if any(not isinstance(record.get(key), int) or record[key] <= 0 for key in keys):
+        raise SmokeRuntimeError(f"{role} media counters are incomplete")
+
+
+def _last_positive(records: list[dict], key: str) -> int:
+    for record in reversed(records):
+        value = record.get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+    return 0
+
+
+def _validate_dimensions(record: dict, profile: str, role: str) -> None:
+    max_width, max_height, _ = profile_bounds(profile)
+    width = record.get("width")
+    height = record.get("height")
+    if (
+        not isinstance(width, int)
+        or not isinstance(height, int)
+        or width <= 0
+        or height <= 0
+        or width > max_width
+        or height > max_height
+        or width % 2
+        or height % 2
+    ):
+        raise SmokeRuntimeError(f"{role} dimensions exceed {profile} bounds")
+
+
+def _validate_queue_and_conversion(record: dict, role: str) -> None:
+    if record.get("max_pending") != 1:
+        raise SmokeRuntimeError(f"{role} presentation queue is not bounded to one")
+    if record.get("conversion_failures", 0) != 0:
+        raise SmokeRuntimeError(f"{role} reported conversion failures")
+
+
+def validate_records(
+    profile: str, host_records: list[dict], viewer_records: list[dict]
+) -> dict:
+    host = _latest(host_records, "host")
+    viewer = _latest(viewer_records, "viewer")
+    _validate_dimensions(host, profile, "host")
+    _validate_dimensions(viewer, profile, "viewer")
+    _require_positive(host, ("encoded", "callback", "submitted"), "host")
+    _require_positive(viewer, ("received", "decoded", "callback", "submitted"), "viewer")
+    _validate_queue_and_conversion(host, "host")
+    _validate_queue_and_conversion(viewer, "viewer")
+    host_bitrate = _last_positive(host_records, "bitrate_bps")
+    viewer_bitrate = _last_positive(viewer_records, "bitrate_bps")
+    if host.get("hardware_encoder_status") != "active":
+        raise SmokeRuntimeError(
+            "host did not maintain hardware VideoToolbox encoding"
+        )
+    if host.get("webrtc_encoder") != "H264":
+        raise SmokeRuntimeError("host did not report negotiated H264")
+    if host_bitrate <= 0 or viewer_bitrate <= 0:
+        raise SmokeRuntimeError("video bitrate was not measured")
+    return {
+        "profile": profile,
+        "hardware_encoder_status": host["hardware_encoder_status"],
+        "webrtc_encoder": host["webrtc_encoder"],
+        "host": {
+            "width": host["width"],
+            "height": host["height"],
+            "encoded": host["encoded"],
+            "callback": host["callback"],
+            "submitted": host["submitted"],
+            "bitrate_bps": host_bitrate,
+        },
+        "viewer": {
+            "width": viewer["width"],
+            "height": viewer["height"],
+            "received": viewer["received"],
+            "decoded": viewer["decoded"],
+            "callback": viewer["callback"],
+            "submitted": viewer["submitted"],
+            "bitrate_bps": viewer_bitrate,
+        },
+    }
+
+
+class OutputReader:
+    def __init__(self, process: subprocess.Popen[str]):
+        self.events: queue.Queue[str | None] = queue.Queue()
+        self.lines: list[str] = []
+        self.process = process
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+
+    def _read(self) -> None:
+        stream = self.process.stdout
+        if stream is None:
+            self.events.put(None)
+            return
+        try:
+            for line in stream:
+                self.lines.append(line)
+                self.events.put(line)
+        finally:
+            self.events.put(None)
+
+    def join(self) -> None:
+        self.thread.join(timeout=2)
+
+
+def _wait_for_room(reader: OutputReader, process: subprocess.Popen[str]) -> str:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise SmokeRuntimeError("host exited before creating a room")
+        try:
+            line = reader.events.get(timeout=0.25)
+        except queue.Empty:
+            continue
+        if line is None:
+            raise SmokeRuntimeError("host output closed before creating a room")
+        match = ROOM_PATTERN.fullmatch(line.strip())
+        if match:
+            return match.group(1)
+    raise SmokeRuntimeError("screen smoke room timeout")
+
+
+def _process_exit_diagnostic(
+    host: subprocess.Popen[str],
+    viewer: subprocess.Popen[str],
+    host_reader: OutputReader,
+    viewer_reader: OutputReader,
+) -> str:
+    host_reader.join()
+    viewer_reader.join()
+    details = []
+    for role, process, reader in (
+        ("host", host, host_reader),
+        ("viewer", viewer, viewer_reader),
+    ):
+        if process.poll() is None:
+            continue
+        nonempty = [line.strip() for line in reader.lines if line.strip()]
+        excerpt = nonempty[:8] + nonempty[-8:]
+        details.append(
+            f"{role}=exit-{process.returncode}: {' | '.join(dict.fromkeys(excerpt))}"
+        )
+    return redact_diagnostic("; ".join(details))
+
+
+def _counter_diagnostic(reader: OutputReader | None) -> str:
+    if reader is None:
+        return "counter-lines=0 parsed=0 keys=[]"
+    lines = [
+        line.strip()
+        for line in reader.lines
+        if line.strip().startswith("PERF_COUNTERS")
+    ]
+    parsed = [parse_counter_line(line) for line in lines]
+    keys = sorted(
+        {
+            field.split("=", 1)[0]
+            for line in lines[-1:]
+            for field in line.split()[1:]
+            if "=" in field
+        }
+    )
+    return f"counter-lines={len(lines)} parsed={sum(value is not None for value in parsed)} keys={keys}"
+
+
+def _status_diagnostic(reader: OutputReader | None) -> str:
+    if reader is None:
+        return "statuses=[]"
+    statuses = [
+        redact_diagnostic(line.strip())
+        for line in reader.lines
+        if line.strip().startswith("SMOKE_STATUS ")
+    ]
+    return f"statuses={statuses[-8:]}"
+
+
+def _codec_diagnostic(reader: OutputReader | None) -> str:
+    if reader is None:
+        return "sdp=[]"
+    codecs = [
+        redact_diagnostic(line.strip())
+        for line in reader.lines
+        if line.strip().startswith("SMOKE_SDP ")
+        or any(
+            marker in line
+            for marker in (
+                "Failed to encode",
+                "Failed to copy",
+                "Failed to create",
+                "Compression session",
+            )
+        )
+    ]
+    return f"codec-diagnostics={codecs[-12:]}"
+
+
+def _read_process_metrics(process: subprocess.Popen[str]) -> dict:
+    if process.poll() is not None:
+        raise SmokeRuntimeError("screen smoke process exited before metrics")
+    result = subprocess.run(
+        ["ps", "-o", "%cpu=", "-o", "rss=", "-p", str(process.pid)],
+        capture_output=True,
+        text=True,
+        timeout=1,
+        check=False,
+    )
+    fields = result.stdout.split()
+    if result.returncode != 0 or len(fields) < 2:
+        raise SmokeRuntimeError("screen smoke process metrics unavailable")
+    cpu = float(fields[0])
+    rss_kib = int(fields[1])
+    if cpu < 0 or rss_kib <= 0:
+        raise SmokeRuntimeError("screen smoke process metrics invalid")
+    return {"cpu_percent": cpu, "rss_bytes": rss_kib * 1024}
+
+
+def _write_jsonl(handle, value: dict) -> None:
+    handle.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+    handle.flush()
+
+
+def _find_demo(repo_root: Path) -> Path:
+    candidates = (
+        repo_root / "build" / "call-dev" / "client" / "tools" / "rtc_demo" / "shareme_rtc_demo",
+        repo_root / "build" / "movie-call-dev" / "client" / "tools" / "rtc_demo" / "shareme_rtc_demo",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise SmokeRuntimeError("screen demo binary not found")
+
+
+def run_smoke(
+    *,
+    demo: Path,
+    server_root: Path,
+    profile: str,
+    duration_seconds: int,
+    port: int,
+    artifact: Path,
+) -> dict:
+    if sys.platform != "darwin":
+        raise SmokeRuntimeError("screen smoke requires macOS")
+    profile_bounds(profile)
+    if duration_seconds <= 0:
+        raise SmokeRuntimeError("duration must be positive")
+    if artifact.exists():
+        raise SmokeRuntimeError("refusing to overwrite smoke artifact")
+    max_width, max_height, max_frames_per_second = profile_bounds(profile)
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    address = f"127.0.0.1:{port}"
+    server = server_log = server_directory = None
+    host = viewer = None
+    host_reader = viewer_reader = None
+    host_records: list[dict] = []
+    viewer_records: list[dict] = []
+    process_records: list[dict] = []
+    failure: str | None = None
+    records_written = False
+    environment = os.environ.copy()
+    environment["SHAREME_PERFORMANCE_COUNTERS"] = "1"
+    environment["SHAREME_SCREEN_SMOKE_DIAGNOSTICS"] = "1"
+
+    with artifact.open("x", encoding="utf-8") as output:
+        _write_jsonl(output, {
+            "kind": "run",
+            "version": 1,
+            "profile": profile,
+            "duration_seconds": duration_seconds,
+            "max_width": max_width,
+            "max_height": max_height,
+            "max_frames_per_second": max_frames_per_second,
+            "platform": sys.platform,
+        })
+        try:
+            server, server_log, server_directory = start_signaling_server(
+                server_root, "127.0.0.1", port
+            )
+            wait_for_health(
+                f"http://127.0.0.1:{port}/healthz", server, server_log=server_log
+            )
+            host = start_managed_process(
+                build_host_command(demo, f"ws://{address}/v1/ws", profile),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=environment,
+                **popen_group_options(),
+            )
+            host_reader = OutputReader(host)
+            room = _wait_for_room(host_reader, host)
+            viewer = start_managed_process(
+                build_viewer_command(demo, f"ws://{address}/v1/ws", room),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=environment,
+                **popen_group_options(),
+            )
+            viewer_reader = OutputReader(viewer)
+            deadline = time.monotonic() + duration_seconds
+            sample = 0
+            while time.monotonic() < deadline:
+                if host.poll() is not None or viewer.poll() is not None:
+                    diagnostic = _process_exit_diagnostic(
+                        host, viewer, host_reader, viewer_reader
+                    )
+                    raise SmokeRuntimeError(
+                        "screen smoke peer exited during call"
+                        + (f": {diagnostic}" if diagnostic else "")
+                    )
+                for process, role in ((host, "host"), (viewer, "viewer")):
+                    metrics = _read_process_metrics(process)
+                    process_records.append({
+                        "kind": "process",
+                        "role": role,
+                        "sample": sample,
+                        **metrics,
+                    })
+                sample += 1
+                time.sleep(1)
+            terminate_process_group(viewer, grace_seconds=1)
+            terminate_process_group(host, grace_seconds=1)
+            host_reader.join()
+            viewer_reader.join()
+            for role, reader, records in (
+                ("host", host_reader, host_records),
+                ("viewer", viewer_reader, viewer_records),
+            ):
+                for line in reader.lines:
+                    parsed = parse_counter_line(line)
+                    if parsed is not None and parsed.get("role") == role:
+                        records.append(parsed)
+            for record in process_records:
+                _write_jsonl(output, record)
+            for role, records in (("host", host_records), ("viewer", viewer_records)):
+                for index, record in enumerate(records):
+                    _write_jsonl(output, {
+                        "kind": "counter",
+                        "role": role,
+                        "sample": index,
+                        **record,
+                    })
+            records_written = True
+            summary = validate_records(profile, host_records, viewer_records)
+            _write_jsonl(output, {"kind": "summary", "complete": True, **summary})
+            return summary
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            failure = str(error)
+        except SmokeRuntimeError as error:
+            failure = str(error)
+        finally:
+            for process in (viewer, host):
+                if process is not None and process.poll() is None:
+                    terminate_process_group(process, grace_seconds=1)
+            if server is not None and server.poll() is None:
+                terminate_process_group(server, grace_seconds=1)
+            if server_log is not None:
+                server_log.close()
+            if server_directory is not None:
+                server_directory.cleanup()
+        if failure is not None:
+            failure += (
+                f" [host: {_status_diagnostic(host_reader)};"
+                f" {_codec_diagnostic(host_reader)};"
+                f" viewer: {_status_diagnostic(viewer_reader)}]"
+                f" {_codec_diagnostic(viewer_reader)}"
+            )
+            if "performance counters" in failure:
+                failure += (
+                    f" [host: {_counter_diagnostic(host_reader)};"
+                    f" viewer: {_counter_diagnostic(viewer_reader)}]"
+                )
+            if not records_written:
+                for role, reader, records in (
+                    ("host", host_reader, host_records),
+                    ("viewer", viewer_reader, viewer_records),
+                ):
+                    if reader is None:
+                        continue
+                    reader.join()
+                    for line in reader.lines:
+                        parsed = parse_counter_line(line)
+                        if parsed is not None and parsed.get("role") == role:
+                            records.append(parsed)
+                for record in process_records:
+                    _write_jsonl(output, record)
+                for role, records in (("host", host_records), ("viewer", viewer_records)):
+                    for index, record in enumerate(records):
+                        _write_jsonl(output, {
+                            "kind": "counter",
+                            "role": role,
+                            "sample": index,
+                            **record,
+                        })
+            _write_jsonl(output, {
+                "kind": "summary",
+                "complete": False,
+                "failure": failure,
+            })
+            raise SmokeRuntimeError(failure)
+    raise SmokeRuntimeError("screen smoke did not produce a result")
+
+
+def main() -> int:
+    repo_root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--demo", type=Path, default=None)
+    parser.add_argument("--server-root", type=Path, default=repo_root / "server")
+    parser.add_argument("--port", type=int, default=18080)
+    parser.add_argument("--profile", choices=tuple(PROFILE_BOUNDS), required=True)
+    parser.add_argument("--duration-seconds", type=int, required=True)
+    parser.add_argument("--artifact", type=Path)
+    args = parser.parse_args()
+    demo = args.demo or _find_demo(repo_root)
+    artifact = args.artifact or (
+        repo_root / "out" / "hardware-screen-streaming" /
+        f"{args.profile}-{args.duration_seconds}s.jsonl"
+    )
+    try:
+        print(json.dumps(run_smoke(
+            demo=demo.resolve(),
+            server_root=args.server_root.resolve(),
+            profile=args.profile,
+            duration_seconds=args.duration_seconds,
+            port=args.port,
+            artifact=artifact.resolve(),
+        ), sort_keys=True))
+        return 0
+    except (SmokeRuntimeError, OSError, ValueError) as error:
+        print(f"SMOKE_ERROR {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

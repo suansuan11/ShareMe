@@ -72,6 +72,16 @@ class MoviePerformanceStudyTest(unittest.TestCase):
         )
         self.assertEqual(parsed["dropped"], 0)
         self.assertEqual(parsed["max_pending"], 1)
+        remote = self.runner.parse_perf_counters(
+            "PERF_COUNTERS version=1 role=viewer "
+            "requested_mode=software decoder_path=software "
+            "webrtc_encoder=remote-unreported "
+            "hardware_encoder_status=receive-only "
+            "encoder_implementation=receive-only"
+        )
+        self.assertIsNotNone(remote)
+        self.assertEqual(remote["webrtc_encoder"], "remote-unreported")
+        self.assertEqual(remote["encoder_implementation"], "receive-only")
         auto = self.runner.parse_perf_counters(
             "PERF_COUNTERS version=1 role=host requested_mode=auto "
             "decoder_path=fallback webrtc_encoder=vp8-software "
@@ -120,12 +130,14 @@ class MoviePerformanceStudyTest(unittest.TestCase):
             "pixel_aspect_num=1 pixel_aspect_den=1 color_range=limited "
             "color_space=unknown codec=hevc profile=main10 "
             "requested_mode=software decoder_path=software "
+            "bytes_sent=100 bytes_received=0 bitrate_bps=123 "
             "webrtc_encoder=vp8-software "
             "hardware_encoder_status=unavailable-locked-abi "
             "state=playing candidate=host"
         )
         self.assertIsNotNone(bounded)
         self.assertEqual(bounded["source_pending_bytes"], 30)
+        self.assertEqual(bounded["bitrate_bps"], 123)
         self.assertEqual(bounded["pending_callbacks"], 1)
         self.assertEqual(bounded["owned_peak_bytes"], 70)
         self.assertEqual(self.runner.parse_perf_counters("ROOM ABC234"), None)

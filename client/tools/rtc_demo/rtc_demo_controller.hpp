@@ -14,6 +14,7 @@
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
+#include "shareme/rtc/video_encoder_selection.hpp"
 
 #include <QImage>
 #include <QObject>
@@ -69,10 +70,23 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(QString audioRouteMonitorStatus READ audioRouteMonitorStatus NOTIFY playoutReportChanged)
   Q_PROPERTY(QString driftScenarioPhase READ driftScenarioPhase NOTIFY driftScenarioChanged)
   Q_PROPERTY(bool driftScenarioActive READ driftScenarioActive NOTIFY driftScenarioChanged)
+  Q_PROPERTY(QString videoSource READ videoSource CONSTANT)
+  Q_PROPERTY(QString screenProfile READ screenProfile CONSTANT)
+  Q_PROPERTY(QString videoCaptureProfile READ videoCaptureProfile NOTIFY videoDiagnosticsChanged)
+  Q_PROPERTY(QString videoEncoderImplementation READ videoEncoderImplementation NOTIFY videoDiagnosticsChanged)
+  Q_PROPERTY(QString videoNegotiatedCodec READ videoNegotiatedCodec NOTIFY videoDiagnosticsChanged)
+  Q_PROPERTY(QString videoHardwareStatus READ videoHardwareStatus NOTIFY videoDiagnosticsChanged)
+  Q_PROPERTY(qulonglong presentationCallbacks READ presentationCallbacks NOTIFY presentationDiagnosticsChanged)
+  Q_PROPERTY(qulonglong presentationSubmissions READ presentationSubmissions NOTIFY presentationDiagnosticsChanged)
+  Q_PROPERTY(qulonglong presentationCoalesced READ presentationCoalesced NOTIFY presentationDiagnosticsChanged)
+  Q_PROPERTY(qulonglong presentationDelayP95Ms READ presentationDelayP95Ms NOTIFY presentationDiagnosticsChanged)
+  Q_PROPERTY(qulonglong presentationDelayMaxMs READ presentationDelayMaxMs NOTIFY presentationDiagnosticsChanged)
 
 public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
                     QString requested_room, bool desktop_source,
+                    bool screen_source,
+                    shareme::core::ScreenStreamProfile screen_profile,
                     std::filesystem::path movie_path, bool movie_audio,
                     QString video_acceleration,
                     QString metrics_jsonl_path, QString drift_scenario_name,
@@ -110,6 +124,17 @@ public:
   [[nodiscard]] QString audioRouteMonitorStatus() const;
   [[nodiscard]] QString driftScenarioPhase() const;
   [[nodiscard]] bool driftScenarioActive() const noexcept;
+  [[nodiscard]] QString videoSource() const;
+  [[nodiscard]] QString screenProfile() const;
+  [[nodiscard]] QString videoCaptureProfile() const;
+  [[nodiscard]] QString videoEncoderImplementation() const;
+  [[nodiscard]] QString videoNegotiatedCodec() const;
+  [[nodiscard]] QString videoHardwareStatus() const;
+  [[nodiscard]] qulonglong presentationCallbacks() const noexcept;
+  [[nodiscard]] qulonglong presentationSubmissions() const noexcept;
+  [[nodiscard]] qulonglong presentationCoalesced() const noexcept;
+  [[nodiscard]] qulonglong presentationDelayP95Ms() const noexcept;
+  [[nodiscard]] qulonglong presentationDelayMaxMs() const noexcept;
 
   Q_INVOKABLE void setVideoSink(QVideoSink *sink);
   Q_INVOKABLE void start();
@@ -125,6 +150,8 @@ signals:
   void hostPlaybackChanged();
   void playoutReportChanged();
   void driftScenarioChanged();
+  void videoDiagnosticsChanged();
+  void presentationDiagnosticsChanged();
 
 private:
   bool createPeer();
@@ -146,6 +173,7 @@ private:
   void recordDriftError(std::string category, bool notify_viewer = true);
   void emitDriftDiagnostics();
   void emitPerformanceCounters();
+  void checkScreenCaptureError();
   void startAudioRouteMonitor();
   void startMovieAudioPeer();
   void startMovieAudioViewerPath();
@@ -159,8 +187,12 @@ private:
   shareme::rtc::SignaledRole role_;
   QString requested_room_;
   bool desktop_source_{false};
+  bool screen_source_{false};
+  shareme::core::ScreenStreamProfile screen_profile_{
+      shareme::core::ScreenStreamProfile::standard};
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
+  shareme::rtc::VideoEncoderDiagnostics video_encoder_diagnostics_;
   QString video_acceleration_{QStringLiteral("software")};
   QString metrics_jsonl_path_;
   QString drift_scenario_name_;
@@ -187,6 +219,7 @@ private:
   QTimer drift_metrics_flush_timer_;
   QTimer drift_scenario_timer_;
   QTimer performance_timer_;
+  QTimer screen_capture_error_timer_;
   std::uint64_t playback_sequence_{1};
   std::uint64_t scheduler_observation_sequence_{1};
   std::chrono::steady_clock::time_point scheduler_started_at_{};
@@ -236,6 +269,8 @@ private:
   std::condition_variable_any performance_stats_wait_;
   shareme::rtc::SignaledVideoStats performance_video_stats_{
       .unavailable = true};
+  std::optional<std::uint64_t> performance_last_video_bytes_;
+  std::chrono::steady_clock::time_point performance_last_video_bytes_at_{};
   QString remote_playback_state_{QStringLiteral("unavailable")};
   qint64 remote_playback_position_ms_{0};
   QString host_playback_state_{QStringLiteral("unavailable")};

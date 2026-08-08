@@ -46,6 +46,8 @@ ALLOWED_KEYS = {
     "conversion_failures", "width", "height", "cadence_num", "cadence_den",
     "pixel_aspect_num", "pixel_aspect_den", "color_range", "color_space",
     "codec", "profile", "requested_mode", "decoder_path", "webrtc_encoder",
+    "encoder_implementation",
+    "bytes_sent", "bytes_received", "bitrate_bps",
     "hardware_encoder_status", "state", "candidate", "fallback_copies",
     "max_pending", "source_pending", "source_pending_bytes",
     "source_peak_pending", "source_peak_pending_bytes",
@@ -59,8 +61,9 @@ ENUMS = {
     "color_range": {"limited", "full", "unknown"},
     "requested_mode": {"software", "auto"},
     "decoder_path": {"software", "hardware", "fallback"},
-    "webrtc_encoder": {"vp8-software"},
-    "hardware_encoder_status": {"unavailable-locked-abi"},
+    "webrtc_encoder": {"vp8-software", "H264", "remote-unreported"},
+    "encoder_implementation": {"vp8-software", "VP8Template", "VideoToolbox", "receive-only"},
+    "hardware_encoder_status": {"unavailable-locked-abi", "active", "receive-only"},
     "state": {"playing", "paused", "seeking", "stopped", "unknown"},
     "candidate": {"host", "srflx", "relay", "unknown"},
 }
@@ -77,7 +80,7 @@ INTEGER_KEYS = {
     "render_queue", "pending_callbacks", "pending_callback_bytes", "owned_bytes",
     "owned_peak_bytes", "backpressure_events", "stats_unavailable",
     "width", "height", "cadence_num", "cadence_den", "pixel_aspect_num",
-    "pixel_aspect_den",
+    "pixel_aspect_den", "bytes_sent", "bytes_received", "bitrate_bps",
 }
 FLOAT_KEYS = {"cpu_percent"}
 SENSITIVE_WORDS = ("ROOM", "room", "TOKEN", "token", "SDP", "sdp", "ICE", "ice")

@@ -68,6 +68,14 @@ if(TARGET shareme_rtc_demo)
 endif()
 
 add_test(
+  NAME screen_stream_smoke_contract
+  COMMAND
+    "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/screen_stream_smoke_test.py"
+)
+set_tests_properties(screen_stream_smoke_contract PROPERTIES TIMEOUT 10)
+
+add_test(
   NAME movie_drift_study_contract
   COMMAND
     "${Python3_EXECUTABLE}"

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 
 #include "api/video/video_frame.h"
 
@@ -13,6 +14,8 @@ class QObject;
 class QVideoSink;
 
 namespace shareme::tools {
+
+struct VideoPreviewState;
 
 enum class PreviewPath {
   planar_yuv,
@@ -31,6 +34,11 @@ struct VideoPreviewResult {
 struct VideoPreviewCounters {
   std::uint64_t submissions{0};
   std::uint64_t coalesced{0};
+  std::uint64_t remote_callbacks{0};
+  std::uint64_t sink_submissions{0};
+  std::uint64_t presentation_coalesced{0};
+  std::uint64_t presentation_callback_delay_p95{0};
+  std::uint64_t presentation_callback_delay_max{0};
   std::uint64_t fallback_copies{0};
   std::uint64_t mapping_failures{0};
   std::uint64_t max_pending_depth{0};
@@ -54,8 +62,7 @@ public:
   [[nodiscard]] VideoPreviewCounters counters() const noexcept;
 
 private:
-  struct State;
-  std::shared_ptr<State> state_;
+  std::shared_ptr<VideoPreviewState> state_;
 };
 
 }  // namespace shareme::tools

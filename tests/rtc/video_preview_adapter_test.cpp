@@ -176,7 +176,8 @@ shareme::core::VideoClockInput locked_video_clock(
           .observed_video_pts_ms = -400};
 }
 
-webrtc::VideoFrame frame(std::uint32_t rtp_timestamp = 90) {
+webrtc::VideoFrame frame(std::uint32_t rtp_timestamp = 90,
+                         std::int64_t timestamp_us = 42) {
   auto buffer = webrtc::I420Buffer::Create(4, 4);
   for (int row = 0; row < 4; ++row)
     for (int column = 0; column < 4; ++column)
@@ -184,7 +185,7 @@ webrtc::VideoFrame frame(std::uint32_t rtp_timestamp = 90) {
           static_cast<std::uint8_t>(32 + row * 4 + column);
   return webrtc::VideoFrame::Builder()
       .set_video_frame_buffer(buffer)
-      .set_timestamp_us(42)
+      .set_timestamp_us(timestamp_us)
        .set_rtp_timestamp(rtp_timestamp)
       .build();
 }
@@ -214,6 +215,28 @@ void submits_planar_frame_and_keeps_one_in_flight(QGuiApplication& app) {
   REQUIRE(sink.videoFrame().startTime() == 42);
   REQUIRE(sink.videoFrame().pixelFormat() ==
           QVideoFrameFormat::Format_YUV420P);
+}
+
+void presents_the_newest_frame_when_multiple_callbacks_are_pending(
+    QGuiApplication& app) {
+  QVideoSink sink;
+  shareme::tools::VideoPreviewAdapter adapter(&sink);
+  adapter.set_sink(&sink);
+
+  const auto first = adapter.submit(frame(90, 100));
+  const auto second = adapter.submit(frame(91, 200));
+  const auto third = adapter.submit(frame(92, 300));
+  REQUIRE(first.submitted);
+  REQUIRE(second.path == shareme::tools::PreviewPath::coalesced);
+  REQUIRE(third.path == shareme::tools::PreviewPath::coalesced);
+  REQUIRE(adapter.counters().pending_callbacks == 1);
+
+  app.processEvents();
+  const auto counters = adapter.counters();
+  REQUIRE(counters.submissions == 1);
+  REQUIRE(counters.coalesced == 2);
+  REQUIRE(counters.pending_callbacks == 0);
+  REQUIRE(sink.videoFrame().startTime() == 300);
 }
 
 void rejects_without_sink(QGuiApplication& app) {
@@ -381,7 +404,7 @@ void adapter_releases_older_tokens_before_current(QGuiApplication& app) {
   REQUIRE(bound.disposition == shareme::core::VideoFrameDisposition::pass_through);
   app.processEvents();
   REQUIRE(!submitted.empty());
-  REQUIRE(submitted.front() == 101);
+  REQUIRE(submitted.back() == 104);
 }
 
 void duplicate_tokens_are_replaced_by_adapter_tokens(QGuiApplication& app) {
@@ -571,6 +594,7 @@ void deterministic_video_stalls_keep_audio_continuous_and_bound_policy(
 int main(int argc, char** argv) {
   QGuiApplication app(argc, argv);
   submits_planar_frame_and_keeps_one_in_flight(app);
+  presents_the_newest_frame_when_multiple_callbacks_are_pending(app);
   rejects_without_sink(app);
   keeps_the_i420_buffer_alive_without_copying_planes(app);
   observational_movie_adapter_preserves_preview_delivery(app);

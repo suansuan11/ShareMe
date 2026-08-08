@@ -15,6 +15,8 @@
 
 #include "shareme/core/playback_failure.hpp"
 #include "shareme/core/sync_controller.hpp"
+#include "shareme/rtc/screen_video_source.hpp"
+#include "shareme/rtc/video_encoder_selection.hpp"
 #include "qt_audio_output_device.hpp"
 
 #if defined(SHAREME_HAS_DESKTOP_CAPTURE)
@@ -148,12 +150,27 @@ QString drift_phase_name(shareme::core::DriftPhase phase) {
   return QStringLiteral("unknown");
 }
 
+QString screen_profile_name(shareme::core::ScreenStreamProfile profile) {
+  switch (profile) {
+  case shareme::core::ScreenStreamProfile::standard:
+    return QStringLiteral("standard");
+  case shareme::core::ScreenStreamProfile::quality:
+    return QStringLiteral("quality");
+  case shareme::core::ScreenStreamProfile::cinema:
+    return QStringLiteral("cinema");
+  }
+  return QStringLiteral("unknown");
+}
+
 } // namespace
 
 RtcDemoController::RtcDemoController(QUrl server_url,
                                      shareme::rtc::SignaledRole role,
                                      QString requested_room,
                                      bool desktop_source,
+                                     bool screen_source,
+                                     shareme::core::ScreenStreamProfile
+                                         screen_profile,
                                      std::filesystem::path movie_path,
                                      bool movie_audio, QString video_acceleration,
                                      QString metrics_jsonl_path,
@@ -162,16 +179,17 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                      QObject *parent)
     : QObject(parent), server_url_(std::move(server_url)), role_(role),
       requested_room_(std::move(requested_room)),
-      desktop_source_(desktop_source), movie_path_(std::move(movie_path)),
-      movie_audio_(movie_audio),
-      video_acceleration_(std::move(video_acceleration)),
-      metrics_jsonl_path_(std::move(metrics_jsonl_path)),
-      drift_scenario_name_(std::move(drift_scenario_name)),
-      measurement_duration_seconds_(measurement_duration_seconds),
-      drift_diagnostics_enabled_(std::getenv("SHAREME_DRIFT_DIAGNOSTICS") !=
-                                 nullptr),
-      performance_counters_enabled_(
-          std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
+       desktop_source_(desktop_source), screen_source_(screen_source),
+       screen_profile_(screen_profile), movie_path_(std::move(movie_path)),
+       movie_audio_(movie_audio),
+       video_acceleration_(std::move(video_acceleration)),
+       metrics_jsonl_path_(std::move(metrics_jsonl_path)),
+       drift_scenario_name_(std::move(drift_scenario_name)),
+       measurement_duration_seconds_(measurement_duration_seconds),
+       drift_diagnostics_enabled_(std::getenv("SHAREME_DRIFT_DIAGNOSTICS") !=
+                                  nullptr),
+       performance_counters_enabled_(
+           std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
   audio_route_monitor_ = std::make_unique<QtAudioRouteMonitor>();
   movie_video_playout_adapter_ =
       std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(
@@ -188,6 +206,7 @@ RtcDemoController::RtcDemoController(QUrl server_url,
           }
           recordRenderedFrame(timestamp);
         }
+        emit presentationDiagnosticsChanged();
       });
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
@@ -220,6 +239,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
   performance_timer_.setInterval(1'000);
   connect(&performance_timer_, &QTimer::timeout, this,
           &RtcDemoController::emitPerformanceCounters);
+  screen_capture_error_timer_.setInterval(250);
+  connect(&screen_capture_error_timer_, &QTimer::timeout, this,
+          &RtcDemoController::checkScreenCaptureError);
   connect(&signaling_, &QtSignalingClient::roomReady, this,
           [this](const QString &room) {
             setRoomId(room);
@@ -379,10 +401,108 @@ bool RtcDemoController::driftScenarioActive() const noexcept {
       !drift_scenario_failed_ && !drift_scenario_->completed();
 }
 
+QString RtcDemoController::videoSource() const {
+  if (screen_source_)
+    return QStringLiteral("screen");
+  if (desktop_source_)
+    return QStringLiteral("desktop");
+  if (!movie_path_.empty())
+    return QStringLiteral("movie");
+  return QStringLiteral("test");
+}
+
+QString RtcDemoController::screenProfile() const {
+  return screen_source_ ? screen_profile_name(screen_profile_)
+                         : QStringLiteral("n/a");
+}
+
+QString RtcDemoController::videoCaptureProfile() const {
+  if (!screen_source_ || viewer())
+    return QStringLiteral("n/a");
+  return screen_profile_name(
+      video_encoder_diagnostics_.fallback_active
+          ? shareme::core::ScreenStreamProfile::standard
+          : screen_profile_);
+}
+
+QString RtcDemoController::videoEncoderImplementation() const {
+  if (viewer())
+    return QStringLiteral("receive-only");
+  if (!video_encoder_diagnostics_.encoder_implementation.empty())
+    return QString::fromStdString(
+        video_encoder_diagnostics_.encoder_implementation);
+  return QString::fromStdString(
+      std::string(shareme::rtc::SignaledPeer::video_codec_report().encoder));
+}
+
+QString RtcDemoController::videoNegotiatedCodec() const {
+  if (viewer())
+    return QStringLiteral("remote-unreported");
+  if (!video_encoder_diagnostics_.negotiated_codec.empty())
+    return QString::fromStdString(video_encoder_diagnostics_.negotiated_codec);
+  return QStringLiteral("VP8");
+}
+
+QString RtcDemoController::videoHardwareStatus() const {
+  if (viewer())
+    return QStringLiteral("receive-only");
+  if (video_encoder_diagnostics_.hardware_active)
+    return QStringLiteral("active");
+  if (video_encoder_diagnostics_.fallback_active) {
+    return QStringLiteral("fallback:") +
+        QString::fromStdString(video_encoder_diagnostics_.fallback_reason);
+  }
+  return QString::fromStdString(
+      std::string(
+          shareme::rtc::SignaledPeer::video_codec_report()
+              .hardware_encoder_status));
+}
+
+qulonglong RtcDemoController::presentationCallbacks() const noexcept {
+  return movie_video_playout_adapter_
+      ? movie_video_playout_adapter_->counters().remote_callbacks
+      : 0;
+}
+
+qulonglong RtcDemoController::presentationSubmissions() const noexcept {
+  return movie_video_playout_adapter_
+      ? movie_video_playout_adapter_->counters().sink_submissions
+      : 0;
+}
+
+qulonglong RtcDemoController::presentationCoalesced() const noexcept {
+  return movie_video_playout_adapter_
+      ? movie_video_playout_adapter_->counters().presentation_coalesced
+      : 0;
+}
+
+qulonglong RtcDemoController::presentationDelayP95Ms() const noexcept {
+  return movie_video_playout_adapter_
+      ? movie_video_playout_adapter_->counters().presentation_callback_delay_p95
+      : 0;
+}
+
+qulonglong RtcDemoController::presentationDelayMaxMs() const noexcept {
+  return movie_video_playout_adapter_
+      ? movie_video_playout_adapter_->counters().presentation_callback_delay_max
+      : 0;
+}
+
 void RtcDemoController::setVideoSink(QVideoSink *sink) {
   video_sink_ = sink;
   if (movie_video_playout_adapter_)
     movie_video_playout_adapter_->set_sink(sink);
+}
+
+void RtcDemoController::checkScreenCaptureError() {
+  if (!peer_ || !screen_source_ || viewer())
+    return;
+  const auto error = peer_->video_source_error();
+  if (error.empty())
+    return;
+  screen_capture_error_timer_.stop();
+  setStatus(QStringLiteral("screen-capture-error:") +
+            QString::fromStdString(error));
 }
 
 void RtcDemoController::startAudioRouteMonitor() {
@@ -615,6 +735,11 @@ bool RtcDemoController::createPeer() {
     return true;
   shareme::rtc::SignaledPeerCallbacks callbacks;
   callbacks.description = [this](std::string type, std::string sdp) {
+    if (std::getenv("SHAREME_SCREEN_SMOKE_DIAGNOSTICS") != nullptr)
+      std::cerr << "SMOKE_SDP type=" << type
+                << " h264=" << (sdp.find("H264") != std::string::npos)
+                << " vp8=" << (sdp.find("VP8") != std::string::npos)
+                << std::endl;
     QMetaObject::invokeMethod(
         &signaling_,
         [this, type = std::move(type), sdp = std::move(sdp)] {
@@ -660,6 +785,19 @@ bool RtcDemoController::createPeer() {
     };
   }
 #endif
+  if (screen_source_ && role_ == shareme::rtc::SignaledRole::host) {
+    auto selection = shareme::rtc::select_screen_video_encoder(
+        screen_profile_);
+    video_encoder_diagnostics_ = selection.diagnostics;
+    emit videoDiagnosticsChanged();
+    config.video_encoder_factory = std::move(selection.factory);
+    config.video_mode = shareme::rtc::SignaledVideoMode::injected;
+    config.video_source_factory = [profile = selection.capture_profile](
+                                      webrtc::TaskQueueFactory &)
+        -> webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> {
+      return shareme::rtc::ScreenVideoSource::create({.profile = profile});
+    };
+  }
 #if defined(SHAREME_HAS_MOVIE_RTC)
   if (!movie_path_.empty()) {
     movie_timeline_ = std::make_shared<shareme::rtc::MovieTimeline>();
@@ -701,7 +839,8 @@ bool RtcDemoController::createPeer() {
     return false;
   }
 #if defined(SHAREME_HAS_MOVIE_RTC)
-  if (movie_audio_ || role_ == shareme::rtc::SignaledRole::viewer) {
+  if ((movie_audio_ || role_ == shareme::rtc::SignaledRole::viewer) &&
+      !screen_source_) {
     if (role_ == shareme::rtc::SignaledRole::viewer)
       movie_audio_renderer_ =
           std::make_unique<shareme::core::MovieAudioRenderer>();
@@ -813,6 +952,8 @@ void RtcDemoController::startPeer() {
     playback_state_timer_.start();
   if (role_ == shareme::rtc::SignaledRole::viewer)
     playout_report_timer_.start();
+  if (screen_source_ && role_ == shareme::rtc::SignaledRole::host)
+    screen_capture_error_timer_.start();
   if (performance_counters_enabled_) {
     performance_stats_worker_ = std::jthread([this](std::stop_token stop_token) {
       while (!stop_token.stop_requested()) {
@@ -879,6 +1020,7 @@ void RtcDemoController::stopPeer() noexcept {
   movie_audio_peer_started_ = false;
   drift_scenario_timer_.stop();
   performance_timer_.stop();
+  screen_capture_error_timer_.stop();
   if (performance_stats_worker_.joinable()) {
     performance_stats_worker_.request_stop();
     performance_stats_worker_.join();
@@ -970,6 +1112,20 @@ void RtcDemoController::emitPerformanceCounters() {
   std::string profile = "unknown";
   std::string state = "unknown";
   const auto codec_report = shareme::rtc::SignaledPeer::video_codec_report();
+  auto webrtc_encoder = std::string(codec_report.encoder);
+  auto hardware_encoder_status =
+      std::string(codec_report.hardware_encoder_status);
+  const auto encoder_implementation =
+      videoEncoderImplementation().toStdString();
+  if (viewer()) {
+    webrtc_encoder = videoNegotiatedCodec().toStdString();
+    hardware_encoder_status = videoHardwareStatus().toStdString();
+  } else if (!video_encoder_diagnostics_.encoder_implementation.empty()) {
+    webrtc_encoder = video_encoder_diagnostics_.negotiated_codec.empty()
+        ? video_encoder_diagnostics_.encoder_implementation
+        : video_encoder_diagnostics_.negotiated_codec;
+    hardware_encoder_status = videoHardwareStatus().toStdString();
+  }
   std::string requested_mode = video_acceleration_.toStdString();
   if (requested_mode != "software" && requested_mode != "auto")
     requested_mode = "software";
@@ -1056,6 +1212,28 @@ void RtcDemoController::emitPerformanceCounters() {
     encoded = video_stats.frames_encoded;
     received = performance_callback_count_.load(std::memory_order_relaxed);
   }
+  const auto video_bytes = viewer() ? video_stats.bytes_received
+                                    : video_stats.bytes_sent;
+  std::uint64_t bitrate_bps = 0;
+  const auto bitrate_now = std::chrono::steady_clock::now();
+  if (video_bytes.has_value()) {
+    if (performance_last_video_bytes_.has_value() &&
+        bitrate_now > performance_last_video_bytes_at_ &&
+        *video_bytes >= *performance_last_video_bytes_) {
+      const auto elapsed_ms = std::chrono::duration_cast<
+          std::chrono::milliseconds>(bitrate_now -
+                                     performance_last_video_bytes_at_)
+                                  .count();
+      if (elapsed_ms > 0) {
+        const auto byte_delta = *video_bytes - *performance_last_video_bytes_;
+        bitrate_bps = static_cast<std::uint64_t>(
+            static_cast<long double>(byte_delta) * 8'000.0L /
+            static_cast<long double>(elapsed_ms));
+      }
+    }
+    performance_last_video_bytes_ = video_bytes;
+    performance_last_video_bytes_at_ = bitrate_now;
+  }
   const auto stats_unavailable = video_stats.unavailable ? 1U : 0U;
   std::cout << "PERF_COUNTERS version=1 role="
             << (viewer() ? "viewer" : "host")
@@ -1067,6 +1245,11 @@ void RtcDemoController::emitPerformanceCounters() {
     std::cout << " encoded=" << *encoded;
   if (received.has_value())
     std::cout << " received=" << *received;
+  if (video_stats.bytes_sent.has_value())
+    std::cout << " bytes_sent=" << *video_stats.bytes_sent;
+  if (video_stats.bytes_received.has_value())
+    std::cout << " bytes_received=" << *video_stats.bytes_received;
+  std::cout << " bitrate_bps=" << bitrate_bps;
   std::cout << " callback="
             << performance_callback_count_.load(std::memory_order_relaxed)
             << " submitted="
@@ -1089,22 +1272,22 @@ void RtcDemoController::emitPerformanceCounters() {
             << " pending_callbacks=" << preview.pending_callbacks
             << " pending_callback_bytes=" << pending_callback_bytes
             << " owned_bytes=" << owned_bytes
-            << " owned_peak_bytes=" << owned_peak_bytes
-            << " backpressure_events=" << backpressure_events
-            << " stats_unavailable=" << stats_unavailable
+             << " owned_peak_bytes=" << owned_peak_bytes
+             << " backpressure_events=" << backpressure_events
+             << " stats_unavailable=" << stats_unavailable
              << " width=" << width << " height=" << height
              << " cadence_num=" << cadence_num
              << " cadence_den=" << cadence_den
              << " pixel_aspect_num=" << pixel_aspect_num
-            << " pixel_aspect_den=" << pixel_aspect_den
-            << " color_range=" << color_range
-            << " color_space=" << color_space << " codec=" << codec
-            << " profile=" << profile << " requested_mode=" << requested_mode
-            << " decoder_path=" << decoder_path
-            << " webrtc_encoder=" << codec_report.encoder
-            << " hardware_encoder_status="
-            << codec_report.hardware_encoder_status
-            << " state=" << state << " candidate=unknown" << std::endl;
+             << " pixel_aspect_den=" << pixel_aspect_den
+             << " color_range=" << color_range
+             << " color_space=" << color_space << " codec=" << codec
+             << " profile=" << profile << " requested_mode=" << requested_mode
+             << " decoder_path=" << decoder_path
+             << " webrtc_encoder=" << webrtc_encoder
+             << " hardware_encoder_status=" << hardware_encoder_status
+             << " encoder_implementation=" << encoder_implementation
+             << " state=" << state << " candidate=unknown" << std::endl;
 }
 
 void RtcDemoController::stopDriftMetrics() noexcept {
@@ -1616,6 +1799,8 @@ void RtcDemoController::setStatus(QString status) {
   if (status_ == status)
     return;
   status_ = std::move(status);
+  if (std::getenv("SHAREME_SCREEN_SMOKE_DIAGNOSTICS") != nullptr)
+    std::cerr << "SMOKE_STATUS " << status_.toStdString() << std::endl;
   emit statusChanged();
 }
 
