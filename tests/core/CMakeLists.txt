@@ -24,6 +24,17 @@ add_test(
   COMMAND shareme_video_quality_contract_test
 )
 
+add_executable(
+  shareme_screen_stream_profile_test
+  screen_stream_profile_test.cpp
+)
+target_link_libraries(shareme_screen_stream_profile_test PRIVATE ShareMe::Core)
+
+add_test(
+  NAME screen_stream_profile
+  COMMAND shareme_screen_stream_profile_test
+)
+
 add_executable(shareme_probe_contract_test probe_contract_test.cpp)
 target_link_libraries(shareme_probe_contract_test PRIVATE ShareMe::Core)
 

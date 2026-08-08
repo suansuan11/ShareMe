@@ -3,7 +3,9 @@
   "targets": [
     "webrtc",
     "api/video:adapted_video_track_source",
-    "modules/audio_device:test_audio_device_module"
+    "modules/audio_device:test_audio_device_module",
+    "sdk:native_api",
+    "sdk:videotoolbox_objc"
   ],
   "gnArgs": [
     "clang_use_unsafe_buffers_plugin=false",

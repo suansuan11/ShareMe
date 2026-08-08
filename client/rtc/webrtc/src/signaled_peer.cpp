@@ -235,7 +235,8 @@ public:
       }
       return false;
     }
-    runtime_ = WebRtcRuntime::create(audio.device);
+    runtime_ = WebRtcRuntime::create(audio.device,
+                                     std::move(config_.video_encoder_factory));
     if (!runtime_) {
       fail("WebRTC runtime creation failed");
       return false;
@@ -385,6 +386,8 @@ public:
         } else {
           missing_video_field = true;
         }
+        if (stats->bytes_sent)
+          result.bytes_sent = *stats->bytes_sent;
       }
       for (const auto* const stats :
            report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>()) {
@@ -407,6 +410,8 @@ public:
         } else {
           missing_video_field = true;
         }
+        if (stats->bytes_received)
+          result.bytes_received = *stats->bytes_received;
       }
       result.unavailable = !found_video_stats || missing_video_field;
     } catch (...) {
@@ -414,6 +419,9 @@ public:
       result.unavailable = true;
     }
     return result;
+  }
+  std::string video_source_error() const {
+    return video_source_ ? video_source_->error() : std::string{};
   }
   SignaledPeerResult wait(std::chrono::milliseconds timeout) {
     const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -879,7 +887,7 @@ VideoCodecReport SignaledPeer::video_codec_report() noexcept {
 std::unique_ptr<SignaledPeer>
 SignaledPeer::create(SignaledPeerConfig config,
                      SignaledPeerCallbacks callbacks) {
-  auto impl = std::make_unique<Impl>(config, std::move(callbacks));
+  auto impl = std::make_unique<Impl>(std::move(config), std::move(callbacks));
   if (!impl->initialize())
     return nullptr;
   return std::unique_ptr<SignaledPeer>(new SignaledPeer(std::move(impl)));
@@ -912,6 +920,9 @@ SignaledPeerResult SignaledPeer::wait(std::chrono::milliseconds timeout) {
 }
 SignaledVideoStats SignaledPeer::video_stats() const noexcept {
   return impl_->video_stats();
+}
+std::string SignaledPeer::video_source_error() const {
+  return impl_->video_source_error();
 }
 void SignaledPeer::cancel_wait() noexcept { impl_->cancel_wait(); }
 void SignaledPeer::stop() noexcept { impl_->stop(); }

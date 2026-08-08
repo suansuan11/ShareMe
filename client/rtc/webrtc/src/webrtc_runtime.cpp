@@ -1,6 +1,7 @@
 #include "webrtc_runtime.hpp"
 
 #include <condition_variable>
+#include <optional>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -9,6 +10,7 @@
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/enable_media.h"
+#include "api/environment/environment_factory.h"
 #include "api/peer_connection_interface.h"
 #include "api/video_codecs/video_decoder_factory_template.h"
 #include "api/video_codecs/video_decoder_factory_template_libvpx_vp8_adapter.h"
@@ -21,6 +23,73 @@
 #endif
 
 namespace shareme::rtc {
+
+namespace {
+
+class CombinedVideoDecoderFactory final : public webrtc::VideoDecoderFactory {
+public:
+  explicit CombinedVideoDecoderFactory(
+      std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories)
+      : factories_(std::move(factories)) {}
+
+  std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override {
+    std::vector<webrtc::SdpVideoFormat> formats;
+    for (const auto &factory : factories_) {
+      auto supported = factory->GetSupportedFormats();
+      formats.insert(formats.end(), supported.begin(), supported.end());
+    }
+    return formats;
+  }
+
+  CodecSupport QueryCodecSupport(
+      const webrtc::SdpVideoFormat &format, bool reference_scaling,
+      std::optional<webrtc::Resolution> resolution) const override {
+    for (const auto &factory : factories_) {
+      const auto support = factory->QueryCodecSupport(
+          format, reference_scaling, resolution);
+      if (support.is_supported)
+        return support;
+    }
+    return {};
+  }
+
+  std::unique_ptr<webrtc::VideoDecoder> Create(
+      const webrtc::Environment &environment,
+      const webrtc::SdpVideoFormat &format) override {
+    for (const auto &factory : factories_) {
+      if (!factory->QueryCodecSupport(format, false, std::nullopt).is_supported)
+        continue;
+      if (auto decoder = factory->Create(environment, format))
+        return decoder;
+    }
+    return nullptr;
+  }
+
+private:
+  std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
+};
+
+std::unique_ptr<webrtc::VideoDecoderFactory> create_video_decoder_factory() {
+  auto vp8_factory = std::make_unique<webrtc::VideoDecoderFactoryTemplate<
+      webrtc::LibvpxVp8DecoderTemplateAdapter>>();
+  auto platform_factory = create_platform_video_decoder_factory();
+  if (platform_factory == nullptr)
+    return vp8_factory;
+
+  std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories;
+  factories.push_back(std::move(platform_factory));
+  factories.push_back(std::move(vp8_factory));
+  return std::make_unique<CombinedVideoDecoderFactory>(std::move(factories));
+}
+
+} // namespace
+
+#if !defined(__APPLE__)
+std::unique_ptr<webrtc::VideoDecoderFactory>
+create_platform_video_decoder_factory() {
+  return nullptr;
+}
+#endif
 
 class WebRtcRuntime::ShutdownHook final {
 public:
@@ -35,10 +104,11 @@ public:
 };
 
 std::shared_ptr<WebRtcRuntime> WebRtcRuntime::create(
-    webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device) {
+    webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device,
+    std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory) {
   auto runtime = std::shared_ptr<WebRtcRuntime>(new WebRtcRuntime(),
                                                 &WebRtcRuntime::destroy);
-  if (!runtime->start(std::move(audio_device))) {
+  if (!runtime->start(std::move(audio_device), std::move(video_encoder_factory))) {
     return nullptr;
   }
   return runtime;
@@ -115,7 +185,8 @@ void WebRtcRuntime::unregister_shutdown_hook(
 }
 
 bool WebRtcRuntime::start(
-    webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device) {
+    webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device,
+    std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory) {
 #if defined(_WIN32)
   winsock_initializer_ = std::make_unique<webrtc::WinsockInitializer>();
   if (winsock_initializer_->error() != 0) {
@@ -161,11 +232,11 @@ bool WebRtcRuntime::start(
     dependencies.audio_decoder_factory =
         webrtc::CreateBuiltinAudioDecoderFactory();
     dependencies.video_encoder_factory =
-        std::make_unique<webrtc::VideoEncoderFactoryTemplate<
-            webrtc::LibvpxVp8EncoderTemplateAdapter>>();
-    dependencies.video_decoder_factory =
-        std::make_unique<webrtc::VideoDecoderFactoryTemplate<
-            webrtc::LibvpxVp8DecoderTemplateAdapter>>();
+        video_encoder_factory != nullptr
+            ? std::move(video_encoder_factory)
+            : std::make_unique<webrtc::VideoEncoderFactoryTemplate<
+                  webrtc::LibvpxVp8EncoderTemplateAdapter>>();
+    dependencies.video_decoder_factory = create_video_decoder_factory();
     webrtc::EnableMedia(dependencies);
     factory_ =
         webrtc::CreateModularPeerConnectionFactory(std::move(dependencies));

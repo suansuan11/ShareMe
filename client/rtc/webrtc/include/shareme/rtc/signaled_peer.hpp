@@ -11,6 +11,7 @@
 #include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_factory.h"
 #include "api/video/video_frame.h"
+#include "api/video_codecs/video_encoder_factory.h"
 #include "shareme/rtc/local_audio_source.hpp"
 #include "shareme/rtc/local_video_source.hpp"
 #include "shareme/rtc/video_codec_report.hpp"
@@ -42,6 +43,7 @@ struct SignaledPeerConfig {
   RemoteVideoFrameCallback remote_video_frame;
   ControlMessageCallback control_message;
   bool preserve_video_quality{false};
+  std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory;
 };
 
 struct SignaledAudioPolicy {
@@ -67,6 +69,8 @@ struct SignaledVideoStats {
   std::optional<std::uint64_t> frames_received;
   std::optional<std::uint64_t> frames_decoded;
   std::optional<std::uint64_t> frames_dropped;
+  std::optional<std::uint64_t> bytes_sent;
+  std::optional<std::uint64_t> bytes_received;
   bool unavailable{false};
 };
 
@@ -116,6 +120,7 @@ public:
       std::string message, std::function<void(bool)> completion = {});
   [[nodiscard]] SignaledPeerResult wait(std::chrono::milliseconds timeout);
   [[nodiscard]] SignaledVideoStats video_stats() const noexcept;
+  [[nodiscard]] std::string video_source_error() const;
   void cancel_wait() noexcept;
   void stop() noexcept;
 

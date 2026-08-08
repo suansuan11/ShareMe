@@ -11,6 +11,29 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parents[2]
 EXPECTED_REVISION = "5ad58d70eea10785fab05ba4150e2fe22ecc7f97"
+EXPECTED_TARGETS = [
+    "webrtc",
+    "api/video:adapted_video_track_source",
+    "modules/audio_device:test_audio_device_module",
+    "sdk:native_api",
+    "sdk:videotoolbox_objc",
+]
+EXPECTED_DARWIN_LIBRARY_ROLES = [
+    "adaptedVideoTrackSource",
+    "testAudioDeviceModule",
+    "webrtc",
+    "nativeApi",
+    "nativeVideo",
+    "baseNativeAdditionsObjc",
+    "baseObjc",
+    "helpersObjc",
+    "videoCodecObjc",
+    "videoFrameBufferObjc",
+    "vpxCodecConstants",
+    "wrappedNativeCodecObjc",
+    "videoToolboxCc",
+    "videoToolbox",
+]
 sys.path.insert(0, str(REPO))
 
 from scripts.bootstrap_webrtc import (
@@ -31,14 +54,7 @@ class BootstrapWebRtcTest(unittest.TestCase):
         lock = load_lock(REPO / "deps/webrtc.lock.json")
 
         self.assertEqual(lock["revision"], EXPECTED_REVISION)
-        self.assertEqual(
-            lock["targets"],
-            [
-                "webrtc",
-                "api/video:adapted_video_track_source",
-                "modules/audio_device:test_audio_device_module",
-            ],
-        )
+        self.assertEqual(lock["targets"], EXPECTED_TARGETS)
         self.assertIn(
             "clang_use_unsafe_buffers_plugin=false", lock["gnArgs"]
         )
@@ -47,6 +63,28 @@ class BootstrapWebRtcTest(unittest.TestCase):
     def test_plan_keeps_checkout_outside_repository(self):
         with self.assertRaisesRegex(ValueError, "outside the repository"):
             create_plan(REPO, REPO / ".cache")
+
+    def test_versioned_output_uses_a_versioned_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            external_root = Path(directory)
+            plan = create_plan(
+                REPO, external_root, "shareme-screen-feasibility"
+            )
+            self.assertEqual(
+                Path(plan["manifest"]),
+                external_root.resolve()
+                / "shareme-webrtc-shareme-screen-feasibility-manifest.json",
+            )
+
+    def test_default_plan_uses_the_versioned_screen_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = create_plan(REPO, Path(directory))
+            self.assertEqual(plan["outputName"], "shareme-screen-feasibility")
+
+    def test_plan_rejects_parent_directory_output_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "single directory name"):
+                create_plan(REPO, Path(directory), "..")
 
     def test_manifest_records_abi_inputs(self):
         manifest = make_manifest(
@@ -62,6 +100,17 @@ class BootstrapWebRtcTest(unittest.TestCase):
                 "/external/out/obj/libadapted_video_track_source_shareme.a",
                 "/external/out/obj/libtest_audio_device_module_shareme.a",
                 "/external/out/obj/libwebrtc.a",
+                "/external/out/obj/sdk/libnative_api_shareme.a",
+                "/external/out/obj/sdk/libnative_video_shareme.a",
+                "/external/out/obj/sdk/libbase_native_additions_objc_shareme.a",
+                "/external/out/obj/sdk/libbase_objc_shareme.a",
+                "/external/out/obj/sdk/libhelpers_objc_shareme.a",
+                "/external/out/obj/sdk/libvideocodec_objc_shareme.a",
+                "/external/out/obj/sdk/libvideoframebuffer_objc_shareme.a",
+                "/external/out/obj/sdk/libvpx_codec_constants_shareme.a",
+                "/external/out/obj/sdk/libwrapped_native_codec_objc_shareme.a",
+                "/external/out/obj/sdk/libvideo_toolbox_cc_shareme.a",
+                "/external/out/obj/sdk/libvideotoolbox_objc_shareme.a",
             ],
             compile_definitions=["NDEBUG", "WEBRTC_POSIX", "WEBRTC_MAC"],
             gn_args=["is_debug=false", "use_custom_libcxx=false"],
@@ -80,26 +129,26 @@ class BootstrapWebRtcTest(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            manifest["libraries"],
+            [library["role"] for library in manifest["libraries"]],
+            EXPECTED_DARWIN_LIBRARY_ROLES,
+        )
+        self.assertEqual(
+            [library["path"] for library in manifest["libraries"]],
             [
-                {
-                    "role": "adaptedVideoTrackSource",
-                    "path": (
-                        "/external/out/obj/"
-                        "libadapted_video_track_source_shareme.a"
-                    ),
-                },
-                {
-                    "role": "testAudioDeviceModule",
-                    "path": (
-                        "/external/out/obj/"
-                        "libtest_audio_device_module_shareme.a"
-                    ),
-                },
-                {
-                    "role": "webrtc",
-                    "path": "/external/out/obj/libwebrtc.a",
-                },
+                "/external/out/obj/libadapted_video_track_source_shareme.a",
+                "/external/out/obj/libtest_audio_device_module_shareme.a",
+                "/external/out/obj/libwebrtc.a",
+                "/external/out/obj/sdk/libnative_api_shareme.a",
+                "/external/out/obj/sdk/libnative_video_shareme.a",
+                "/external/out/obj/sdk/libbase_native_additions_objc_shareme.a",
+                "/external/out/obj/sdk/libbase_objc_shareme.a",
+                "/external/out/obj/sdk/libhelpers_objc_shareme.a",
+                "/external/out/obj/sdk/libvideocodec_objc_shareme.a",
+                "/external/out/obj/sdk/libvideoframebuffer_objc_shareme.a",
+                "/external/out/obj/sdk/libvpx_codec_constants_shareme.a",
+                "/external/out/obj/sdk/libwrapped_native_codec_objc_shareme.a",
+                "/external/out/obj/sdk/libvideo_toolbox_cc_shareme.a",
+                "/external/out/obj/sdk/libvideotoolbox_objc_shareme.a",
             ],
         )
         self.assertEqual(
@@ -216,6 +265,18 @@ class BootstrapWebRtcTest(unittest.TestCase):
     def test_release_manifest_disables_debug_only_header_paths(self):
         self.assertIn("NDEBUG", _compile_definitions("Darwin"))
         self.assertIn("NDEBUG", _compile_definitions("Windows"))
+
+    def test_cmake_can_select_a_versioned_manifest(self):
+        source = (REPO / "cmake/FindWebRTC.cmake").read_text(encoding="utf-8")
+        self.assertIn("WEBRTC_OUTPUT_NAME", source)
+        self.assertIn("shareme-webrtc-${WEBRTC_OUTPUT_NAME}-manifest.json", source)
+        self.assertIn("baseNativeAdditionsObjc", source)
+        self.assertIn("helpersObjc", source)
+        self.assertIn("-force_load", source)
+        bootstrap = (REPO / "scripts/bootstrap_webrtc.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('Path(plan["manifest"])', bootstrap)
 
     def test_materializes_thin_archive_for_system_linkers(self):
         with tempfile.TemporaryDirectory() as directory:

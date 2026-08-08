@@ -10,6 +10,8 @@
 
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
+#include "api/video_codecs/video_decoder_factory.h"
+#include "api/video_codecs/video_encoder_factory.h"
 #include "modules/audio_device/include/audio_device.h"
 
 namespace webrtc {
@@ -21,13 +23,18 @@ class WinsockInitializer;
 
 namespace shareme::rtc {
 
+[[nodiscard]] std::unique_ptr<webrtc::VideoDecoderFactory>
+create_platform_video_decoder_factory();
+
 class WebRtcRuntime final {
 public:
   class ShutdownHook;
   using ShutdownHookHandle = std::shared_ptr<ShutdownHook>;
 
   static std::shared_ptr<WebRtcRuntime> create(
-      webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device = nullptr);
+      webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device = nullptr,
+      std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory =
+          nullptr);
 
   ~WebRtcRuntime();
 
@@ -49,7 +56,8 @@ public:
 private:
   WebRtcRuntime() = default;
 
-  bool start(webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device);
+  bool start(webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device,
+             std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory);
   static void destroy(WebRtcRuntime *runtime) noexcept;
   [[nodiscard]] bool on_owned_thread() const noexcept;
 

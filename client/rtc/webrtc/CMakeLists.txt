@@ -6,6 +6,7 @@ add_library(
   src/movie_audio_peer.cpp
   src/signaled_peer.cpp
   src/test_pattern_source.cpp
+  src/video_encoder_selection.cpp
   src/webrtc_probe.cpp
   src/webrtc_runtime.cpp
 )
@@ -17,11 +18,24 @@ if(APPLE)
     shareme_webrtc
     PRIVATE
       src/microphone_permission.mm
+      src/macos_video_encoder_selection.mm
   )
   set_source_files_properties(
     src/microphone_permission.mm
     PROPERTIES
       COMPILE_OPTIONS "-fblocks"
+  )
+  set_source_files_properties(
+    src/macos_video_encoder_selection.mm
+    PROPERTIES
+      COMPILE_OPTIONS "-fblocks;-fobjc-arc"
+  )
+  target_include_directories(
+    shareme_webrtc
+    PRIVATE
+      "${WebRTC_INCLUDE_DIR}/sdk/objc"
+      "${WebRTC_INCLUDE_DIR}/sdk/objc/base"
+      "${WebRTC_INCLUDE_DIR}/sdk/objc/components/video_codec"
   )
   target_link_libraries(
     shareme_webrtc

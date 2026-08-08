@@ -19,20 +19,41 @@ REQUIRED_HEADERS = (
     "api/create_modular_peer_connection_factory.h",
     "modules/audio_device/include/test_audio_device.h",
 )
-PUBLIC_INCLUDE_PATHS = (
-    ".",
-    "out/shareme/gen",
-    "third_party/abseil-cpp",
-    "third_party/libyuv/include",
-    "third_party/perfetto/include",
-    "out/shareme/gen/third_party/perfetto/build_config",
-    "out/shareme/gen/third_party/perfetto",
-)
-LIBRARY_ROLES = (
+BASE_LIBRARY_ROLES = (
     "adaptedVideoTrackSource",
     "testAudioDeviceModule",
     "webrtc",
 )
+DARWIN_LIBRARY_ROLES = BASE_LIBRARY_ROLES + (
+    "nativeApi",
+    "nativeVideo",
+    "baseNativeAdditionsObjc",
+    "baseObjc",
+    "helpersObjc",
+    "videoCodecObjc",
+    "videoFrameBufferObjc",
+    "vpxCodecConstants",
+    "wrappedNativeCodecObjc",
+    "videoToolboxCc",
+    "videoToolbox",
+)
+
+
+def _public_include_paths(output_name: str) -> Sequence[str]:
+    generated = f"out/{output_name}/gen"
+    return (
+        ".",
+        generated,
+        "third_party/abseil-cpp",
+        "third_party/libyuv/include",
+        "third_party/perfetto/include",
+        f"{generated}/third_party/perfetto/build_config",
+        f"{generated}/third_party/perfetto",
+    )
+
+
+def _library_roles(system: str) -> Sequence[str]:
+    return DARWIN_LIBRARY_ROLES if system == "Darwin" else BASE_LIBRARY_ROLES
 
 
 def load_lock(path: Path) -> Dict[str, Any]:
@@ -80,18 +101,33 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
-def create_plan(repo_root: Path, external_root: Path) -> Dict[str, Any]:
+def create_plan(
+    repo_root: Path,
+    external_root: Path,
+    output_name: str = "shareme-screen-feasibility",
+) -> Dict[str, Any]:
     resolved_repo = repo_root.resolve()
     resolved_external = external_root.resolve()
     if resolved_external == resolved_repo or _is_relative_to(
         resolved_external, resolved_repo
     ):
         raise ValueError("WebRTC dependency root must stay outside the repository")
+    if (
+        not output_name
+        or output_name in {".", ".."}
+        or Path(output_name).name != output_name
+    ):
+        raise ValueError("WebRTC output name must be a single directory name")
 
     lock = load_lock(resolved_repo / "deps/webrtc.lock.json")
     checkout_root = resolved_external / "checkout"
     source_root = checkout_root / "src"
-    output_root = source_root / "out" / "shareme"
+    output_root = source_root / "out" / output_name
+    manifest_name = (
+        "shareme-webrtc-manifest.json"
+        if output_name == "shareme"
+        else f"shareme-webrtc-{output_name}-manifest.json"
+    )
     return {
         "revision": lock["revision"],
         "externalRoot": str(resolved_external),
@@ -99,7 +135,8 @@ def create_plan(repo_root: Path, external_root: Path) -> Dict[str, Any]:
         "checkoutRoot": str(checkout_root),
         "sourceRoot": str(source_root),
         "outputRoot": str(output_root),
-        "manifest": str(resolved_external / "shareme-webrtc-manifest.json"),
+        "outputName": output_name,
+        "manifest": str(resolved_external / manifest_name),
         "targets": lock["targets"],
         "gnArgs": lock["gnArgs"],
     }
@@ -116,8 +153,9 @@ def make_manifest(
     gn_args: Sequence[str],
     msvc_runtime_library: str,
 ) -> Dict[str, Any]:
-    if len(libraries) != len(LIBRARY_ROLES):
-        raise ValueError("WebRTC manifest requires exactly three library roles")
+    library_roles = _library_roles(system)
+    if len(libraries) != len(library_roles):
+        raise ValueError("WebRTC manifest library roles do not match the platform")
     return {
         "revision": revision,
         "system": system,
@@ -125,7 +163,7 @@ def make_manifest(
         "includeDirs": list(include_dirs),
         "libraries": [
             {"role": role, "path": path}
-            for role, path in zip(LIBRARY_ROLES, libraries)
+            for role, path in zip(library_roles, libraries)
         ],
         "compileDefinitions": list(compile_definitions),
         "gnArgs": list(gn_args),
@@ -217,7 +255,7 @@ def _library_paths(output_root: Path, system: str) -> List[Path]:
             / "test_audio_device_module.lib",
             output_root / "obj" / "webrtc.lib",
         ]
-    return [
+    libraries = [
         output_root / "obj" / "api" / "video" / "libadapted_video_track_source.a",
         output_root
         / "obj"
@@ -226,6 +264,32 @@ def _library_paths(output_root: Path, system: str) -> List[Path]:
         / "libtest_audio_device_module.a",
         output_root / "obj" / "libwebrtc.a",
     ]
+    if system == "Darwin":
+        libraries.extend(
+            [
+                output_root / "obj" / "sdk" / "libnative_api.a",
+                output_root / "obj" / "sdk" / "libnative_video.a",
+                output_root
+                / "obj"
+                / "sdk"
+                / "libbase_native_additions_objc.a",
+                output_root / "obj" / "sdk" / "libbase_objc.a",
+                output_root / "obj" / "sdk" / "libhelpers_objc.a",
+                output_root / "obj" / "sdk" / "libvideocodec_objc.a",
+                output_root
+                / "obj"
+                / "sdk"
+                / "libvideoframebuffer_objc.a",
+                output_root / "obj" / "sdk" / "libvpx_codec_constants.a",
+                output_root
+                / "obj"
+                / "sdk"
+                / "libwrapped_native_codec_objc.a",
+                output_root / "obj" / "sdk" / "libvideo_toolbox_cc.a",
+                output_root / "obj" / "sdk" / "libvideotoolbox_objc.a",
+            ]
+        )
+    return libraries
 
 
 def _compile_definitions(system: str) -> List[str]:
@@ -355,7 +419,6 @@ def _build(plan: Dict[str, Any]) -> None:
     depot_tools = Path(plan["depotTools"])
     source_root = Path(plan["sourceRoot"])
     output_root = Path(plan["outputRoot"])
-    external_root = Path(plan["externalRoot"])
     if not depot_tools.exists() or not (source_root / ".git").exists():
         raise RuntimeError("prepare the locked WebRTC checkout before building")
 
@@ -391,7 +454,7 @@ def _build(plan: Dict[str, Any]) -> None:
 
     include_dirs = [
         (source_root / relative_path).resolve()
-        for relative_path in PUBLIC_INCLUDE_PATHS
+        for relative_path in _public_include_paths(plan["outputName"])
     ]
     if any(not path.is_dir() for path in include_dirs):
         raise RuntimeError("WebRTC build is missing a required public include root")
@@ -418,11 +481,11 @@ def _build(plan: Dict[str, Any]) -> None:
         gn_args=plan["gnArgs"],
         msvc_runtime_library=_msvc_runtime_library(system),
     )
-    manifest_path = external_root / "shareme-webrtc-manifest.json"
+    manifest_path = Path(plan["manifest"])
     with tempfile.NamedTemporaryFile(
         "w",
         encoding="utf-8",
-        dir=external_root,
+        dir=manifest_path.parent,
         prefix=".shareme-webrtc-manifest.",
         suffix=".tmp",
         delete=False,
@@ -438,6 +501,7 @@ def _parse_arguments(arguments: Sequence[str]) -> argparse.Namespace:
         description="Prepare a locked external libwebrtc build for ShareMe"
     )
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--output-name", default="shareme-screen-feasibility")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--print-plan", action="store_true")
     mode.add_argument("--prepare", action="store_true")
@@ -449,7 +513,7 @@ def main(arguments: Sequence[str]) -> int:
     options = _parse_arguments(arguments)
     repo_root = Path(__file__).resolve().parents[1]
     try:
-        plan = create_plan(repo_root, options.root)
+        plan = create_plan(repo_root, options.root, options.output_name)
         if options.print_plan:
             print(json.dumps(plan, indent=2))
         elif options.prepare:

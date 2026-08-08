@@ -10,6 +10,7 @@ add_library(
   src/drift_metrics.cpp
   src/probe_cli.cpp
   src/probe_contract.cpp
+  src/screen_stream_profile.cpp
   src/sync_controller.cpp
   src/signaling_session.cpp
   src/video_quality_contract.cpp

@@ -28,7 +28,28 @@ if(NOT WEBRTC_ROOT)
       "set WEBRTC_ROOT to the external locked WebRTC build directory")
 else()
   cmake_path(ABSOLUTE_PATH WEBRTC_ROOT NORMALIZE)
-  set(_WebRTC_manifest "${WEBRTC_ROOT}/shareme-webrtc-manifest.json")
+  if(DEFINED WEBRTC_MANIFEST_NAME AND NOT WEBRTC_MANIFEST_NAME STREQUAL "")
+    set(_WebRTC_manifest_name "${WEBRTC_MANIFEST_NAME}")
+  elseif(DEFINED WEBRTC_OUTPUT_NAME AND NOT WEBRTC_OUTPUT_NAME STREQUAL "")
+    if(WEBRTC_OUTPUT_NAME STREQUAL "shareme")
+      set(_WebRTC_manifest_name "shareme-webrtc-manifest.json")
+    else()
+      set(
+        _WebRTC_manifest_name
+        "shareme-webrtc-${WEBRTC_OUTPUT_NAME}-manifest.json"
+      )
+    endif()
+  else()
+    set(
+      _WebRTC_manifest_name
+      "shareme-webrtc-shareme-screen-feasibility-manifest.json"
+    )
+    if(NOT EXISTS "${WEBRTC_ROOT}/${_WebRTC_manifest_name}" AND
+       EXISTS "${WEBRTC_ROOT}/shareme-webrtc-manifest.json")
+      set(_WebRTC_manifest_name "shareme-webrtc-manifest.json")
+    endif()
+  endif()
+  set(_WebRTC_manifest "${WEBRTC_ROOT}/${_WebRTC_manifest_name}")
   if(NOT EXISTS "${_WebRTC_manifest}")
     set(_WebRTC_failure_reason
         "missing ${_WebRTC_manifest}. Run scripts/bootstrap_webrtc.py first")
@@ -83,6 +104,12 @@ else()
         test_audio_device_module.lib
         webrtc.lib
       )
+      set(
+        _WebRTC_expected_library_roles
+        adaptedVideoTrackSource
+        testAudioDeviceModule
+        webrtc
+      )
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
       set(
         _WebRTC_expected_compile_definitions
@@ -96,6 +123,34 @@ else()
         libadapted_video_track_source_shareme.a
         libtest_audio_device_module_shareme.a
         libwebrtc.a
+        libnative_api_shareme.a
+        libnative_video_shareme.a
+        libbase_native_additions_objc_shareme.a
+        libbase_objc_shareme.a
+        libhelpers_objc_shareme.a
+        libvideocodec_objc_shareme.a
+        libvideoframebuffer_objc_shareme.a
+        libvpx_codec_constants_shareme.a
+        libwrapped_native_codec_objc_shareme.a
+        libvideo_toolbox_cc_shareme.a
+        libvideotoolbox_objc_shareme.a
+      )
+      set(
+        _WebRTC_expected_library_roles
+        adaptedVideoTrackSource
+        testAudioDeviceModule
+        webrtc
+        nativeApi
+        nativeVideo
+        baseNativeAdditionsObjc
+        baseObjc
+        helpersObjc
+        videoCodecObjc
+        videoFrameBufferObjc
+        vpxCodecConstants
+        wrappedNativeCodecObjc
+        videoToolboxCc
+        videoToolbox
       )
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
       set(
@@ -111,13 +166,13 @@ else()
         libtest_audio_device_module_shareme.a
         libwebrtc.a
       )
+      set(
+        _WebRTC_expected_library_roles
+        adaptedVideoTrackSource
+        testAudioDeviceModule
+        webrtc
+      )
     endif()
-    set(
-      _WebRTC_expected_library_roles
-      adaptedVideoTrackSource
-      testAudioDeviceModule
-      webrtc
-    )
 
     string(TOLOWER "${WebRTC_MANIFEST_ARCHITECTURE}" _WebRTC_manifest_arch)
     string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _WebRTC_cmake_arch)
@@ -166,10 +221,13 @@ else()
              LENGTH
              "${_WebRTC_manifest_json}"
              libraries)
-      if(NOT _WebRTC_library_count EQUAL 3)
+      list(LENGTH _WebRTC_expected_library_roles _WebRTC_expected_library_count)
+      if(NOT _WebRTC_library_count EQUAL _WebRTC_expected_library_count)
         set(_WebRTC_failure_reason
-            "manifest must contain exactly three locked WebRTC archives")
+            "manifest library count does not match the locked platform ABI")
       else()
+        set(WebRTC_LIBRARIES)
+        set(WebRTC_FORCE_LOAD_LIBRARIES)
         math(EXPR _WebRTC_library_last "${_WebRTC_library_count} - 1")
         foreach(_WebRTC_index RANGE 0 ${_WebRTC_library_last})
           string(
@@ -199,6 +257,10 @@ else()
                 "manifest WebRTC library roles or order do not match the locked ABI")
           endif()
           list(APPEND WebRTC_LIBRARIES "${_WebRTC_library}")
+          if(_WebRTC_library_role STREQUAL "baseNativeAdditionsObjc" OR
+             _WebRTC_library_role STREQUAL "helpersObjc")
+            list(APPEND WebRTC_FORCE_LOAD_LIBRARIES "${_WebRTC_library}")
+          endif()
           if(NOT EXISTS "${_WebRTC_library}")
             set(_WebRTC_failure_reason
                 "manifest references a missing WebRTC archive")
@@ -268,12 +330,21 @@ if(WebRTC_FOUND AND NOT TARGET WebRTC::webrtc)
     )
   endif()
 
+  set(_WebRTC_link_options)
+  if(APPLE)
+    # ObjC categories in static archives are otherwise dropped by the linker.
+    foreach(_WebRTC_library IN LISTS WebRTC_FORCE_LOAD_LIBRARIES)
+      list(APPEND _WebRTC_link_options "-Wl,-force_load,${_WebRTC_library}")
+    endforeach()
+  endif()
+
   add_library(WebRTC::webrtc INTERFACE IMPORTED)
   set_target_properties(
     WebRTC::webrtc
     PROPERTIES
       INTERFACE_COMPILE_DEFINITIONS "${WebRTC_COMPILE_DEFINITIONS}"
       INTERFACE_INCLUDE_DIRECTORIES "${WebRTC_INCLUDE_DIRS}"
+      INTERFACE_LINK_OPTIONS "${_WebRTC_link_options}"
       INTERFACE_LINK_LIBRARIES "${WebRTC_LIBRARIES};${_WebRTC_platform_libraries}"
   )
 endif()

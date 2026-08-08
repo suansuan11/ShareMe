@@ -1,4 +1,5 @@
 add_subdirectory(webrtc)
+add_subdirectory(screen)
 
 if(WIN32)
   add_subdirectory(desktop)

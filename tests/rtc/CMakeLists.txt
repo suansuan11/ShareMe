@@ -27,6 +27,71 @@ add_test(
 )
 
 add_executable(
+  shareme_screen_video_source_test
+  screen_video_source_test.cpp
+)
+target_compile_features(
+  shareme_screen_video_source_test
+  PRIVATE
+    cxx_std_20
+)
+target_include_directories(
+  shareme_screen_video_source_test
+  PRIVATE
+    "${PROJECT_SOURCE_DIR}/client/rtc/screen/include"
+)
+target_link_libraries(
+  shareme_screen_video_source_test
+  PRIVATE
+    ShareMe::ScreenRTC
+)
+shareme_set_project_warnings(shareme_screen_video_source_test)
+add_test(
+  NAME screen_video_source
+  COMMAND shareme_screen_video_source_test
+)
+
+add_executable(
+  shareme_macos_screen_capture_source_test
+  macos_screen_capture_source_test.cpp
+)
+target_compile_features(
+  shareme_macos_screen_capture_source_test
+  PRIVATE
+    cxx_std_20
+)
+target_link_libraries(
+  shareme_macos_screen_capture_source_test
+  PRIVATE
+    ShareMe::ScreenRTC
+)
+shareme_set_project_warnings(shareme_macos_screen_capture_source_test)
+add_test(
+  NAME macos_screen_capture_source
+  COMMAND shareme_macos_screen_capture_source_test
+)
+
+add_executable(
+  shareme_video_encoder_selection_test
+  video_encoder_selection_test.cpp
+)
+target_compile_features(
+  shareme_video_encoder_selection_test
+  PRIVATE
+    cxx_std_20
+)
+target_link_libraries(
+  shareme_video_encoder_selection_test
+  PRIVATE
+    ShareMe::WebRTC
+)
+shareme_set_project_warnings(shareme_video_encoder_selection_test)
+add_test(
+  NAME video_encoder_selection
+  COMMAND shareme_video_encoder_selection_test
+)
+
+add_executable(
   shareme_loopback_signaling_test
   loopback_signaling_test.cpp
 )
