@@ -21,6 +21,30 @@ tests, and verification evidence before relying on it.
   recorded in their linked verification documents; this macOS stage does not
   replace or extend those Windows claims.
 
+### Local Hardware Screen Streaming Stage
+
+The uncommitted local branch `codex/hardware-screen-streaming` implements the
+macOS ScreenCaptureKit and VideoToolbox screen path. On macOS arm64, the
+`build/movie-call-dev` build and 64-test CTest suite pass. The documented
+10-second and 30-second `standard`, 30-second `quality`, and 30-second
+`cinema` smoke gates, plus a 120-second `cinema` stability run, negotiated
+H.264 with active VideoToolbox encoding, bounded queues, nonzero bitrate, host
+encode counters, and viewer decode counters. The final artifacts are under
+`out/hardware-screen-streaming` and are evidence only.
+
+The earlier zero-output native run was traced to the locked WebRTC H.264
+factory advertising Level 3.1 (`640c1f`/`42e01f`) for screen profiles whose
+configured bounds require higher levels. VideoToolbox returned
+`kVTParameterErr` (`-12902`). The local factory now preserves the H.264
+profile and packetization parameters while advertising Level 4.2 for
+`standard` and Level 5.1 for `quality`/`cinema`.
+
+The current display produced `1470x956` frames, so exact target-resolution
+behavior, visual frame integrity, foreground/background recovery, and live
+voice continuity remain partial or environment-dependent. Windows native
+screen evidence remains separate and unverified. This branch has not been
+merged or pushed.
+
 ## Active stage
 
 Movie-audio transport isolation is merged on `main` through `2d806a5`.
