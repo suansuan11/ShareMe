@@ -45,6 +45,10 @@ INTEGER_KEYS = {
     "submitted",
     "bytes_sent",
     "bytes_received",
+    "voice_packets_sent",
+    "voice_packets_received",
+    "voice_bytes_sent",
+    "voice_bytes_received",
     "bitrate_bps",
     "coalesced",
     "dropped",
@@ -85,7 +89,7 @@ ALLOWED_KEYS = INTEGER_KEYS | {
     "state",
     "candidate",
 }
-SENSITIVE_WORDS = ("ROOM", "room", "TOKEN", "token", "SDP", "sdp", "ICE", "ice")
+SENSITIVE_WORD_PATTERN = re.compile(r"\b(?:ROOM|TOKEN|SDP|ICE)\b", re.IGNORECASE)
 
 
 class SmokeRuntimeError(RuntimeError):
@@ -123,6 +127,9 @@ def build_host_command(
         "screen",
         "--screen-profile",
         profile,
+        "--audio",
+        "synthetic",
+        "--no-audio-playout",
     ]
 
 
@@ -139,6 +146,9 @@ def build_viewer_command(
         room,
         "--source",
         "screen",
+        "--audio",
+        "synthetic",
+        "--no-audio-playout",
     ]
 
 
@@ -165,7 +175,7 @@ def parse_counter_line(line: str) -> dict | None:
     if (
         parsed.get("version") != 1
         or parsed.get("role") not in {"host", "viewer"}
-        or any(word in line for word in SENSITIVE_WORDS)
+        or SENSITIVE_WORD_PATTERN.search(line) is not None
     ):
         return None
     return parsed
@@ -215,6 +225,63 @@ def _validate_queue_and_conversion(record: dict, role: str) -> None:
         raise SmokeRuntimeError(f"{role} reported conversion failures")
 
 
+VOICE_COUNTER_KEYS = (
+    "voice_packets_sent",
+    "voice_packets_received",
+    "voice_bytes_sent",
+    "voice_bytes_received",
+)
+
+
+def _validate_continuous_progress(
+    records: list[dict], role: str, video_keys: tuple[str, ...]
+) -> dict:
+    matching = [record for record in records if record.get("role") == role]
+    required_keys = video_keys + VOICE_COUNTER_KEYS
+    ready_index = next(
+        (
+            index
+            for index, record in enumerate(matching)
+            if record.get("stats_unavailable") == 0
+            and all(isinstance(record.get(key), int) and record[key] > 0
+                    for key in required_keys)
+        ),
+        None,
+    )
+    if ready_index is None:
+        raise SmokeRuntimeError(f"{role} continuity counters never became ready")
+    observed = matching[ready_index:]
+    if any(record.get("stats_unavailable") != 0 for record in observed):
+        raise SmokeRuntimeError(f"{role} media stats became unavailable after warmup")
+
+    max_stalls: dict[str, int] = {}
+    for key in required_keys:
+        previous: int | None = None
+        current_stall = 0
+        maximum_stall = 0
+        for record in observed:
+            value = record.get(key)
+            if not isinstance(value, int) or value <= 0:
+                raise SmokeRuntimeError(f"{role} {key} continuity is incomplete")
+            if previous is not None:
+                if value < previous:
+                    raise SmokeRuntimeError(f"{role} {key} regressed")
+                if value == previous:
+                    current_stall += 1
+                    maximum_stall = max(maximum_stall, current_stall)
+                else:
+                    current_stall = 0
+            previous = value
+        if maximum_stall > 5:
+            raise SmokeRuntimeError(f"{role} {key} stalled for too long")
+        max_stalls[key] = maximum_stall
+    return {
+        "warmup_samples": ready_index,
+        "observed_samples": len(observed),
+        "max_stall_samples": max(max_stalls.values(), default=0),
+    }
+
+
 def validate_records(
     profile: str, host_records: list[dict], viewer_records: list[dict]
 ) -> dict:
@@ -222,10 +289,18 @@ def validate_records(
     viewer = _latest(viewer_records, "viewer")
     _validate_dimensions(host, profile, "host")
     _validate_dimensions(viewer, profile, "viewer")
+    if (host["width"], host["height"]) != (viewer["width"], viewer["height"]):
+        raise SmokeRuntimeError("host and viewer geometry do not match")
     _require_positive(host, ("encoded", "callback", "submitted"), "host")
     _require_positive(viewer, ("received", "decoded", "callback", "submitted"), "viewer")
     _validate_queue_and_conversion(host, "host")
     _validate_queue_and_conversion(viewer, "viewer")
+    host_continuity = _validate_continuous_progress(
+        host_records, "host", ("encoded", "callback", "submitted")
+    )
+    viewer_continuity = _validate_continuous_progress(
+        viewer_records, "viewer", ("received", "decoded", "callback", "submitted")
+    )
     host_bitrate = _last_positive(host_records, "bitrate_bps")
     viewer_bitrate = _last_positive(viewer_records, "bitrate_bps")
     if host.get("hardware_encoder_status") != "active":
@@ -247,6 +322,11 @@ def validate_records(
             "callback": host["callback"],
             "submitted": host["submitted"],
             "bitrate_bps": host_bitrate,
+            "voice_packets_sent": host["voice_packets_sent"],
+            "voice_packets_received": host["voice_packets_received"],
+            "voice_bytes_sent": host["voice_bytes_sent"],
+            "voice_bytes_received": host["voice_bytes_received"],
+            "continuity": host_continuity,
         },
         "viewer": {
             "width": viewer["width"],
@@ -256,6 +336,11 @@ def validate_records(
             "callback": viewer["callback"],
             "submitted": viewer["submitted"],
             "bitrate_bps": viewer_bitrate,
+            "voice_packets_sent": viewer["voice_packets_sent"],
+            "voice_packets_received": viewer["voice_packets_received"],
+            "voice_bytes_sent": viewer["voice_bytes_sent"],
+            "voice_bytes_received": viewer["voice_bytes_received"],
+            "continuity": viewer_continuity,
         },
     }
 

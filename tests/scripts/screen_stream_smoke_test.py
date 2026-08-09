@@ -32,6 +32,7 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertIn("screen", host)
         self.assertIn("--screen-profile", host)
         self.assertIn("quality", host)
+        self.assertEqual(host[-3:], ["--audio", "synthetic", "--no-audio-playout"])
 
         viewer = self.runner.build_viewer_command(
             Path("demo"), "ws://127.0.0.1:18080/v1/ws", "ABC234"
@@ -39,12 +40,15 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertIn("ABC234", viewer)
         self.assertIn("--source", viewer)
         self.assertIn("screen", viewer)
+        self.assertEqual(viewer[-3:], ["--audio", "synthetic", "--no-audio-playout"])
 
     def test_parses_sanitized_counter_lines(self):
         parsed = self.runner.parse_counter_line(
             "PERF_COUNTERS version=1 role=host cpu_percent=0 rss_bytes=0 "
             "width=2560 height=1440 "
             "encoded=20 callback=20 submitted=20 received=20 decoded=20 "
+            "voice_packets_sent=30 voice_packets_received=31 "
+            "voice_bytes_sent=3000 voice_bytes_received=3100 "
             "bytes_sent=10000 bitrate_bps=8000 max_pending=1 "
             "conversion_failures=0 fallback_copies=0 offered=20 coalesced=0 "
             "dropped=0 stats_unavailable=0 state=playing candidate=unknown "
@@ -79,6 +83,11 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "max_pending": 1,
             "conversion_failures": 0,
             "fallback_copies": 0,
+            "voice_packets_sent": 20,
+            "voice_packets_received": 21,
+            "voice_bytes_sent": 2000,
+            "voice_bytes_received": 2100,
+            "stats_unavailable": 0,
             "webrtc_encoder": "H264",
             "hardware_encoder_status": "active",
         }
@@ -95,9 +104,35 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "max_pending": 1,
             "conversion_failures": 0,
             "fallback_copies": 0,
+            "voice_packets_sent": 22,
+            "voice_packets_received": 23,
+            "voice_bytes_sent": 2200,
+            "voice_bytes_received": 2300,
+            "stats_unavailable": 0,
         }
-        terminal_host = dict(host, bitrate_bps=0)
-        terminal_viewer = dict(viewer, bitrate_bps=0)
+        terminal_host = dict(
+            host,
+            encoded=40,
+            callback=40,
+            submitted=40,
+            bitrate_bps=0,
+            voice_packets_sent=40,
+            voice_packets_received=41,
+            voice_bytes_sent=4000,
+            voice_bytes_received=4100,
+        )
+        terminal_viewer = dict(
+            viewer,
+            received=40,
+            decoded=40,
+            callback=40,
+            submitted=40,
+            bitrate_bps=0,
+            voice_packets_sent=42,
+            voice_packets_received=43,
+            voice_bytes_sent=4200,
+            voice_bytes_received=4300,
+        )
         result = self.runner.validate_records(
             "standard", [host, terminal_host], [viewer, terminal_viewer]
         )
@@ -105,10 +140,61 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertEqual(result["hardware_encoder_status"], "active")
         self.assertEqual(result["host"]["bitrate_bps"], 8000)
         self.assertEqual(result["viewer"]["bitrate_bps"], 8000)
+        self.assertEqual(result["host"]["voice_packets_sent"], 40)
+        self.assertEqual(result["viewer"]["voice_packets_received"], 43)
 
         host["hardware_encoder_status"] = "fallback:probe-rejected"
         with self.assertRaises(self.runner.SmokeRuntimeError):
             self.runner.validate_records("standard", [host], [viewer])
+
+    def test_validation_rejects_geometry_mismatch_and_counter_stalls(self):
+        host = {
+            "role": "host",
+            "width": 1920,
+            "height": 1080,
+            "encoded": 20,
+            "callback": 20,
+            "submitted": 20,
+            "bytes_sent": 10000,
+            "bitrate_bps": 8000,
+            "max_pending": 1,
+            "conversion_failures": 0,
+            "fallback_copies": 0,
+            "webrtc_encoder": "H264",
+            "hardware_encoder_status": "active",
+            "voice_packets_sent": 20,
+            "voice_packets_received": 20,
+            "voice_bytes_sent": 2000,
+            "voice_bytes_received": 2000,
+            "stats_unavailable": 0,
+        }
+        viewer = {
+            "role": "viewer",
+            "width": 1918,
+            "height": 1080,
+            "received": 20,
+            "decoded": 20,
+            "callback": 20,
+            "submitted": 20,
+            "bytes_received": 10000,
+            "bitrate_bps": 8000,
+            "max_pending": 1,
+            "conversion_failures": 0,
+            "fallback_copies": 0,
+            "voice_packets_sent": 20,
+            "voice_packets_received": 20,
+            "voice_bytes_sent": 2000,
+            "voice_bytes_received": 2000,
+            "stats_unavailable": 0,
+        }
+        with self.assertRaisesRegex(self.runner.SmokeRuntimeError, "geometry"):
+            self.runner.validate_records("standard", [host], [viewer])
+
+        viewer["width"] = 1920
+        stalled_hosts = [dict(host) for _ in range(8)]
+        stalled_viewers = [dict(viewer) for _ in range(8)]
+        with self.assertRaisesRegex(self.runner.SmokeRuntimeError, "stalled"):
+            self.runner.validate_records("standard", stalled_hosts, stalled_viewers)
 
 
 if __name__ == "__main__":
