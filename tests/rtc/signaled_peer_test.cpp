@@ -74,6 +74,12 @@ int main() {
       shareme::rtc::signaled_audio_policy(SignaledAudioMode::microphone);
   REQUIRE(microphone_policy.uses_native_microphone);
   REQUIRE(microphone_policy.processing_enabled);
+  const shareme::rtc::SignaledPeerConfig default_voice_config;
+  REQUIRE(!default_voice_config.native_audio_playout);
+  REQUIRE(shareme::rtc::valid_signaled_peer_config(
+      {.role = SignaledRole::host,
+       .audio_mode = SignaledAudioMode::microphone,
+       .native_audio_playout = true}));
   REQUIRE(shareme::rtc::valid_signaled_peer_config(
       {.role = SignaledRole::host,
        .audio_mode = SignaledAudioMode::microphone}));

@@ -89,6 +89,8 @@ public:
                     QString requested_room, bool desktop_source,
                     bool screen_source,
                     shareme::core::ScreenStreamProfile screen_profile,
+                    shareme::rtc::SignaledAudioMode audio_mode,
+                    bool native_audio_playout,
                     std::filesystem::path movie_path, bool movie_audio,
                     QString video_acceleration,
                     QString metrics_jsonl_path, QString drift_scenario_name,
@@ -192,6 +194,9 @@ private:
   bool screen_source_{false};
   shareme::core::ScreenStreamProfile screen_profile_{
       shareme::core::ScreenStreamProfile::standard};
+  shareme::rtc::SignaledAudioMode audio_mode_{
+      shareme::rtc::SignaledAudioMode::microphone};
+  bool native_audio_playout_{true};
   std::filesystem::path movie_path_;
   bool movie_audio_{false};
   shareme::rtc::VideoEncoderDiagnostics video_encoder_diagnostics_;

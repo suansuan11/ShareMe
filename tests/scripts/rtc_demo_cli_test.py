@@ -38,6 +38,8 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("--source", result.stdout)
         self.assertIn("test, desktop, movie, or screen", result.stdout)
         self.assertIn("--screen-profile", result.stdout)
+        self.assertIn("--audio", result.stdout)
+        self.assertIn("--no-audio-playout", result.stdout)
         self.assertIn("host or viewer", result.stdout)
         self.assertIn("--movie", result.stdout)
         self.assertIn("--movie-audio", result.stdout)
@@ -106,6 +108,38 @@ class RtcDemoCliTest(unittest.TestCase):
             "--source", "test", "--screen-profile", "quality", "--validate"
         )
         self.assertEqual(invalid_profile.returncode, 2)
+
+    def test_primary_voice_mode_and_playout_contract(self):
+        if sys.platform != "darwin":
+            self.skipTest("screen voice contract is macOS-specific")
+        common = [
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "screen", "--validate",
+        ]
+        self.assertEqual(self.run_demo(*common).returncode, 0)
+        self.assertEqual(
+            self.run_demo(*common, "--audio", "microphone").returncode, 0
+        )
+        self.assertEqual(
+            self.run_demo(
+                *common, "--audio", "synthetic", "--no-audio-playout"
+            ).returncode,
+            0,
+        )
+        self.assertEqual(
+            self.run_demo(*common, "--audio", "invalid").returncode, 2
+        )
+        cli_source = (self.controller_source.parent / "main.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'QStringLiteral("mode"), QStringLiteral("microphone")',
+            cli_source,
+        )
+        self.assertIn("SignaledAudioMode::microphone", cli_source)
+        self.assertIn("native_audio_playout", self.peer_source.read_text(
+            encoding="utf-8"
+        ))
 
     def test_movie_source_contract_and_path_redaction(self):
         movie = "/private/super-secret-movie.mp4"
@@ -252,7 +286,8 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("SignaledPeer::create", source)
         self.assertIn('"host-voice"', peer)
         self.assertIn('"viewer-voice"', peer)
-        self.assertIn("SetAudioPlayout(false)", peer)
+        self.assertIn("SetAudioPlayout(config_.native_audio_playout)", peer)
+        self.assertIn("native_audio_playout_", source)
 
     def test_controller_keeps_video_correction_observational(self):
         source = self.controller_source.read_text(encoding="utf-8")

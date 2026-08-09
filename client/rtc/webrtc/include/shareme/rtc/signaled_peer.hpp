@@ -38,6 +38,7 @@ struct SignaledPeerConfig {
   SignaledVideoMode video_mode{SignaledVideoMode::synthetic};
   SignaledVideoDirection video_direction{
       SignaledVideoDirection::send_receive};
+  bool native_audio_playout{false};
   LocalVideoSourceFactory video_source_factory;
   RemoteVideoFrameCallback local_video_frame;
   RemoteVideoFrameCallback remote_video_frame;

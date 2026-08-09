@@ -597,7 +597,7 @@ private:
       return false;
     }
     peer_ = std::move(created.value());
-    peer_->SetAudioPlayout(false);
+    peer_->SetAudioPlayout(config_.native_audio_playout);
     if (video_source_) {
       video_track_ =
           runtime_->factory()->CreateVideoTrack(video_source_, "movie-video");

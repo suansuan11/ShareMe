@@ -173,6 +173,8 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                      bool screen_source,
                                      shareme::core::ScreenStreamProfile
                                          screen_profile,
+                                     shareme::rtc::SignaledAudioMode audio_mode,
+                                     bool native_audio_playout,
                                      std::filesystem::path movie_path,
                                      bool movie_audio, QString video_acceleration,
                                      QString metrics_jsonl_path,
@@ -182,7 +184,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
     : QObject(parent), server_url_(std::move(server_url)), role_(role),
       requested_room_(std::move(requested_room)),
        desktop_source_(desktop_source), screen_source_(screen_source),
-       screen_profile_(screen_profile), movie_path_(std::move(movie_path)),
+       screen_profile_(screen_profile), audio_mode_(audio_mode),
+       native_audio_playout_(native_audio_playout),
+       movie_path_(std::move(movie_path)),
        movie_audio_(movie_audio),
        video_acceleration_(std::move(video_acceleration)),
        metrics_jsonl_path_(std::move(metrics_jsonl_path)),
@@ -773,7 +777,10 @@ bool RtcDemoController::createPeer() {
         },
         Qt::QueuedConnection);
   };
-  shareme::rtc::SignaledPeerConfig config{.role = role_};
+  shareme::rtc::SignaledPeerConfig config{
+      .role = role_,
+      .audio_mode = audio_mode_,
+      .native_audio_playout = native_audio_playout_};
   config.video_direction =
       role_ == shareme::rtc::SignaledRole::host
           ? shareme::rtc::SignaledVideoDirection::send_only

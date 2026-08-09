@@ -57,6 +57,13 @@ int main(int argc, char **argv) {
       QStringList{QStringLiteral("screen-profile")},
       QStringLiteral("Screen profile: standard, quality, or cinema"),
       QStringLiteral("profile"), QStringLiteral("standard"));
+  QCommandLineOption audio_option(
+      QStringList{QStringLiteral("audio")},
+      QStringLiteral("Primary voice source: microphone or synthetic"),
+      QStringLiteral("mode"), QStringLiteral("microphone"));
+  QCommandLineOption no_audio_playout_option(
+      QStringList{QStringLiteral("no-audio-playout")},
+      QStringLiteral("Disable native primary voice playout"));
   QCommandLineOption movie_option(QStringList{QStringLiteral("movie")},
                                   QStringLiteral("Movie path for a movie host"),
                                   QStringLiteral("path"));
@@ -85,6 +92,8 @@ int main(int argc, char **argv) {
   parser.addOption(room_option);
   parser.addOption(source_option);
   parser.addOption(screen_profile_option);
+  parser.addOption(audio_option);
+  parser.addOption(no_audio_playout_option);
   parser.addOption(movie_option);
   parser.addOption(movie_audio_option);
   parser.addOption(video_acceleration_option);
@@ -115,6 +124,7 @@ int main(int argc, char **argv) {
   const auto screen_profile_value = parser.value(screen_profile_option);
   const auto screen_profile = shareme::core::parse_screen_stream_profile(
       screen_profile_value.toStdString());
+  const auto audio_value = parser.value(audio_option);
   const auto movie_path = local_path(parser.value(movie_option));
   const auto video_acceleration = parser.value(video_acceleration_option);
   const auto metrics_path = local_path(parser.value(metrics_option));
@@ -154,6 +164,8 @@ int main(int argc, char **argv) {
        (source_text != QStringLiteral("movie") &&
         parser.isSet(movie_option)) ||
        !screen_profile.has_value() ||
+       (audio_value != QStringLiteral("microphone") &&
+        audio_value != QStringLiteral("synthetic")) ||
        (parser.isSet(screen_profile_option) &&
         source_text != QStringLiteral("screen")) ||
        (video_acceleration != QStringLiteral("auto") &&
@@ -171,6 +183,7 @@ int main(int argc, char **argv) {
     std::cerr << "required: --server URL --role host|viewer "
                  "[--room ROOM] [--source test|desktop|movie|screen] "
                  "[--screen-profile standard|quality|cinema] [--movie PATH] "
+                 "[--audio microphone|synthetic] [--no-audio-playout] "
                  "[--movie-audio] [--video-acceleration auto|software] "
                  "[--metrics-jsonl PATH] [--drift-scenario drift-study-v1 "
                  "--measurement-duration-seconds 300]"
@@ -201,11 +214,17 @@ int main(int argc, char **argv) {
   const auto role = role_text == QStringLiteral("host")
                         ? shareme::rtc::SignaledRole::host
                         : shareme::rtc::SignaledRole::viewer;
+  const auto audio_mode =
+      audio_value == QStringLiteral("microphone")
+          ? shareme::rtc::SignaledAudioMode::microphone
+          : shareme::rtc::SignaledAudioMode::synthetic;
   RtcDemoController controller(QUrl(parser.value(server_option)), role,
                                parser.value(room_option),
                                source_text == QStringLiteral("desktop"),
                                source_text == QStringLiteral("screen"),
                                *screen_profile,
+                               audio_mode,
+                               !parser.isSet(no_audio_playout_option),
                                movie_path, parser.isSet(movie_audio_option),
                                video_acceleration,
                                parser.value(metrics_option),
