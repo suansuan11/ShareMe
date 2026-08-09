@@ -21,7 +21,7 @@ class GuiCallSmokeTest(unittest.TestCase):
         spec.loader.exec_module(cls.runner)
 
     def make_demo(self, directory: Path, fail_state: str = "") -> Path:
-        demo = directory / "fake-demo"
+        demo = directory / "fake-demo.py"
         demo.write_text(
             "#!/usr/bin/env python3\n"
             "import sys, time\n"

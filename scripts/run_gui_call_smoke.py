@@ -28,7 +28,8 @@ class GuiSmokeFailure(RuntimeError):
 
 
 def _arguments(demo: Path, state: str) -> list[str]:
-    arguments = [str(demo)]
+    arguments = ([sys.executable, str(demo)]
+                 if demo.suffix.lower() == ".py" else [str(demo)])
     if state.startswith("call-"):
         role = "viewer" if state == "call-viewer" else "host"
         arguments.extend([
@@ -80,7 +81,8 @@ def sample_idle_process(demo: Path, duration_seconds: float) -> dict:
     environment = os.environ.copy()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
     process = subprocess.Popen(
-        [str(demo)],
+        ([sys.executable, str(demo)]
+         if demo.suffix.lower() == ".py" else [str(demo)]),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
