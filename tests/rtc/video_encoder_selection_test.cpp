@@ -249,6 +249,21 @@ void factory_failure_is_a_bounded_software_fallback() {
   REQUIRE(selection.max_height == 1'080);
 }
 
+void explicit_software_is_a_standard_vp8_audit_path() {
+  const auto selection = shareme::rtc::select_software_screen_video_encoder();
+  REQUIRE(selection.factory != nullptr);
+  REQUIRE(selection.capture_profile ==
+          shareme::core::ScreenStreamProfile::standard);
+  REQUIRE(selection.max_width == 1'920);
+  REQUIRE(selection.max_height == 1'080);
+  REQUIRE(selection.diagnostics.requested_codec == "H264");
+  REQUIRE(selection.diagnostics.negotiated_codec == "VP8");
+  REQUIRE(selection.diagnostics.encoder_implementation == "VP8Template");
+  REQUIRE(!selection.diagnostics.hardware_active);
+  REQUIRE(selection.diagnostics.fallback_active);
+  REQUIRE(selection.diagnostics.fallback_reason == "explicit-software");
+}
+
 void runtime_accepts_the_selected_factory_without_changing_lifecycle() {
   const auto audio = shareme::rtc::create_audio_device(
       webrtc::CreateEnvironment(), shareme::rtc::AudioDeviceMode::synthetic);
@@ -269,6 +284,7 @@ int main() {
   rejects_a_factory_that_cannot_create_an_encoder();
   rejects_a_factory_that_cannot_initialize_an_encoder();
   factory_failure_is_a_bounded_software_fallback();
+  explicit_software_is_a_standard_vp8_audit_path();
   runtime_accepts_the_selected_factory_without_changing_lifecycle();
   return EXIT_SUCCESS;
 }

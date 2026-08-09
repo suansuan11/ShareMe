@@ -1,6 +1,7 @@
 #pragma once
 
 #include "qt_signaling_client.hpp"
+#include "app_session_config.hpp"
 #include "drift_metrics_jsonl.hpp"
 #include "drift_failure.hpp"
 #include "movie_audio_clock_message.hpp"
@@ -107,6 +108,8 @@ public:
   RtcDemoController(const RtcDemoController &) = delete;
   RtcDemoController &operator=(const RtcDemoController &) = delete;
 
+  void setScreenEncoderMode(shareme::tools::ScreenEncoderMode mode);
+
   [[nodiscard]] QString status() const override;
   [[nodiscard]] QString roomId() const override;
   [[nodiscard]] bool viewer() const noexcept;
@@ -206,6 +209,8 @@ private:
   bool screen_source_{false};
   shareme::core::ScreenStreamProfile screen_profile_{
       shareme::core::ScreenStreamProfile::standard};
+  shareme::tools::ScreenEncoderMode screen_encoder_mode_{
+      shareme::tools::ScreenEncoderMode::auto_mode};
   shareme::rtc::SignaledAudioMode audio_mode_{
       shareme::rtc::SignaledAudioMode::microphone};
   bool native_audio_playout_{true};

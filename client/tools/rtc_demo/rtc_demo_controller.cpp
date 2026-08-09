@@ -312,6 +312,11 @@ RtcDemoController::RtcDemoController(QUrl server_url,
           });
 }
 
+void RtcDemoController::setScreenEncoderMode(
+    shareme::tools::ScreenEncoderMode mode) {
+  screen_encoder_mode_ = mode;
+}
+
 RtcDemoController::~RtcDemoController() {
   signaling_.disconnectFromServer();
   stopPeer();
@@ -851,8 +856,12 @@ bool RtcDemoController::createPeer() {
   }
 #endif
   if (screen_source_ && role_ == shareme::rtc::SignaledRole::host) {
-    auto selection = shareme::rtc::select_screen_video_encoder(
-        screen_profile_);
+    const bool explicit_software =
+        screen_encoder_mode_ == shareme::tools::ScreenEncoderMode::software;
+    auto selection =
+        explicit_software
+            ? shareme::rtc::select_software_screen_video_encoder()
+            : shareme::rtc::select_screen_video_encoder(screen_profile_);
     video_encoder_diagnostics_ = selection.diagnostics;
     emit videoDiagnosticsChanged();
     config.video_encoder_factory = std::move(selection.factory);

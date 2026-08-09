@@ -15,6 +15,7 @@ enum class AppPage { home, preflight, calling, result };
 enum class PreflightMode { create_room, join_room };
 enum class InteractiveRole { host, viewer };
 enum class SessionVideoSource { test, desktop, movie, screen };
+enum class ScreenEncoderMode { auto_mode, software };
 
 struct AppSessionConfig {
   QUrl server_url{QStringLiteral("ws://127.0.0.1:8080/v1/ws")};
@@ -23,6 +24,7 @@ struct AppSessionConfig {
   SessionVideoSource video_source{SessionVideoSource::screen};
   shareme::core::ScreenStreamProfile screen_profile{
       shareme::core::ScreenStreamProfile::standard};
+  ScreenEncoderMode screen_encoder{ScreenEncoderMode::auto_mode};
   shareme::rtc::SignaledAudioMode audio_mode{
       shareme::rtc::SignaledAudioMode::microphone};
   bool native_audio_playout{true};

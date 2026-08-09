@@ -60,6 +60,12 @@ validate_interactive_config(const AppSessionConfig &config) {
     return {.category = QStringLiteral("unsupported-source"),
             .message = QStringLiteral("图形界面当前仅支持屏幕共享通话")};
   }
+  if (config.screen_encoder == ScreenEncoderMode::software &&
+      config.screen_profile != shareme::core::ScreenStreamProfile::standard) {
+    return {.category = QStringLiteral("software-standard-only"),
+            .message = QStringLiteral(
+                "software screen encoding requires standard")};
+  }
   return {.accepted = true};
 }
 

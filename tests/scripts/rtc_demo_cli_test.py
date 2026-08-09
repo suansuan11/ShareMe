@@ -55,6 +55,7 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("--source", result.stdout)
         self.assertIn("test, desktop, movie, or screen", result.stdout)
         self.assertIn("--screen-profile", result.stdout)
+        self.assertIn("--screen-encoder", result.stdout)
         self.assertIn("--audio", result.stdout)
         self.assertIn("--no-audio-playout", result.stdout)
         self.assertIn("host or viewer", result.stdout)
@@ -145,6 +146,41 @@ class RtcDemoCliTest(unittest.TestCase):
             "--source", "test", "--screen-profile", "quality", "--validate"
         )
         self.assertEqual(invalid_profile.returncode, 2)
+
+    def test_screen_encoder_audit_mode_is_strict(self):
+        if sys.platform not in ("darwin", "win32"):
+            self.skipTest("screen encoder contract requires macOS or Windows")
+        common = [
+            "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+            "--source", "screen", "--validate",
+        ]
+        self.assertEqual(
+            self.run_demo(*common, "--screen-encoder", "auto").returncode, 0
+        )
+        self.assertEqual(
+            self.run_demo(*common, "--screen-encoder", "software").returncode,
+            0,
+        )
+        self.assertEqual(
+            self.run_demo(
+                *common,
+                "--screen-profile", "quality",
+                "--screen-encoder", "software",
+            ).returncode,
+            2,
+        )
+        self.assertEqual(
+            self.run_demo(*common, "--screen-encoder", "invalid").returncode,
+            2,
+        )
+        self.assertEqual(
+            self.run_demo(
+                "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",
+                "--source", "test", "--screen-encoder", "software",
+                "--validate",
+            ).returncode,
+            2,
+        )
 
     def test_primary_voice_mode_and_playout_contract(self):
         if sys.platform != "darwin":

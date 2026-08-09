@@ -136,10 +136,12 @@ create_platform_h264_encoder_factory() {
 }
 #endif
 
+#if !defined(_WIN32)
 bool probe_platform_h264_codecs(int width, int height, int,
                                 std::string &reason) {
   return probe_platform_h264_encoder(width, height, reason);
 }
+#endif
 
 VideoEncoderSelection select_screen_video_encoder(
     core::ScreenStreamProfile profile, PlatformH264Probe probe,
@@ -208,6 +210,16 @@ VideoEncoderSelection select_screen_video_encoder(
       probe_reason.empty() ? "platform-h264-unavailable"
                            : std::move(probe_reason);
   return selection;
+}
+
+VideoEncoderSelection select_software_screen_video_encoder() {
+  return select_screen_video_encoder(
+      core::ScreenStreamProfile::standard,
+      [](int, int, int, std::string &reason) {
+        reason = "explicit-software";
+        return false;
+      },
+      {});
 }
 
 } // namespace shareme::rtc

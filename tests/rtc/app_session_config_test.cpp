@@ -35,6 +35,18 @@ void validates_interactive_host_and_viewer_boundaries() {
   host.role = InteractiveRole::host;
   host.video_source = shareme::tools::SessionVideoSource::screen;
   REQUIRE(shareme::tools::validate_interactive_config(host).accepted);
+  REQUIRE(host.screen_encoder ==
+          shareme::tools::ScreenEncoderMode::auto_mode);
+
+  host.screen_encoder = shareme::tools::ScreenEncoderMode::software;
+  host.screen_profile = shareme::core::ScreenStreamProfile::quality;
+  const auto software_quality =
+      shareme::tools::validate_interactive_config(host);
+  REQUIRE(!software_quality.accepted);
+  REQUIRE(software_quality.category ==
+          QStringLiteral("software-standard-only"));
+  host.screen_profile = shareme::core::ScreenStreamProfile::standard;
+  REQUIRE(shareme::tools::validate_interactive_config(host).accepted);
 
   AppSessionConfig viewer = host;
   viewer.role = InteractiveRole::viewer;

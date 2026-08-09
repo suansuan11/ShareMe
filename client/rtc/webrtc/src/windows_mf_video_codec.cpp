@@ -9,6 +9,7 @@
 #include "api/video_codecs/video_decoder_factory.h"
 #include "windows_mf_h264_decoder.hpp"
 #include "windows_mf_h264_encoder.hpp"
+#include "windows/windows_h264_codecs.hpp"
 
 namespace shareme::rtc {
 namespace {
@@ -60,6 +61,17 @@ class WindowsMfH264DecoderFactory final
 
 bool probe_platform_h264_encoder(int width, int height, std::string &reason) {
   return probe_windows_mf_h264_encoder(width, height, reason);
+}
+
+bool probe_platform_h264_codecs(int width, int height, int frames_per_second,
+                                std::string &reason) {
+  if (!probe_windows_media_foundation_h264_codecs(
+          width, height, frames_per_second, reason)) {
+    return false;
+  }
+  // The shared runtime decoder factory is profile-independent and advertises
+  // H.264 only after its conservative cinema-bound readiness gate passes.
+  return probe_windows_mf_h264_decoder(3'840, 2'160, reason);
 }
 
 std::unique_ptr<webrtc::VideoEncoderFactory>

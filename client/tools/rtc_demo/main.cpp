@@ -63,6 +63,10 @@ int main(int argc, char **argv) {
       QStringList{QStringLiteral("screen-profile")},
       QStringLiteral("Screen profile: standard, quality, or cinema"),
       QStringLiteral("profile"), QStringLiteral("standard"));
+  QCommandLineOption screen_encoder_option(
+      QStringList{QStringLiteral("screen-encoder")},
+      QStringLiteral("Screen encoder: auto or software"),
+      QStringLiteral("mode"), QStringLiteral("auto"));
   QCommandLineOption audio_option(
       QStringList{QStringLiteral("audio")},
       QStringLiteral("Primary voice source: microphone or synthetic"),
@@ -102,6 +106,7 @@ int main(int argc, char **argv) {
   parser.addOption(room_option);
   parser.addOption(source_option);
   parser.addOption(screen_profile_option);
+  parser.addOption(screen_encoder_option);
   parser.addOption(audio_option);
   parser.addOption(no_audio_playout_option);
   parser.addOption(movie_option);
@@ -137,7 +142,8 @@ int main(int argc, char **argv) {
   const auto any_rtc_option =
       parser.isSet(server_option) || parser.isSet(role_option) ||
       parser.isSet(room_option) || parser.isSet(source_option) ||
-      parser.isSet(screen_profile_option) || parser.isSet(audio_option) ||
+      parser.isSet(screen_profile_option) ||
+      parser.isSet(screen_encoder_option) || parser.isSet(audio_option) ||
       parser.isSet(no_audio_playout_option) || parser.isSet(movie_option) ||
       parser.isSet(movie_audio_option) ||
       parser.isSet(video_acceleration_option) || parser.isSet(metrics_option) ||
@@ -158,6 +164,7 @@ int main(int argc, char **argv) {
   const auto screen_profile_value = parser.value(screen_profile_option);
   const auto screen_profile = shareme::core::parse_screen_stream_profile(
       screen_profile_value.toStdString());
+  const auto screen_encoder_value = parser.value(screen_encoder_option);
   const auto audio_value = parser.value(audio_option);
   const auto movie_path = local_path(parser.value(movie_option));
   const auto video_acceleration = parser.value(video_acceleration_option);
@@ -203,6 +210,13 @@ int main(int argc, char **argv) {
         audio_value != QStringLiteral("synthetic")) ||
        (parser.isSet(screen_profile_option) &&
         source_text != QStringLiteral("screen")) ||
+       (screen_encoder_value != QStringLiteral("auto") &&
+        screen_encoder_value != QStringLiteral("software")) ||
+       (parser.isSet(screen_encoder_option) &&
+        (source_text != QStringLiteral("screen") ||
+         role_text != QStringLiteral("host"))) ||
+       (screen_encoder_value == QStringLiteral("software") &&
+        screen_profile != shareme::core::ScreenStreamProfile::standard) ||
        (video_acceleration != QStringLiteral("auto") &&
         video_acceleration != QStringLiteral("software")) ||
        (parser.isSet(video_acceleration_option) &&
@@ -218,6 +232,7 @@ int main(int argc, char **argv) {
     std::cerr << "required: --server URL --role host|viewer "
                  "[--room ROOM] [--source test|desktop|movie|screen] "
                  "[--screen-profile standard|quality|cinema] [--movie PATH] "
+                 "[--screen-encoder auto|software] "
                  "[--audio microphone|synthetic] [--no-audio-playout] "
                  "[--movie-audio] [--video-acceleration auto|software] "
                  "[--metrics-jsonl PATH] [--drift-scenario drift-study-v1 "
@@ -254,7 +269,7 @@ int main(int argc, char **argv) {
     const auto role = config.role == shareme::tools::InteractiveRole::host
                           ? shareme::rtc::SignaledRole::host
                           : shareme::rtc::SignaledRole::viewer;
-    return std::make_unique<RtcDemoController>(
+    auto controller = std::make_unique<RtcDemoController>(
         config.server_url, role, config.requested_room,
         config.video_source == shareme::tools::SessionVideoSource::desktop,
         config.video_source == shareme::tools::SessionVideoSource::screen,
@@ -262,6 +277,9 @@ int main(int argc, char **argv) {
         config.movie_path, config.movie_audio, config.video_acceleration,
         config.metrics_jsonl_path, config.drift_scenario_name,
         config.measurement_duration_seconds, parent);
+    if (config.screen_encoder == shareme::tools::ScreenEncoderMode::software)
+      controller->setScreenEncoderMode(config.screen_encoder);
+    return controller;
   };
   QSettings settings;
   shareme::tools::AppPreferences preferences(settings);
@@ -290,6 +308,10 @@ int main(int argc, char **argv) {
     else
       config.video_source = shareme::tools::SessionVideoSource::test;
     config.screen_profile = *screen_profile;
+    config.screen_encoder =
+        screen_encoder_value == QStringLiteral("software")
+            ? shareme::tools::ScreenEncoderMode::software
+            : shareme::tools::ScreenEncoderMode::auto_mode;
     config.audio_mode = audio_value == QStringLiteral("microphone")
                             ? shareme::rtc::SignaledAudioMode::microphone
                             : shareme::rtc::SignaledAudioMode::synthetic;
