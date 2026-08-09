@@ -3,6 +3,19 @@ add_executable(
   test_pattern_source_test.cpp
 )
 
+add_executable(
+  shareme_h264_bitstream_test
+  h264_bitstream_test.cpp
+  "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/windows/h264_bitstream.cpp"
+)
+target_compile_features(shareme_h264_bitstream_test PRIVATE cxx_std_20)
+target_include_directories(
+  shareme_h264_bitstream_test
+  PRIVATE "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src"
+)
+shareme_set_project_warnings(shareme_h264_bitstream_test)
+add_test(NAME h264_bitstream COMMAND shareme_h264_bitstream_test)
+
 target_compile_features(
   shareme_test_pattern_source_test
   PRIVATE

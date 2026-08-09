@@ -9,6 +9,7 @@ add_library(
   src/video_encoder_selection.cpp
   src/webrtc_probe.cpp
   src/webrtc_runtime.cpp
+  src/windows/h264_bitstream.cpp
 )
 add_library(ShareMe::WebRTC ALIAS shareme_webrtc)
 
