@@ -4,13 +4,20 @@ import argparse
 import dataclasses
 import json
 import os
-import statistics
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
 from typing import Iterable
+
+
+_SCRIPT_DIRECTORY = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIRECTORY not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIRECTORY)
+
+from process_metrics import (ProcessMetricsError, ProcessSample, ProcessSampler,
+                             summarize_samples)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -77,10 +84,10 @@ def run_probes(demo: Path, states: Iterable[str],
     return results
 
 
-def sample_idle_process(demo: Path, duration_seconds: float) -> dict:
+def launch_idle_demo(demo: Path) -> subprocess.Popen:
     environment = os.environ.copy()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
-    process = subprocess.Popen(
+    return subprocess.Popen(
         ([sys.executable, str(demo)]
          if demo.suffix.lower() == ".py" else [str(demo)]),
         stdout=subprocess.DEVNULL,
@@ -88,39 +95,41 @@ def sample_idle_process(demo: Path, duration_seconds: float) -> dict:
         text=True,
         env=environment,
     )
-    cpu_samples: list[float] = []
-    rss_samples: list[int] = []
+
+
+def terminate_process(process: subprocess.Popen) -> None:
+    process.terminate()
     try:
-        deadline = time.monotonic() + duration_seconds
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise GuiSmokeFailure("idle-early-exit", [])
-            sampled = subprocess.run(
-                ["ps", "-o", "%cpu=", "-o", "rss=", "-p", str(process.pid)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            fields = sampled.stdout.split()
-            if sampled.returncode == 0 and len(fields) == 2:
-                cpu_samples.append(float(fields[0]))
-                rss_samples.append(int(fields[1]))
-            time.sleep(0.25)
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=3)
+    if process.stderr is not None:
+        process.stderr.close()
+
+
+def collect_samples(process: subprocess.Popen, sampler: ProcessSampler,
+                    duration_seconds: float) -> list[ProcessSample]:
+    samples: list[ProcessSample] = []
+    deadline = time.monotonic() + duration_seconds
+    while time.monotonic() < deadline:
+        time.sleep(0.25)
+        if process.poll() is not None:
+            raise GuiSmokeFailure("idle-early-exit", [])
+        samples.append(sampler.sample())
+    return samples
+
+
+def sample_idle_process(demo: Path, duration_seconds: float,
+                        sampler_factory=ProcessSampler) -> dict:
+    process = launch_idle_demo(demo)
+    try:
+        sampler = sampler_factory(process.pid)
+        return summarize_samples(collect_samples(process, sampler, duration_seconds))
+    except ProcessMetricsError as error:
+        raise GuiSmokeFailure(error.category, []) from error
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=3)
-    if not cpu_samples or len(cpu_samples) != len(rss_samples):
-        raise GuiSmokeFailure("idle-samples-missing", [])
-    return {
-        "sampleCount": len(cpu_samples),
-        "cpuMeanPercent": round(statistics.fmean(cpu_samples), 3),
-        "cpuMaxPercent": round(max(cpu_samples), 3),
-        "rssMaxKiB": max(rss_samples),
-    }
+        terminate_process(process)
 
 
 def atomic_write_json(path: Path, payload: dict) -> None:

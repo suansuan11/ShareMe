@@ -88,6 +88,12 @@ if(TARGET shareme_rtc_demo)
 endif()
 
 add_test(
+  NAME process_metrics_contract
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/process_metrics_test.py"
+)
+
+add_test(
   NAME screen_stream_smoke_contract
   COMMAND
     "${Python3_EXECUTABLE}"
