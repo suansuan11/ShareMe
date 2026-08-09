@@ -192,7 +192,11 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
 
  private:
   bool configure_on_codec_thread(const Settings &settings) {
-    auto *const registered_callback = callback_;
+    webrtc::DecodedImageCallback *registered_callback = nullptr;
+    {
+      std::lock_guard state_lock(state_mutex_);
+      registered_callback = callback_;
+    }
     static_cast<void>(Release());
     {
       std::lock_guard state_lock(state_mutex_);

@@ -4,7 +4,10 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <future>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -14,6 +17,7 @@
 #include "api/video/video_bitrate_allocation.h"
 #include "api/video/video_frame.h"
 #include "webrtc_runtime.hpp"
+#include "windows/mf_codec_thread.hpp"
 #include "windows/windows_h264_codecs.hpp"
 
 namespace {
@@ -133,6 +137,29 @@ void probe_requires_encoder_and_decoder_initialization() {
   REQUIRE(shareme::rtc::probe_windows_media_foundation_h264_codecs(
       1'920, 1'080, 60, reason));
   REQUIRE(reason.empty());
+}
+
+void codec_thread_propagates_failures_and_survives_self_destruction() {
+  shareme::rtc::MfCodecThread thread;
+  bool threw = false;
+  try {
+    static_cast<void>(thread.invoke([]() -> int {
+      throw std::runtime_error("expected-task-failure");
+    }));
+  } catch (const std::runtime_error &) {
+    threw = true;
+  }
+  REQUIRE(threw);
+
+  auto self_destroying = std::make_shared<shareme::rtc::MfCodecThread>();
+  std::promise<void> destroyed;
+  auto destroyed_future = destroyed.get_future();
+  self_destroying->invoke([&] {
+    self_destroying.reset();
+    destroyed.set_value();
+  });
+  REQUIRE(destroyed_future.wait_for(std::chrono::seconds(1)) ==
+          std::future_status::ready);
 }
 
 void encodes_and_decodes_real_h264_frames() {
@@ -342,6 +369,7 @@ void concurrent_release_waits_for_active_callback() {
 
 int main() {
   selects_hardware_media_foundation();
+  codec_thread_propagates_failures_and_survives_self_destruction();
   probe_requires_encoder_and_decoder_initialization();
   encodes_and_decodes_real_h264_frames();
   callback_reentrant_release_defers_teardown();
