@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 Item {
     id: page
+    objectName: "callPage"
     required property QtObject appController
     required property var controller
     property bool detailsOpen: false

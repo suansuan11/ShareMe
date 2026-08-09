@@ -46,6 +46,9 @@ class RtcDemoCliTest(unittest.TestCase):
     def test_help_documents_sender_receiver_contract(self):
         result = self.run_demo("--help")
         self.assertEqual(result.returncode, 0)
+        self.assertIn("ShareMe screen-sharing calls", result.stdout)
+        self.assertNotIn("RTC Demo", result.stdout)
+        self.assertNotIn("Minimal", result.stdout)
         self.assertIn("--server", result.stdout)
         self.assertIn("--role", result.stdout)
         self.assertIn("--room", result.stdout)

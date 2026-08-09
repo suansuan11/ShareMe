@@ -73,6 +73,11 @@ if(TARGET shareme_rtc_demo)
       ENVIRONMENT_MODIFICATION
         "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;QT_QPA_PLATFORM=set:offscreen"
   )
+  add_test(
+    NAME gui_call_smoke_contract
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/gui_call_smoke_test.py"
+  )
   set_tests_properties(
     rtc_demo_cli_contract
     PROPERTIES

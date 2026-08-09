@@ -180,6 +180,7 @@ void ShareMeAppController::leaveCall() {
   if (active_session_) {
     disconnect(active_session_.get(), nullptr, this, nullptr);
     active_session_->stop();
+    setPage(AppPage::home);
     active_session_.reset();
     emit activeControllerChanged();
   }

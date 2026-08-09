@@ -16,18 +16,21 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 10
         IconControl {
+            objectName: "microphoneControl"
             symbol: dock.controller.microphoneMuted ? "╱" : "●"
             active: !dock.controller.microphoneMuted
             accessibleDescription: dock.controller.microphoneMuted ? "开启麦克风" : "静音麦克风"
             onClicked: dock.controller.setMicrophoneMuted(!dock.controller.microphoneMuted)
         }
         IconControl {
+            objectName: "speakerControl"
             symbol: dock.controller.speakerMuted ? "×" : "◖"
             active: !dock.controller.speakerMuted
             accessibleDescription: dock.controller.speakerMuted ? "开启扬声器" : "关闭扬声器"
             onClicked: dock.controller.setSpeakerMuted(!dock.controller.speakerMuted)
         }
         IconControl {
+            objectName: "shareControl"
             symbol: "▣"
             active: !dock.controller.viewer
             enabled: false
@@ -35,12 +38,14 @@ Rectangle {
             ToolTip.text: accessibleDescription
         }
         IconControl {
+            objectName: "detailsControl"
             symbol: "⋯"
             active: dock.detailsOpen
             accessibleDescription: dock.detailsOpen ? "关闭通话详情" : "打开通话详情"
             onClicked: dock.toggleDetails()
         }
         IconControl {
+            objectName: "leaveControl"
             symbol: "⌁"
             destructive: true
             accessibleDescription: "离开通话"

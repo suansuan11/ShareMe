@@ -85,6 +85,32 @@ class GuiQmlContractTest(unittest.TestCase):
                 self.assertNotIn("ReferenceError:", result.stderr)
                 self.assertNotIn("failed to load component", result.stderr)
 
+    def test_real_qml_controls_drive_audio_drawer_and_leave(self):
+        environment = os.environ.copy()
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        result = subprocess.run(
+            [
+                str(self.demo),
+                "--server", "ws://127.0.0.1:18080/v1/ws",
+                "--role", "host",
+                "--source", "test",
+                "--audio", "synthetic",
+                "--no-audio-playout",
+                "--gui-smoke-state", "call-host-actions",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "GUI_ACTION microphone=1 speaker=1 drawer=1 leave=1 page=home",
+            result.stdout,
+        )
+        self.assertNotIn("TypeError:", result.stderr)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()

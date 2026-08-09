@@ -35,12 +35,13 @@ namespace {
 int main(int argc, char **argv) {
   QQuickStyle::setStyle(QStringLiteral("Basic"));
   QGuiApplication app(argc, argv);
-  QCoreApplication::setApplicationName(QStringLiteral("ShareMe RTC Demo"));
+  QCoreApplication::setApplicationName(QStringLiteral("ShareMe"));
+  QGuiApplication::setApplicationDisplayName(QStringLiteral("ShareMe"));
   QCoreApplication::setOrganizationName(QStringLiteral("ShareMe"));
 
   QCommandLineParser parser;
   parser.setApplicationDescription(
-      QStringLiteral("Minimal ShareMe WebRTC sender/receiver demo"));
+      QStringLiteral("ShareMe screen-sharing calls"));
   const auto help_option = parser.addHelpOption();
   QCommandLineOption server_option(QStringList{QStringLiteral("s"),
                                                QStringLiteral("server")},
@@ -126,7 +127,8 @@ int main(int argc, char **argv) {
       gui_smoke_state != QStringLiteral("create") &&
       gui_smoke_state != QStringLiteral("join") &&
       gui_smoke_state != QStringLiteral("call-host") &&
-      gui_smoke_state != QStringLiteral("call-viewer")) {
+      gui_smoke_state != QStringLiteral("call-viewer") &&
+      gui_smoke_state != QStringLiteral("call-host-actions")) {
     std::cerr << "invalid --gui-smoke-state" << std::endl;
     exit_cli(2);
   }
@@ -302,7 +304,7 @@ int main(int argc, char **argv) {
       return EXIT_FAILURE;
   }
   if (parser.isSet(gui_smoke_state_option)) {
-    QTimer::singleShot(0, &app, [&] {
+    const auto run_state_probe = [&] {
       if (gui_smoke_state == QStringLiteral("create"))
         app_controller.showCreateRoom();
       else if (gui_smoke_state == QStringLiteral("join"))
@@ -310,7 +312,36 @@ int main(int argc, char **argv) {
       std::cout << "GUI_STATE page=" << gui_smoke_state.toStdString()
                 << " qml_loaded=1" << std::endl;
       QTimer::singleShot(80, &app, &QCoreApplication::quit);
-    });
+    };
+    if (gui_smoke_state == QStringLiteral("call-host-actions")) {
+      QTimer::singleShot(120, &app, [&] {
+        auto *root = engine.rootObjects().isEmpty()
+                         ? nullptr
+                         : engine.rootObjects().constFirst();
+        auto invoke_click = [root](const char *name) {
+          auto *control = root ? root->findChild<QObject *>(name) : nullptr;
+          return control && QMetaObject::invokeMethod(
+                                control, "clicked", Qt::DirectConnection);
+        };
+        const auto microphone_clicked = invoke_click("microphoneControl");
+        const auto speaker_clicked = invoke_click("speakerControl");
+        auto *call_page = root ? root->findChild<QObject *>("callPage") : nullptr;
+        const auto details_clicked = invoke_click("detailsControl");
+        const auto drawer_open =
+            call_page && call_page->property("detailsOpen").toBool();
+        const auto leave_clicked = invoke_click("leaveControl");
+        const auto returned_home = app_controller.page() == QStringLiteral("home");
+        std::cout << "GUI_ACTION microphone=" << microphone_clicked
+                  << " speaker=" << speaker_clicked
+                  << " drawer=" << (details_clicked && drawer_open)
+                  << " leave=" << (leave_clicked && returned_home)
+                  << " page=" << app_controller.page().toStdString()
+                  << std::endl;
+        QTimer::singleShot(20, &app, &QCoreApplication::quit);
+      });
+    } else {
+      QTimer::singleShot(0, &app, run_state_probe);
+    }
   }
   return app.exec();
 }
