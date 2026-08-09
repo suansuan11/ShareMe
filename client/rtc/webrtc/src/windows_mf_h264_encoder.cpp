@@ -37,7 +37,8 @@ using Microsoft::WRL::ComPtr;
 
 constexpr DWORD kInputStream = 0;
 constexpr DWORD kOutputStream = 0;
-constexpr std::size_t kMaxPendingFrames = 8;
+constexpr std::size_t kMaxPendingFrames = 1;
+constexpr auto kOutputDrainTimeout = std::chrono::milliseconds(100);
 
 void shutdown_transform(IMFTransform *transform) {
   if (transform == nullptr)
@@ -332,8 +333,8 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
          .ntp_time_ms = frame.ntp_time_ms(),
          .capture_time_ms = frame.timestamp_us() / 1'000,
          .color_space = frame.color_space()});
-    return pump_events() ? WEBRTC_VIDEO_CODEC_OK
-                         : WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    return drain_pending_output() ? WEBRTC_VIDEO_CODEC_OK
+                                  : WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
   void SetRates(const RateControlParameters &parameters) override {
@@ -370,6 +371,18 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
   }
 
  private:
+  bool drain_pending_output() {
+    const auto deadline = std::chrono::steady_clock::now() + kOutputDrainTimeout;
+    do {
+      if (!pump_events())
+        return false;
+      if (pending_frames_.empty())
+        return true;
+      std::this_thread::yield();
+    } while (std::chrono::steady_clock::now() < deadline);
+    return false;
+  }
+
   bool wait_for_input() {
     for (int attempt = 0; attempt < 6 && !input_requested_; ++attempt) {
       if (!pump_events())

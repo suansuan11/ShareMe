@@ -133,6 +133,7 @@ if(WIN32)
     shareme_windows_mf_h264_buffers_test
     windows_mf_h264_buffers_test.cpp
     "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/windows_mf_h264_buffers.cpp"
+    "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/windows/h264_bitstream.cpp"
   )
   target_compile_features(
     shareme_windows_mf_h264_buffers_test

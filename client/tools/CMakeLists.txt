@@ -1,4 +1,7 @@
 add_subdirectory(webrtc_probe)
+if(WIN32 AND TARGET ShareMe::WebRTC)
+  add_subdirectory(windows_h264_probe)
+endif()
 if(TARGET ShareMe::QtSignaling)
   add_subdirectory(signaled_call)
   add_subdirectory(rtc_demo)

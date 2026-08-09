@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "libyuv/convert.h"
+#include "windows/h264_bitstream.hpp"
 
 namespace shareme::rtc {
 namespace {
@@ -114,37 +115,15 @@ bool copy_nv12_to_i420(std::span<const std::uint8_t> input, int width,
 
 H264AccessUnitResult normalize_h264_access_unit(
     std::span<const std::uint8_t> input, std::vector<std::uint8_t> &output) {
-  if (input.empty())
+  const auto converted = convert_avcc_to_annex_b(input, 4, input.size());
+  if (!converted.has_value())
     return {};
-
-  const auto annex_result = validate_annex_b(input);
-  if (annex_result.valid) {
-    output.assign(input.begin(), input.end());
-    return annex_result;
-  }
-
-  std::vector<std::uint8_t> normalized;
-  normalized.reserve(input.size());
-  bool keyframe = false;
-  std::size_t offset = 0;
-  while (offset < input.size()) {
-    if (input.size() - offset < 4)
-      return {};
-    const auto length = static_cast<std::size_t>(
-        read_big_endian_length(input, offset));
-    offset += 4;
-    if (length == 0 || length > input.size() - offset)
-      return {};
-    observe_nal(input[offset], keyframe);
-    normalized.insert(normalized.end(), {0, 0, 0, 1});
-    normalized.insert(normalized.end(), input.begin() + offset,
-                      input.begin() + offset + length);
-    offset += length;
-  }
-  if (normalized.empty())
+  const auto info = inspect_annex_b(*converted);
+  if (!info.has_value())
     return {};
-  output = std::move(normalized);
-  return {.valid = true, .keyframe = keyframe};
+  const auto normalized = converted.value();
+  output.assign(normalized.begin(), normalized.end());
+  return {.valid = true, .keyframe = info.has_idr};
 }
 
 } // namespace shareme::rtc

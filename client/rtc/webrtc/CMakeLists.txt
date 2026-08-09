@@ -60,6 +60,7 @@ if(WIN32)
       src/windows_mf_h264_decoder.cpp
       src/windows_mf_h264_encoder.cpp
       src/windows_mf_video_codec.cpp
+      src/windows/windows_h264_codecs.cpp
   )
   target_link_libraries(
     shareme_webrtc

@@ -29,7 +29,7 @@ namespace {
 using Microsoft::WRL::ComPtr;
 constexpr DWORD kInputStream = 0;
 constexpr DWORD kOutputStream = 0;
-constexpr std::size_t kMaxPendingFrames = 32;
+constexpr std::size_t kMaxPendingFrames = 1;
 
 void shutdown_transform(IMFTransform *transform) {
   if (transform == nullptr)
@@ -142,6 +142,39 @@ struct PendingFrame {
   std::int64_t ntp_time_ms{0};
   std::optional<webrtc::ColorSpace> color_space;
 };
+
+bool can_configure_decoder(int width, int height) {
+  if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0)
+    return false;
+  MfScope scope;
+  if (!scope.ready())
+    return false;
+  for (const auto &activation : enumerate_decoders()) {
+    ComPtr<IMFTransform> transform;
+    if (FAILED(activation->ActivateObject(IID_PPV_ARGS(&transform))))
+      continue;
+    int output_width = width;
+    int output_height = height;
+    int output_stride = width;
+    const bool configured =
+        set_input_type(transform.Get(), width, height) &&
+        select_nv12_output(transform.Get(), width, height, output_width,
+                           output_height, output_stride) &&
+        SUCCEEDED(transform->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING,
+                                            0)) &&
+        SUCCEEDED(transform->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM,
+                                            0));
+    static_cast<void>(transform->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0));
+    static_cast<void>(transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING,
+                                                0));
+    shutdown_transform(transform.Get());
+    transform.Reset();
+    static_cast<void>(activation->ShutdownObject());
+    if (configured)
+      return true;
+  }
+  return false;
+}
 
 class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
  public:
@@ -398,6 +431,20 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
 };
 
 } // namespace
+
+bool probe_windows_mf_h264_decoder(int width, int height,
+                                   std::string &reason) {
+  if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0) {
+    reason = "mf-h264-invalid-dimensions";
+    return false;
+  }
+  if (!can_configure_decoder(width, height)) {
+    reason = "mf-h264-decoder-unavailable";
+    return false;
+  }
+  reason.clear();
+  return true;
+}
 
 std::unique_ptr<webrtc::VideoDecoder> create_windows_mf_h264_decoder() {
   return std::make_unique<WindowsMfH264Decoder>();
