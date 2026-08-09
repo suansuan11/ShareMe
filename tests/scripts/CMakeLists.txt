@@ -98,3 +98,11 @@ add_test(
     "${CMAKE_CURRENT_SOURCE_DIR}/video_quality_contract_portability_test.py"
 )
 set_tests_properties(video_quality_contract_portability PROPERTIES TIMEOUT 10)
+
+add_test(
+  NAME windows_portability
+  COMMAND
+    "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/windows_portability_test.py"
+)
+set_tests_properties(windows_portability PROPERTIES TIMEOUT 10)

@@ -2,11 +2,13 @@
 #include "shareme/rtc/screen_video_source.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 
 #include "api/make_ref_counted.h"
@@ -59,7 +61,7 @@ public:
     last_timestamp_us = frame.timestamp_us();
   }
 
-  int frame_count{0};
+  std::atomic<int> frame_count{0};
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> last_buffer;
   std::int64_t last_timestamp_us{0};
 };
@@ -251,6 +253,46 @@ void platform_factory_constructs_without_starting_capture() {
   REQUIRE(source->dropped_count() == 0);
 }
 
+#if defined(_WIN32)
+int windows_platform_factory_delivers_desktop_duplication_frames() {
+  auto source = shareme::rtc::ScreenVideoSource::create({
+      .profile = shareme::core::ScreenStreamProfile::standard,
+      .display_id = std::nullopt,
+      .show_cursor = true});
+  RecordingSink sink;
+  auto *video_source =
+      static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame> *>(
+          source.get());
+  video_source->AddOrUpdateSink(&sink, webrtc::VideoSinkWants{});
+
+  if (!source->start()) {
+    const auto category = source->error();
+    video_source->RemoveSink(&sink);
+    if (category == "desktop-output-unavailable" ||
+        category == "desktop-duplication-unavailable") {
+      std::cerr << "SKIP: " << category << '\n';
+      return 77;
+    }
+    REQUIRE(false);
+  }
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds{2};
+  while (sink.frame_count == 0 && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  source->stop();
+  video_source->RemoveSink(&sink);
+
+  REQUIRE(sink.frame_count > 0);
+  REQUIRE(sink.last_buffer != nullptr);
+  REQUIRE(sink.last_buffer->type() == webrtc::VideoFrameBuffer::Type::kI420);
+  REQUIRE(sink.last_buffer->width() <= 1'920);
+  REQUIRE(sink.last_buffer->height() <= 1'080);
+  REQUIRE(source->generated_count() > 0);
+  REQUIRE(source->error().empty());
+  return EXIT_SUCCESS;
+}
+#endif
+
 } // namespace
 
 int main() {
@@ -261,5 +303,11 @@ int main() {
   honors_sink_adaptation_for_i420_frames();
   reports_backend_queue_metrics();
   platform_factory_constructs_without_starting_capture();
+#if defined(_WIN32)
+  const auto windows_result =
+      windows_platform_factory_delivers_desktop_duplication_frames();
+  if (windows_result != EXIT_SUCCESS)
+    return windows_result;
+#endif
   return EXIT_SUCCESS;
 }

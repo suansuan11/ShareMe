@@ -53,6 +53,24 @@ def read_log_tail(log: TextIO, limit: int = 4096) -> str:
     return log.read()
 
 
+def cleanup_temporary_directory(
+    directory,
+    *,
+    attempts: int = 20,
+    retry_delay_seconds: float = 0.05,
+) -> None:
+    if attempts <= 0:
+        raise ValueError("cleanup attempts must be positive")
+    for attempt in range(attempts):
+        try:
+            directory.cleanup()
+            return
+        except PermissionError:
+            if attempt + 1 == attempts:
+                raise
+            time.sleep(retry_delay_seconds)
+
+
 def ensure_address_available(host: str, port: int) -> None:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -101,7 +119,7 @@ def start_signaling_server(
         if build.returncode != 0:
             diagnostic = read_log_tail(log)
             log.close()
-            binary_directory.cleanup()
+            cleanup_temporary_directory(binary_directory)
             raise SignalingStartupError(
                 "signaling service could not build", diagnostic
             )
@@ -117,7 +135,7 @@ def start_signaling_server(
         )
     except OSError as error:
         log.close()
-        binary_directory.cleanup()
+        cleanup_temporary_directory(binary_directory)
         raise SignalingStartupError(
             "signaling service could not start"
         ) from error
@@ -574,7 +592,7 @@ def main() -> int:
             terminate_process_group(host)
         terminate_process_group(server)
         server_log.close()
-        server_binary_directory.cleanup()
+        cleanup_temporary_directory(server_binary_directory)
 
 
 def cli_main() -> int:
