@@ -86,8 +86,12 @@ H264AccessUnitInfo inspect_annex_b(std::span<const std::uint8_t> input) {
     return {.error = H264BitstreamError::empty_input};
 
   const auto first = find_start_code(input, 0);
-  if (!first.has_value() || first->offset != 0)
+  if (!first.has_value())
     return {.error = H264BitstreamError::malformed_annex_b};
+  for (std::size_t index = 0; index < first->offset; ++index) {
+    if (input[index] != 0)
+      return {.error = H264BitstreamError::malformed_annex_b};
+  }
 
   H264AccessUnitInfo info;
   auto current = *first;
@@ -111,6 +115,10 @@ H264AccessUnitInfo inspect_annex_b(std::span<const std::uint8_t> input) {
 H264AnnexBConversion convert_avcc_to_annex_b(
     std::span<const std::uint8_t> input, std::size_t length_field_bytes,
     std::size_t max_output_bytes) {
+  if (length_field_bytes != 3 && length_field_bytes != 4)
+    return H264AnnexBConversion{
+        H264BitstreamError::unsupported_length_field_size};
+
   const auto annex_b_info = inspect_annex_b(input);
   if (annex_b_info.has_value()) {
     if (input.size() > max_output_bytes)
@@ -121,9 +129,6 @@ H264AnnexBConversion convert_avcc_to_annex_b(
     return result;
   }
 
-  if (length_field_bytes != 3 && length_field_bytes != 4)
-    return H264AnnexBConversion{
-        H264BitstreamError::unsupported_length_field_size};
   if (input.empty())
     return H264AnnexBConversion{H264BitstreamError::empty_input};
 

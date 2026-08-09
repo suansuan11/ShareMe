@@ -62,6 +62,34 @@ void accepts_annex_b_without_copying_the_retained_input() {
   REQUIRE(std::span<const std::uint8_t>(*converted).data() == annex_b.data());
 }
 
+void rejects_unsupported_length_size_before_annex_b_fast_path() {
+  const std::array<std::uint8_t, 5> annex_b{0, 0, 1, 0x65, 0x01};
+
+  const auto converted =
+      shareme::rtc::convert_avcc_to_annex_b(annex_b, 2, annex_b.size());
+  REQUIRE(!converted.has_value());
+  REQUIRE(converted.error() ==
+          shareme::rtc::H264BitstreamError::unsupported_length_field_size);
+}
+
+void accepts_zero_prefixed_annex_b_without_copying_the_retained_input() {
+  const std::array<std::uint8_t, 7> annex_b{0, 0, 0, 0, 1, 0x65, 0x01};
+
+  const auto info = shareme::rtc::inspect_annex_b(annex_b);
+  REQUIRE(info.has_value());
+  REQUIRE(info.has_idr);
+
+  const auto converted =
+      shareme::rtc::convert_avcc_to_annex_b(annex_b, 4, annex_b.size());
+  REQUIRE(converted.has_value());
+  REQUIRE(converted.uses_input_storage());
+  REQUIRE(std::span<const std::uint8_t>(*converted).data() == annex_b.data());
+
+  const std::array<std::uint8_t, 6> garbage_prefixed{0xff, 0, 0, 1, 0x65,
+                                                       0x01};
+  REQUIRE(!shareme::rtc::inspect_annex_b(garbage_prefixed).has_value());
+}
+
 void rejects_malformed_inputs_with_typed_errors() {
   const std::array<std::uint8_t, 5> zero_length{0, 0, 0, 0, 0x65};
   const auto zero = shareme::rtc::convert_avcc_to_annex_b(zero_length, 4, 64);
@@ -108,6 +136,8 @@ int main() {
   converts_four_byte_avcc_and_classifies_parameter_sets_and_idr();
   converts_three_byte_avcc();
   accepts_annex_b_without_copying_the_retained_input();
+  rejects_unsupported_length_size_before_annex_b_fast_path();
+  accepts_zero_prefixed_annex_b_without_copying_the_retained_input();
   rejects_malformed_inputs_with_typed_errors();
   rejects_annex_b_with_empty_nal_units();
   return EXIT_SUCCESS;
