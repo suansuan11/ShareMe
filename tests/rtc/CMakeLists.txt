@@ -97,6 +97,31 @@ add_test(
   COMMAND shareme_video_encoder_selection_test
 )
 
+if(WIN32)
+  add_executable(
+    shareme_windows_mf_h264_buffers_test
+    windows_mf_h264_buffers_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/windows_mf_h264_buffers.cpp"
+  )
+  target_compile_features(
+    shareme_windows_mf_h264_buffers_test
+    PRIVATE cxx_std_20
+  )
+  target_include_directories(
+    shareme_windows_mf_h264_buffers_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src"
+  )
+  target_link_libraries(
+    shareme_windows_mf_h264_buffers_test
+    PRIVATE WebRTC::webrtc
+  )
+  shareme_set_project_warnings(shareme_windows_mf_h264_buffers_test)
+  add_test(
+    NAME windows_mf_h264_buffers
+    COMMAND shareme_windows_mf_h264_buffers_test
+  )
+endif()
+
 add_executable(
   shareme_loopback_signaling_test
   loopback_signaling_test.cpp
