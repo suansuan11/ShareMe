@@ -293,6 +293,33 @@ void closes_and_reopens_without_replaying_pending_frames(QGuiApplication& app) {
   REQUIRE(adapter.counters().max_pending_depth == 1);
 }
 
+void recovery_counters_are_safe_to_snapshot_during_reopen(QGuiApplication& app) {
+  Q_UNUSED(app);
+  QVideoSink sink;
+  shareme::tools::VideoPreviewAdapter adapter(&sink);
+  adapter.set_sink(&sink);
+  std::atomic_bool finished{false};
+  std::atomic_bool regressed{false};
+  std::thread reader([&] {
+    std::uint64_t previous = 0;
+    while (!finished.load(std::memory_order_acquire)) {
+      const auto current = adapter.counters().presentation_recovery_count;
+      if (current < previous)
+        regressed.store(true, std::memory_order_release);
+      previous = current;
+    }
+  });
+  for (std::uint64_t iteration = 0; iteration < 100; ++iteration) {
+    adapter.close_ingress();
+    adapter.reopen_ingress(&sink);
+  }
+  finished.store(true, std::memory_order_release);
+  reader.join();
+  REQUIRE(!regressed.load(std::memory_order_acquire));
+  REQUIRE(adapter.counters().presentation_epoch == 100);
+  REQUIRE(adapter.counters().presentation_recovery_count == 100);
+}
+
 void observational_movie_adapter_preserves_preview_delivery(QGuiApplication& app) {
   QVideoSink sink;
   shareme::tools::MovieVideoPlayoutAdapter adapter(&sink);
@@ -622,6 +649,7 @@ int main(int argc, char** argv) {
   rejects_without_sink(app);
   keeps_the_i420_buffer_alive_without_copying_planes(app);
   closes_and_reopens_without_replaying_pending_frames(app);
+  recovery_counters_are_safe_to_snapshot_during_reopen(app);
   observational_movie_adapter_preserves_preview_delivery(app);
   movie_adapter_submit_does_not_wait_on_conversion_lock(app);
   policy_adapter_releases_held_payloads(app);

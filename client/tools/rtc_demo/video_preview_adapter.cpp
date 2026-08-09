@@ -340,9 +340,13 @@ VideoPreviewCounters VideoPreviewAdapter::counters() const noexcept {
   std::uint64_t delay_p95 = 0;
   std::uint64_t delay_max = 0;
   std::uint64_t pending_callbacks = 0;
+  std::uint64_t presentation_epoch = 0;
+  std::uint64_t presentation_recovery_count = 0;
   {
     std::lock_guard lock(state_->mutex);
     pending_callbacks = state_->drain_scheduled ? 1U : 0U;
+    presentation_epoch = state_->presentation_epoch;
+    presentation_recovery_count = state_->presentation_recovery_count;
     if (state_->delay_sample_count > 0) {
       std::array<std::uint64_t, VideoPreviewState::kDelaySampleCapacity>
           samples{};
@@ -377,8 +381,8 @@ VideoPreviewCounters VideoPreviewAdapter::counters() const noexcept {
           state_->pending_callback_bytes.load(std::memory_order_acquire),
       .peak_pending_callback_bytes =
           state_->peak_pending_callback_bytes.load(std::memory_order_relaxed),
-      .presentation_epoch = state_->presentation_epoch,
-      .presentation_recovery_count = state_->presentation_recovery_count,
+      .presentation_epoch = presentation_epoch,
+      .presentation_recovery_count = presentation_recovery_count,
   };
 }
 
