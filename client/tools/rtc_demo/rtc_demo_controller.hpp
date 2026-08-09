@@ -276,7 +276,7 @@ private:
   std::mutex performance_stats_mutex_;
   std::mutex performance_stats_wait_mutex_;
   std::condition_variable_any performance_stats_wait_;
-  shareme::rtc::SignaledVideoStats performance_video_stats_{
+  shareme::rtc::SignaledMediaStats performance_media_stats_{
       .unavailable = true};
   std::optional<std::uint64_t> performance_last_video_bytes_;
   std::chrono::steady_clock::time_point performance_last_video_bytes_at_{};

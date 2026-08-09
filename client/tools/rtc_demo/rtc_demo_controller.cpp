@@ -967,12 +967,12 @@ void RtcDemoController::startPeer() {
     performance_stats_worker_ = std::jthread([this](std::stop_token stop_token) {
       while (!stop_token.stop_requested()) {
         const auto stats = peer_
-                               ? peer_->video_stats()
-                               : shareme::rtc::SignaledVideoStats{
+                               ? peer_->media_stats()
+                               : shareme::rtc::SignaledMediaStats{
                                      .unavailable = true};
         {
           std::lock_guard lock(performance_stats_mutex_);
-          performance_video_stats_ = stats;
+          performance_media_stats_ = stats;
         }
         std::unique_lock wait_lock(performance_stats_wait_mutex_);
         performance_stats_wait_.wait_for(
@@ -1215,21 +1215,21 @@ void RtcDemoController::emitPerformanceCounters() {
   width = performance_frame_width_.load(std::memory_order_relaxed);
   height = performance_frame_height_.load(std::memory_order_relaxed);
 #endif
-  shareme::rtc::SignaledVideoStats video_stats;
+  shareme::rtc::SignaledMediaStats media_stats;
   {
     std::lock_guard lock(performance_stats_mutex_);
-    video_stats = performance_video_stats_;
+    media_stats = performance_media_stats_;
   }
   if (viewer()) {
-    decoded = video_stats.frames_decoded;
-    received = video_stats.frames_received;
-    dropped = video_stats.frames_dropped.value_or(0);
+    decoded = media_stats.frames_decoded;
+    received = media_stats.frames_received;
+    dropped = media_stats.frames_dropped.value_or(0);
   } else {
-    encoded = video_stats.frames_encoded;
+    encoded = media_stats.frames_encoded;
     received = performance_callback_count_.load(std::memory_order_relaxed);
   }
-  const auto video_bytes = viewer() ? video_stats.bytes_received
-                                    : video_stats.bytes_sent;
+  const auto video_bytes = viewer() ? media_stats.bytes_received
+                                    : media_stats.bytes_sent;
   std::uint64_t bitrate_bps = 0;
   const auto bitrate_now = std::chrono::steady_clock::now();
   if (video_bytes.has_value()) {
@@ -1250,7 +1250,7 @@ void RtcDemoController::emitPerformanceCounters() {
     performance_last_video_bytes_ = video_bytes;
     performance_last_video_bytes_at_ = bitrate_now;
   }
-  const auto stats_unavailable = video_stats.unavailable ? 1U : 0U;
+  const auto stats_unavailable = media_stats.unavailable ? 1U : 0U;
   std::cout << "PERF_COUNTERS version=1 role="
             << (viewer() ? "viewer" : "host")
             << " cpu_percent=0 rss_bytes=0";
@@ -1261,10 +1261,18 @@ void RtcDemoController::emitPerformanceCounters() {
     std::cout << " encoded=" << *encoded;
   if (received.has_value())
     std::cout << " received=" << *received;
-  if (video_stats.bytes_sent.has_value())
-    std::cout << " bytes_sent=" << *video_stats.bytes_sent;
-  if (video_stats.bytes_received.has_value())
-    std::cout << " bytes_received=" << *video_stats.bytes_received;
+  if (media_stats.bytes_sent.has_value())
+    std::cout << " bytes_sent=" << *media_stats.bytes_sent;
+  if (media_stats.bytes_received.has_value())
+    std::cout << " bytes_received=" << *media_stats.bytes_received;
+  std::cout << " voice_packets_sent="
+            << media_stats.voice_packets_sent.value_or(0)
+            << " voice_packets_received="
+            << media_stats.voice_packets_received.value_or(0)
+            << " voice_bytes_sent="
+            << media_stats.voice_bytes_sent.value_or(0)
+            << " voice_bytes_received="
+            << media_stats.voice_bytes_received.value_or(0);
   std::cout << " bitrate_bps=" << bitrate_bps;
   std::cout << " callback="
             << performance_callback_count_.load(std::memory_order_relaxed)

@@ -64,7 +64,7 @@ struct SignaledPeerResult {
   std::string error;
 };
 
-struct SignaledVideoStats {
+struct SignaledMediaStats {
   std::optional<std::uint64_t> frames_encoded;
   std::optional<std::uint64_t> frames_sent;
   std::optional<std::uint64_t> frames_received;
@@ -72,6 +72,10 @@ struct SignaledVideoStats {
   std::optional<std::uint64_t> frames_dropped;
   std::optional<std::uint64_t> bytes_sent;
   std::optional<std::uint64_t> bytes_received;
+  std::optional<std::uint64_t> voice_packets_sent;
+  std::optional<std::uint64_t> voice_packets_received;
+  std::optional<std::uint64_t> voice_bytes_sent;
+  std::optional<std::uint64_t> voice_bytes_received;
   bool unavailable{false};
 };
 
@@ -120,7 +124,7 @@ public:
   [[nodiscard]] bool queue_control_message(
       std::string message, std::function<void(bool)> completion = {});
   [[nodiscard]] SignaledPeerResult wait(std::chrono::milliseconds timeout);
-  [[nodiscard]] SignaledVideoStats video_stats() const noexcept;
+  [[nodiscard]] SignaledMediaStats media_stats() const noexcept;
   [[nodiscard]] std::string video_source_error() const;
   void cancel_wait() noexcept;
   void stop() noexcept;

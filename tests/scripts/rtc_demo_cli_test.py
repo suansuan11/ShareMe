@@ -670,7 +670,7 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("performance_stats_mutex_", source)
         start = source.index("void RtcDemoController::emitPerformanceCounters()")
         end = source.index("\nvoid RtcDemoController::stopDriftMetrics()", start)
-        self.assertNotIn("peer_->video_stats()", source[start:end])
+        self.assertNotIn("peer_->media_stats()", source[start:end])
 
     def test_control_message_send_does_not_block_the_qt_thread(self):
         source = self.peer_source.read_text(encoding="utf-8")
@@ -679,18 +679,31 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("bool queue_control_message(", source)
         self.assertIn("std::function<void(bool)>", source)
         start = source.index("bool queue_control_message(")
-        end = source.index("SignaledVideoStats video_stats()", start)
+        end = source.index("SignaledMediaStats media_stats()", start)
         method = source[start:end]
         self.assertIn("PostTask", method)
         self.assertNotIn("BlockingCall", method)
 
-    def test_video_stats_poll_does_not_block_on_stats_schedule(self):
+    def test_media_stats_poll_does_not_block_on_stats_schedule(self):
         source = self.peer_source.read_text(encoding="utf-8")
-        start = source.index("SignaledVideoStats video_stats()")
+        start = source.index("SignaledMediaStats media_stats()")
         end = source.index("SignaledPeerResult wait", start)
         method = source[start:end]
         self.assertIn("PostTask", method)
         self.assertNotIn("BlockingCall", method)
+
+    def test_primary_voice_playout_and_counters_are_wired(self):
+        peer = self.peer_source.read_text(encoding="utf-8")
+        controller = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn("remote_audio_->set_enabled(config_.native_audio_playout)", peer)
+        for counter in (
+            "voice_packets_sent",
+            "voice_packets_received",
+            "voice_bytes_sent",
+            "voice_bytes_received",
+        ):
+            self.assertIn(counter, peer)
+            self.assertIn(counter, controller)
 
     def test_controller_error_notification_does_not_block_before_exit(self):
         source = self.controller_source.read_text(encoding="utf-8")

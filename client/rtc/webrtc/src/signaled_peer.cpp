@@ -349,8 +349,8 @@ public:
     }
     return true;
   }
-  SignaledVideoStats video_stats() const noexcept {
-    SignaledVideoStats result;
+  SignaledMediaStats media_stats() const noexcept {
+    SignaledMediaStats result;
     try {
       if (!runtime_ || !peer_ || !runtime_->signaling_thread() ||
           !runtime_->signaling_thread()->RunningForTest()) {
@@ -370,8 +370,41 @@ public:
 
       bool found_video_stats = false;
       bool missing_video_field = false;
+      bool found_outbound_voice_stats = false;
+      bool found_inbound_voice_stats = false;
+      bool missing_voice_field = false;
+      std::string expected_voice_mid;
+      {
+        std::lock_guard lock(mu_);
+        expected_voice_mid = remote_voice_mid_.value_or("");
+      }
       for (const auto* const stats :
            report->GetStatsOfType<webrtc::RTCOutboundRtpStreamStats>()) {
+        if (stats->kind == std::optional<std::string>{"audio"}) {
+          const auto *source =
+              stats->media_source_id
+                  ? report->GetAs<webrtc::RTCAudioSourceStats>(
+                        *stats->media_source_id)
+                  : nullptr;
+          if (source && source->track_identifier &&
+              is_expected_voice_rtp_track(role_, true,
+                                          *source->track_identifier)) {
+            found_outbound_voice_stats = true;
+            if (stats->packets_sent) {
+              result.voice_packets_sent =
+                  result.voice_packets_sent.value_or(0) + *stats->packets_sent;
+            } else {
+              missing_voice_field = true;
+            }
+            if (stats->bytes_sent) {
+              result.voice_bytes_sent =
+                  result.voice_bytes_sent.value_or(0) + *stats->bytes_sent;
+            } else {
+              missing_voice_field = true;
+            }
+          }
+          continue;
+        }
         if (stats->kind != std::optional<std::string>{"video"}) {
           continue;
         }
@@ -391,6 +424,28 @@ public:
       }
       for (const auto* const stats :
            report->GetStatsOfType<webrtc::RTCInboundRtpStreamStats>()) {
+        if (stats->kind == std::optional<std::string>{"audio"}) {
+          if (is_expected_inbound_voice_rtp_track(
+                  role_, stats->track_identifier.value_or(""),
+                  stats->mid.value_or(""), expected_voice_mid)) {
+            found_inbound_voice_stats = true;
+            if (stats->packets_received) {
+              result.voice_packets_received =
+                  result.voice_packets_received.value_or(0) +
+                  *stats->packets_received;
+            } else {
+              missing_voice_field = true;
+            }
+            if (stats->bytes_received) {
+              result.voice_bytes_received =
+                  result.voice_bytes_received.value_or(0) +
+                  *stats->bytes_received;
+            } else {
+              missing_voice_field = true;
+            }
+          }
+          continue;
+        }
         if (stats->kind != std::optional<std::string>{"video"}) {
           continue;
         }
@@ -413,7 +468,9 @@ public:
         if (stats->bytes_received)
           result.bytes_received = *stats->bytes_received;
       }
-      result.unavailable = !found_video_stats || missing_video_field;
+      result.unavailable = !found_video_stats || missing_video_field ||
+                           !found_outbound_voice_stats ||
+                           !found_inbound_voice_stats || missing_voice_field;
     } catch (...) {
       result = {};
       result.unavailable = true;
@@ -782,7 +839,7 @@ private:
       auto audio_track = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
           static_cast<webrtc::AudioTrackInterface *>(track.get()));
       remote_audio_ = std::move(audio_track);
-      remote_audio_->set_enabled(false);
+      remote_audio_->set_enabled(config_.native_audio_playout);
     }
   }
   void populate_media_result() {
@@ -871,7 +928,7 @@ private:
   std::unique_ptr<ControlObserver> control_observer_;
   CandidateStager<PendingCandidate, 64> candidates_;
   bool remote_set_{};
-  std::mutex mu_;
+  mutable std::mutex mu_;
   SignaledPeerResult result_;
   std::atomic_bool wait_cancelled_{false};
   std::atomic_bool stopped_{false};
@@ -918,8 +975,8 @@ bool SignaledPeer::queue_control_message(
 SignaledPeerResult SignaledPeer::wait(std::chrono::milliseconds timeout) {
   return impl_->wait(timeout);
 }
-SignaledVideoStats SignaledPeer::video_stats() const noexcept {
-  return impl_->video_stats();
+SignaledMediaStats SignaledPeer::media_stats() const noexcept {
+  return impl_->media_stats();
 }
 std::string SignaledPeer::video_source_error() const {
   return impl_->video_source_error();
