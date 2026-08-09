@@ -20,10 +20,13 @@ void require(bool condition, const char *expression, int line) {
 }
 #define REQUIRE(expression) require((expression), #expression, __LINE__)
 
+class FakeCallSession;
+
 struct SessionCounters {
   int live{};
   int started{};
   int stopped{};
+  FakeCallSession *last{};
 };
 
 class FakeCallSession final : public shareme::tools::CallSession {
@@ -31,9 +34,13 @@ public:
   explicit FakeCallSession(SessionCounters &counters, QObject *parent = nullptr)
       : CallSession(parent), counters_(counters) {
     ++counters_.live;
+    counters_.last = this;
   }
-  ~FakeCallSession() override { --counters_.live; }
-  QString status() const override { return QStringLiteral("connected"); }
+  ~FakeCallSession() override {
+    --counters_.live;
+    counters_.last = nullptr;
+  }
+  QString status() const override { return status_; }
   QString roomId() const override { return QStringLiteral("ABC234"); }
   bool sessionEnded() const noexcept override { return ended_; }
   void start() override { ++counters_.started; }
@@ -46,10 +53,15 @@ public:
   }
   bool setMicrophoneMuted(bool) override { return !ended_; }
   bool setSpeakerMuted(bool) override { return !ended_; }
+  void fail(QString category) {
+    status_ = QStringLiteral("call-error: ") + category;
+    emit statusChanged();
+  }
 
 private:
   SessionCounters &counters_;
   bool ended_{false};
+  QString status_{QStringLiteral("connected")};
 };
 } // namespace
 
@@ -73,6 +85,11 @@ int main(int argc, char **argv) {
   REQUIRE(controller.activeController() != nullptr);
   REQUIRE(counters.live == 1);
   REQUIRE(counters.started == 1);
+  REQUIRE(counters.last != nullptr);
+  counters.last->fail(QStringLiteral("permission-denied"));
+  REQUIRE(controller.pageState() == shareme::tools::AppPage::result);
+  REQUIRE(controller.errorCategory() == QStringLiteral("permission-denied"));
+  REQUIRE(!controller.errorMessage().contains(QStringLiteral("call-error")));
 
   controller.leaveCall();
   REQUIRE(controller.pageState() == shareme::tools::AppPage::home);

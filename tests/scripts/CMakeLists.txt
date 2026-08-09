@@ -47,7 +47,7 @@ if(TARGET shareme_rtc_demo)
       --demo
       "$<TARGET_FILE:shareme_rtc_demo>"
       --qml
-      "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qml/LegacyCallView.qml"
+      "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/qml"
       --controller-source
       "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/rtc_demo_controller.cpp"
       --controller-header

@@ -124,7 +124,9 @@ int main(int argc, char **argv) {
   if (parser.isSet(gui_smoke_state_option) &&
       gui_smoke_state != QStringLiteral("home") &&
       gui_smoke_state != QStringLiteral("create") &&
-      gui_smoke_state != QStringLiteral("join")) {
+      gui_smoke_state != QStringLiteral("join") &&
+      gui_smoke_state != QStringLiteral("call-host") &&
+      gui_smoke_state != QStringLiteral("call-viewer")) {
     std::cerr << "invalid --gui-smoke-state" << std::endl;
     exit_cli(2);
   }

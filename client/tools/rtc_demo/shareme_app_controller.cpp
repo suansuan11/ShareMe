@@ -1,6 +1,27 @@
 #include "shareme_app_controller.hpp"
 
 namespace shareme::tools {
+namespace {
+
+[[nodiscard]] QString friendly_error_message(const QString &category) {
+  if (category == QStringLiteral("permission-denied"))
+    return QStringLiteral("ShareMe 没有麦克风或屏幕权限，请在系统设置中授权后重试");
+  if (category.contains(QStringLiteral("room")))
+    return QStringLiteral("房间码无效或房间已结束，请核对后重试");
+  if (category.contains(QStringLiteral("audio")) ||
+      category.contains(QStringLiteral("device")))
+    return QStringLiteral("音频设备暂时不可用，请检查系统设备后重试");
+  if (category.contains(QStringLiteral("screen")) ||
+      category.contains(QStringLiteral("capture")))
+    return QStringLiteral("屏幕共享暂时不可用，请检查屏幕录制权限后重试");
+  if (category.contains(QStringLiteral("ICE")) ||
+      category.contains(QStringLiteral("connection")) ||
+      category.contains(QStringLiteral("timed out")))
+    return QStringLiteral("连接未能建立，请检查网络和服务地址后重试");
+  return QStringLiteral("通话遇到问题，请重试或返回首页");
+}
+
+} // namespace
 
 ShareMeAppController::ShareMeAppController(CallSessionFactory factory,
                                            AppPreferences *preferences,
@@ -136,6 +157,8 @@ bool ShareMeAppController::startSession(AppSessionConfig config,
     if (active_session_ && active_session_->sessionEnded())
       leaveCall();
   });
+  connect(session.get(), &CallSession::statusChanged, this,
+          &ShareMeAppController::handleSessionStatus);
   active_session_ = std::move(session);
   emit activeControllerChanged();
   setError({}, {});
@@ -200,6 +223,18 @@ void ShareMeAppController::setError(QString category, QString message) {
   error_category_ = std::move(category);
   error_message_ = std::move(message);
   emit errorChanged();
+}
+
+void ShareMeAppController::handleSessionStatus() {
+  if (!active_session_)
+    return;
+  const auto status = active_session_->status();
+  const auto prefix = QStringLiteral("call-error: ");
+  if (!status.startsWith(prefix))
+    return;
+  const auto category = status.mid(prefix.size());
+  setError(category, friendly_error_message(category));
+  setPage(AppPage::result);
 }
 
 AppSessionConfig ShareMeAppController::buildConfig() const {

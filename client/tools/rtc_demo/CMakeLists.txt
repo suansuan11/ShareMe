@@ -77,7 +77,6 @@ qt_add_qml_module(
   VERSION 1.0
   QML_FILES
     qml/Main.qml
-    qml/LegacyCallView.qml
     qml/ShareMeTheme.qml
     qml/PrimaryButton.qml
     qml/IconControl.qml
@@ -87,6 +86,12 @@ qt_add_qml_module(
     qml/PreflightPage.qml
     qml/SettingsDialog.qml
     qml/HelpDialog.qml
+    qml/CallPage.qml
+    qml/CallTopBar.qml
+    qml/CallControlDock.qml
+    qml/CallDetailsDrawer.qml
+    qml/VideoStage.qml
+    qml/RecoveryDialog.qml
 )
 
 target_link_libraries(

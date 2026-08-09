@@ -32,9 +32,16 @@ ApplicationWindow {
         anchors.fill: parent
         active: window.appController.page === "calling"
                 && window.appController.activeController !== null
-        sourceComponent: LegacyCallView {
+        sourceComponent: CallPage {
+            appController: window.appController
             controller: window.appController.activeController
         }
+    }
+
+    RecoveryDialog {
+        anchors.fill: parent
+        visible: window.appController.page === "result"
+        appController: window.appController
     }
 
     SettingsDialog {

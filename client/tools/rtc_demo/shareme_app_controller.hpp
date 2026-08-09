@@ -82,6 +82,7 @@ signals:
 private:
   void setPage(AppPage page);
   void setError(QString category, QString message);
+  void handleSessionStatus();
   [[nodiscard]] AppSessionConfig buildConfig() const;
   bool startSession(AppSessionConfig config, bool validate_interactive);
 

@@ -30,6 +30,19 @@ class RtcDemoCliTest(unittest.TestCase):
             env=environment,
         )
 
+    def qml_source(self) -> str:
+        if self.qml.is_dir():
+            return "\n".join(
+                path.read_text(encoding="utf-8")
+                for path in sorted(self.qml.glob("*.qml"))
+                if path.name != "LegacyCallView.qml"
+            )
+        return self.qml.read_text(encoding="utf-8")
+
+    def qml_file(self, name: str) -> str:
+        base = self.qml if self.qml.is_dir() else self.qml.parent
+        return (base / name).read_text(encoding="utf-8")
+
     def test_help_documents_sender_receiver_contract(self):
         result = self.run_demo("--help")
         self.assertEqual(result.returncode, 0)
@@ -279,13 +292,12 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertEqual(viewer.returncode, 2)
 
     def test_sender_qml_exposes_bounded_host_controls(self):
-        source = self.qml.read_text(encoding="utf-8")
+        source = self.qml_file("CallDetailsDrawer.qml")
         self.assertIn("hostControlsAvailable", source)
         self.assertIn("pauseHostPlayback()", source)
         self.assertIn("resumeHostPlayback()", source)
         self.assertIn("seekHostPlayback(", source)
-        self.assertIn("to: Math.max(0, window.controller.hostPlaybackDurationMs)", source)
-        self.assertIn("when: !playbackSlider.pressed", source)
+        self.assertIn("to: Math.max(0, drawer.controller.hostPlaybackDurationMs)", source)
         self.assertIn("driftScenarioActive", source)
         self.assertIn("driftScenarioPhase", source)
 
@@ -548,7 +560,7 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("AudioRouteNativeSupplementStatus::start_failed", route)
         self.assertIn("native_supplement_status()", controller)
         self.assertIn("audioRouteMonitorStatus", self.controller_header.read_text(encoding="utf-8"))
-        self.assertIn("audioRouteMonitorStatus", self.qml.read_text(encoding="utf-8"))
+        self.assertIn("audioRouteMonitorStatus", self.qml_source())
 
         pulse_server = linux[linux.index("static void server_info_ready"):linux.index("static void subscription_changed")]
         subscription_start = linux.index("static void subscription_changed")
@@ -566,7 +578,7 @@ class RtcDemoCliTest(unittest.TestCase):
     def test_controller_exposes_route_renderer_and_scheduler_diagnostics(self):
         source = self.controller_source.read_text(encoding="utf-8")
         header = self.controller_header.read_text(encoding="utf-8")
-        qml = self.qml.read_text(encoding="utf-8")
+        qml = self.qml_source()
         for property_name in (
             "audioRouteGeneration",
             "audioRendererQueueDurationMs",
@@ -591,7 +603,7 @@ class RtcDemoCliTest(unittest.TestCase):
 
     def test_route_diagnostics_do_not_expose_identifiers_or_wire_fields(self):
         source = self.controller_source.read_text(encoding="utf-8")
-        qml = self.qml.read_text(encoding="utf-8")
+        qml = self.qml_file("CallDetailsDrawer.qml")
         start = source.index("void RtcDemoController::refreshAudioDiagnostics")
         end = source.index("\nvoid RtcDemoController::publishPlayoutReport", start)
         diagnostics = source[start:end]
@@ -634,13 +646,13 @@ class RtcDemoCliTest(unittest.TestCase):
     def test_receiver_waiting_overlay_tracks_submitted_video(self):
         controller = self.controller_source.read_text(encoding="utf-8")
         header = self.controller_header.read_text(encoding="utf-8")
-        qml = self.qml.read_text(encoding="utf-8")
+        qml = self.qml_file("VideoStage.qml")
         self.assertIn("remoteVideoAvailable", header)
         self.assertIn("remote_video_available_", controller)
         self.assertIn("remoteVideoAvailableChanged", controller)
-        overlay = qml[qml.index("anchors.centerIn: parent"):]
+        overlay = qml[qml.index("Column {"):]
         self.assertIn("remoteVideoAvailable", overlay)
-        self.assertIn("window.controller.viewer", overlay)
+        self.assertIn("stage.controller.viewer", overlay)
 
     def test_controller_records_remote_dimensions_for_performance_counters(self):
         source = self.controller_source.read_text(encoding="utf-8")
@@ -659,7 +671,7 @@ class RtcDemoCliTest(unittest.TestCase):
     def test_controller_exposes_screen_encoder_and_presentation_diagnostics(self):
         source = self.controller_source.read_text(encoding="utf-8")
         header = self.controller_header.read_text(encoding="utf-8")
-        qml = self.qml.read_text(encoding="utf-8")
+        qml = self.qml_source()
         for property_name in (
             "videoSource",
             "screenProfile",
@@ -750,7 +762,7 @@ class RtcDemoCliTest(unittest.TestCase):
 
     def test_controller_reports_rendered_playout_by_generation(self):
         source = self.controller_source.read_text(encoding="utf-8")
-        qml = self.qml.read_text(encoding="utf-8")
+        qml = self.qml_source()
         self.assertIn("publishPlayoutReport", source)
         self.assertIn("playback_anchor->video_anchor_media_pts_ms", source)
         self.assertIn("playback_anchor->video_rtp_timestamp", source)

@@ -23,6 +23,29 @@ class GuiQmlContractTest(unittest.TestCase):
             env=environment,
         )
 
+    def run_call_state(self, role: str) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        arguments = [
+            str(self.demo),
+            "--server", "ws://127.0.0.1:18080/v1/ws",
+            "--role", role,
+            "--source", "test",
+            "--audio", "synthetic",
+            "--no-audio-playout",
+            "--gui-smoke-state", f"call-{role}",
+        ]
+        if role == "viewer":
+            arguments.extend(["--room", "ABC234"])
+        return subprocess.run(
+            arguments,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env=environment,
+        )
+
     def assert_clean_state(self, state: str) -> None:
         result = self.run_state(state)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -49,6 +72,18 @@ class GuiQmlContractTest(unittest.TestCase):
         result = self.run_state("unknown")
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("GUI_STATE", result.stdout)
+
+    def test_host_and_viewer_call_pages_load_cleanly(self):
+        for role in ("host", "viewer"):
+            with self.subTest(role=role):
+                result = self.run_call_state(role)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(
+                    f"GUI_STATE page=call-{role} qml_loaded=1", result.stdout
+                )
+                self.assertNotIn("TypeError:", result.stderr)
+                self.assertNotIn("ReferenceError:", result.stderr)
+                self.assertNotIn("failed to load component", result.stderr)
 
 
 def main() -> int:
