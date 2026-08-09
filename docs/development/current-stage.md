@@ -50,7 +50,7 @@ screen evidence remains separate and unverified.
 ### Screen Streaming Quality and Voice Acceptance
 
 The accepted implementation is on `codex/screen-voice-acceptance` at code tip
-`0908b53` before the final evidence commit. Interactive RTC demo calls now use
+`211b783` before the final evidence commit. Interactive RTC demo calls now use
 the real microphone and native primary-voice playout by default; deterministic
 smoke calls explicitly select synthetic voice and disable speaker playout.
 One background stats poller reports both video and primary-voice RTP totals,
@@ -64,7 +64,9 @@ maintained bidirectional voice counter progress, and recovered exactly once
 from a screen-only bounded presentation close/reopen without replaying a stale
 frame. The two-minute run delivered 3471 host encoded and 3498 viewer decoded
 frames, roughly six thousand voice packets per direction, and 3397
-post-recovery viewer submissions. See
+post-recovery viewer submissions. An independent final review found no Critical
+or Important issue; its one recovery-counter locking Minor was fixed and the
+concurrent snapshot test passed 20 consecutive runs. See
 [Screen Streaming Quality and Voice Acceptance](../verification/screen-streaming-quality-voice.md).
 
 A separate native microphone probe verified nonzero microphone levels and

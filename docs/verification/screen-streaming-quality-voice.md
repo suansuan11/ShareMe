@@ -24,7 +24,7 @@ hard resync, and Windows-native implementation are outside this stage.
 ## Implementation boundary
 
 The code rollback point is `faaea73`; the reviewed implementation tip before
-this evidence update is `0908b53` on `codex/screen-voice-acceptance`.
+the final evidence update is `211b783` on `codex/screen-voice-acceptance`.
 
 - `SignaledPeerConfig::native_audio_playout` controls WebRTC native playout and
   the received primary audio track is enabled under the same policy.
@@ -115,8 +115,11 @@ profile policy, but they do not prove physical 1920x1080, 2560x1440, or
 - **Unimplemented:** Windows GPU screen parity for this stage, system audio,
   HDR, remote input, TURN/public-network acceptance, and automatic hard resync.
 
-The full branch review found no Critical or Important lifecycle, stats-thread,
-audio-isolation, privacy, or scope issue after restricting the recovery probe
-to screen mode. The repository-external WebRTC checkout remained clean and was
-not modified or cleaned. Generated build trees and JSONL evidence remain
-ignored and are not commit candidates.
+The independent full-branch review found no Critical or Important lifecycle,
+stats-thread, audio-isolation, privacy, or scope issue after restricting the
+recovery probe to screen mode. Its one Minor finding was fixed by copying
+presentation epoch/recovery totals while holding the adapter state mutex; the
+adapter test then passed 20 consecutive runs while snapshotting concurrently
+with 100 close/reopen cycles. The repository-external WebRTC checkout remained
+clean and was not modified or cleaned. Generated build trees and JSONL evidence
+remain ignored and are not commit candidates.
