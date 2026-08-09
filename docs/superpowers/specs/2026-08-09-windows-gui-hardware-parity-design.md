@@ -7,8 +7,9 @@ Status: approved for implementation planning
 
 Make the completed ShareMe GUI a verified Windows product surface and close the
 largest remaining Windows media gap: quality-preserving H.264 hardware screen
-encoding through Media Foundation. The stage ends with auditable one-machine
-automation and a separate two-device human screen-and-voice acceptance record.
+encoding and decoding through Media Foundation. The stage ends with auditable
+one-machine automation and a separate two-device human screen-and-voice
+acceptance record.
 
 The stage must not lower capture bounds, frame-rate policy, bitrate policy,
 codec quality, voice behavior, or existing media gates to obtain a pass.
@@ -24,15 +25,16 @@ codec quality, voice behavior, or existing media gates to obtain a pass.
 - Windows quality and cinema requests currently fall back to the standard
   1920x1080 VP8 bound. Sustained quality/cinema cadence is not established.
 - The locked libwebrtc checkout contains no ready-to-enable Windows Media
-  Foundation video encoder factory. ShareMe therefore needs an isolated
-  platform adapter rather than a build flag.
+  Foundation video codec factory and was built with `rtc_use_h264=false`.
+  Windows therefore has neither an H.264 encoder nor decoder in the active
+  factory. ShareMe needs isolated platform adapters rather than a build flag.
 - Desktop capture currently maps a D3D11 staging texture and converts BGRA8 or
   RGBA16F to I420 before WebRTC encoding. A zero-copy D3D11 capture-to-encoder
   path is not part of this stage.
 
 ## Considered approaches
 
-### A. Directly replace VP8 with an in-call Media Foundation encoder
+### A. Directly replace VP8 with in-call Media Foundation codecs
 
 This is the shortest code path but couples COM/MF startup, H.264 bitstream
 format, WebRTC callbacks, rate control, and shutdown to the live call before
@@ -42,8 +44,8 @@ capture, signaling, or GUI failures. Rejected.
 ### B. Checkpointed platform adapter, then guarded product integration
 
 First make GUI and measurement tooling Windows-native. Next prove a standalone
-Media Foundation encoder adapter against deterministic I420 frames. Only after
-that gate passes, expose it through a generic platform-H.264 selector and run
+Media Foundation encoder/decoder round trip against deterministic I420 frames.
+Only after that gate passes, expose it through platform-H.264 factories and run
 real two-peer screen calls. This keeps VP8 as a truthful fallback and produces
 an explicit blocked outcome if the locked ABI or machine cannot support the
 hardware path. Recommended and selected.
@@ -61,9 +63,10 @@ The stage is split into four independently reviewable layers:
 1. **Windows GUI and evidence baseline.** Make the existing GUI smoke runner
    collect Windows process evidence without Unix `ps`; verify native visible
    navigation, controls, settings, recovery, DPI behavior, and clean shutdown.
-2. **Media Foundation feasibility boundary.** Add a Windows-only H.264 encoder
-   adapter implementing the locked `webrtc::VideoEncoder` contract. Exercise
-   it from a standalone probe before it is reachable from a call.
+2. **Media Foundation feasibility boundary.** Add Windows-only H.264 encoder
+   and decoder adapters implementing the locked `webrtc::VideoEncoder` and
+   `webrtc::VideoDecoder` contracts. Exercise an encode/decode round trip from
+   a standalone probe before either adapter is reachable from a call.
 3. **Guarded WebRTC integration.** Generalize the current macOS-specific
    platform encoder selection seam, retain VideoToolbox behavior unchanged,
    and select Media Foundation only after probe, factory, encoder creation, and
@@ -94,7 +97,7 @@ def sample_process(pid: int, interval_seconds: float) -> ProcessSample
 ```
 
 Darwin/Linux use `ps`; Windows uses `ctypes` bindings to `GetProcessTimes`,
-`GetSystemTimes`, and `GetProcessMemoryInfo`. Missing or regressing samples are
+`GetProcessMemoryInfo`, and monotonic wall time. Missing or regressing samples are
 errors, never zero-filled evidence. Artifacts contain numeric metrics and
 categories only, not command lines, usernames, paths, room IDs, or device IDs.
 
@@ -130,9 +133,27 @@ Required behavior:
   selector fallback before call startup. Mid-call encoder failure is surfaced
   as a call error; it does not silently change codec inside an SDP session.
 
+### Media Foundation H.264 decoder
+
+The paired Windows decoder consumes Annex-B access units from WebRTC, uses a
+hardware Media Foundation H.264 decoder transform when available, and emits
+I420 frames with the original RTP timestamp through `DecodedImageCallback`.
+It owns at most one pending access unit and one reusable NV12 output buffer.
+Resolution changes are accepted only after an IDR/SPS/PPS boundary; malformed
+access units fail with a stable category. `Release` waits for bounded in-flight
+work and guarantees no callback afterward.
+
+The standalone checkpoint feeds encoder output into this decoder and proves
+exact geometry, monotonic timestamps, nonzero decoded frames, bounded buffers,
+and deterministic release. It matches decoded frames to deterministic source
+timestamps and requires Y-plane PSNR >= 35 dB, U/V PSNR >= 32 dB, and Y-plane
+SSIM >= 0.95. Missing quality samples fail the checkpoint. A successful
+encoder-only probe is insufficient.
+
 ### Platform H.264 selection
 
-Replace VideoToolbox-named generic seams with platform-neutral interfaces:
+Replace VideoToolbox-named generic seams with platform-neutral encoder
+interfaces and add the corresponding decoder factory seam:
 
 ```cpp
 using PlatformH264Probe =
@@ -144,6 +165,9 @@ VideoEncoderSelection select_screen_video_encoder(
     core::ScreenStreamProfile profile,
     PlatformH264Probe probe = {},
     PlatformH264Factory factory = {});
+
+std::unique_ptr<webrtc::VideoDecoderFactory>
+create_platform_video_decoder_factory();
 ```
 
 The selector remains deterministic and injectable in portable tests. macOS
@@ -162,6 +186,13 @@ Selection is accepted only when all of these pass:
 Any pre-call failure retains the existing standard-bounded VP8 fallback and
 records one exact reason. The UI details drawer displays the resulting codec,
 implementation, and hardware state using existing controller properties.
+
+The strict CLI adds `--screen-encoder auto|software`. Interactive GUI calls
+use `auto`. `software` is an audit-only mode that forces the existing
+standard-bounded VP8 factory and reports `fallback:explicit-software`; it is not
+shown as hardware and cannot satisfy quality/cinema gates. Baseline and
+candidate measurements use the same executable SHA with different explicit
+modes, eliminating binary drift while preserving a reproducible rollback.
 
 ### Deterministic moving-screen fixture
 
@@ -213,6 +244,8 @@ Hardware acceptance requires all of the following:
 - one bounded presentation recovery and subsequent fresh-frame progress;
 - H.264 is negotiated and `hardware_encoder_status=active` with
   `encoder_implementation=MediaFoundation` for all hardware runs;
+- the standalone codec round trip passes Y-PSNR >= 35 dB, U/V-PSNR >= 32 dB,
+  and Y-SSIM >= 0.95 with no missing matched frame;
 - median standard host CPU mean improves by at least 30% against the
   same-geometry VP8 baseline;
 - standard host CPU P95 does not regress and host RSS P95 grows by no more than
@@ -260,8 +293,8 @@ capabilities, not personal device names or room IDs.
 ## Failure and rollback policy
 
 - The standalone Media Foundation probe is a hard checkpoint. If it cannot
-  produce decodable, monotonic H.264 with reliable release, product integration
-  does not begin.
+  produce and then decode monotonic H.264 with exact geometry and reliable
+  encoder/decoder release, product integration does not begin.
 - VP8 remains the rollback and unsupported-hardware fallback.
 - A fallback may verify call continuity but cannot satisfy the hardware gate.
 - No mid-call codec swap is attempted.
