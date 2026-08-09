@@ -12,24 +12,35 @@ ApplicationWindow {
     color: "#090d14"
     title: "ShareMe"
 
+    ShareMeTheme { id: theme }
+
+    HomePage {
+        anchors.fill: parent
+        visible: window.appController.page === "home"
+        appController: window.appController
+        onOpenSettings: settingsDialog.open()
+        onOpenHelp: helpDialog.open()
+    }
+
+    PreflightPage {
+        anchors.fill: parent
+        visible: window.appController.page === "preflight"
+        appController: window.appController
+    }
+
     Loader {
         anchors.fill: parent
-        active: window.appController.activeController !== null
+        active: window.appController.page === "calling"
+                && window.appController.activeController !== null
         sourceComponent: LegacyCallView {
             controller: window.appController.activeController
         }
     }
 
-    Item {
-        anchors.fill: parent
-        visible: window.appController.activeController === null
-
-        Label {
-            anchors.centerIn: parent
-            text: "ShareMe"
-            color: "white"
-            font.pixelSize: 32
-            font.bold: true
-        }
+    SettingsDialog {
+        id: settingsDialog
+        appController: window.appController
     }
+
+    HelpDialog { id: helpDialog }
 }

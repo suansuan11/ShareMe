@@ -9,6 +9,7 @@
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QSettings>
+#include <QTimer>
 #include <QVariant>
 
 #include <cstdlib>
@@ -91,6 +92,10 @@ int main(int argc, char **argv) {
       QStringLiteral("seconds"));
   QCommandLineOption validate_option(QStringList{QStringLiteral("validate")},
                                      QStringLiteral("Validate configuration and exit"));
+  QCommandLineOption gui_smoke_state_option(
+      QStringList{QStringLiteral("gui-smoke-state")},
+      QStringLiteral("Run a bounded GUI state smoke and exit"),
+      QStringLiteral("home|create|join"));
   parser.addOption(server_option);
   parser.addOption(role_option);
   parser.addOption(room_option);
@@ -105,6 +110,7 @@ int main(int argc, char **argv) {
   parser.addOption(scenario_option);
   parser.addOption(duration_option);
   parser.addOption(validate_option);
+  parser.addOption(gui_smoke_state_option);
   if (!parser.parse(app.arguments())) {
     std::cerr << parser.errorText().toStdString() << std::endl;
     exit_cli(2);
@@ -112,6 +118,15 @@ int main(int argc, char **argv) {
   if (parser.isSet(help_option)) {
     std::cout << parser.helpText().toStdString();
     exit_cli(0);
+  }
+
+  const auto gui_smoke_state = parser.value(gui_smoke_state_option);
+  if (parser.isSet(gui_smoke_state_option) &&
+      gui_smoke_state != QStringLiteral("home") &&
+      gui_smoke_state != QStringLiteral("create") &&
+      gui_smoke_state != QStringLiteral("join")) {
+    std::cerr << "invalid --gui-smoke-state" << std::endl;
+    exit_cli(2);
   }
 
   const auto role_text = parser.value(role_option);
@@ -283,6 +298,17 @@ int main(int argc, char **argv) {
     config.measurement_duration_seconds = duration_seconds;
     if (!app_controller.startConfiguredCall(std::move(config)))
       return EXIT_FAILURE;
+  }
+  if (parser.isSet(gui_smoke_state_option)) {
+    QTimer::singleShot(0, &app, [&] {
+      if (gui_smoke_state == QStringLiteral("create"))
+        app_controller.showCreateRoom();
+      else if (gui_smoke_state == QStringLiteral("join"))
+        app_controller.showJoinRoom();
+      std::cout << "GUI_STATE page=" << gui_smoke_state.toStdString()
+                << " qml_loaded=1" << std::endl;
+      QTimer::singleShot(80, &app, &QCoreApplication::quit);
+    });
   }
   return app.exec();
 }

@@ -58,6 +58,21 @@ if(TARGET shareme_rtc_demo)
       "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/signaled_peer.cpp"
       ${shareme_rtc_demo_test_arguments}
   )
+  add_test(
+    NAME gui_qml_contract
+    COMMAND
+      "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/gui_qml_contract_test.py"
+      --demo
+      "$<TARGET_FILE:shareme_rtc_demo>"
+  )
+  set_tests_properties(
+    gui_qml_contract
+    PROPERTIES
+      TIMEOUT 15
+      ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;QT_QPA_PLATFORM=set:offscreen"
+  )
   set_tests_properties(
     rtc_demo_cli_contract
     PROPERTIES

@@ -78,6 +78,15 @@ qt_add_qml_module(
   QML_FILES
     qml/Main.qml
     qml/LegacyCallView.qml
+    qml/ShareMeTheme.qml
+    qml/PrimaryButton.qml
+    qml/IconControl.qml
+    qml/InfoRow.qml
+    qml/StatusBanner.qml
+    qml/HomePage.qml
+    qml/PreflightPage.qml
+    qml/SettingsDialog.qml
+    qml/HelpDialog.qml
 )
 
 target_link_libraries(
