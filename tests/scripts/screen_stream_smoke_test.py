@@ -207,6 +207,108 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         with self.assertRaisesRegex(self.runner.SmokeRuntimeError, "stalled"):
             self.runner.validate_records("standard", stalled_hosts, stalled_viewers)
 
+    def test_windows_software_fallback_keeps_media_and_voice_gates(self):
+        host = {
+            "role": "host",
+            "width": 1920,
+            "height": 1080,
+            "encoded": 20,
+            "callback": 20,
+            "submitted": 20,
+            "bytes_sent": 10000,
+            "bitrate_bps": 8000,
+            "max_pending": 1,
+            "conversion_failures": 0,
+            "fallback_copies": 0,
+            "webrtc_encoder": "VP8",
+            "hardware_encoder_status": "fallback:platform-unavailable",
+            "voice_packets_sent": 20,
+            "voice_packets_received": 21,
+            "voice_bytes_sent": 2000,
+            "voice_bytes_received": 2100,
+            "stats_unavailable": 0,
+        }
+        viewer = {
+            "role": "viewer",
+            "width": 1920,
+            "height": 1080,
+            "received": 20,
+            "decoded": 20,
+            "callback": 20,
+            "submitted": 20,
+            "bytes_received": 10000,
+            "bitrate_bps": 8000,
+            "max_pending": 1,
+            "conversion_failures": 0,
+            "fallback_copies": 0,
+            "voice_packets_sent": 22,
+            "voice_packets_received": 23,
+            "voice_bytes_sent": 2200,
+            "voice_bytes_received": 2300,
+            "stats_unavailable": 0,
+            "presentation_epoch": 0,
+            "presentation_recovery_count": 0,
+        }
+        terminal_host = dict(
+            host,
+            encoded=40,
+            callback=40,
+            submitted=40,
+            bitrate_bps=0,
+            voice_packets_sent=40,
+            voice_packets_received=41,
+            voice_bytes_sent=4000,
+            voice_bytes_received=4100,
+        )
+        terminal_viewer = dict(
+            viewer,
+            received=40,
+            decoded=40,
+            callback=40,
+            submitted=40,
+            bitrate_bps=0,
+            voice_packets_sent=42,
+            voice_packets_received=43,
+            voice_bytes_sent=4200,
+            voice_bytes_received=4300,
+            presentation_epoch=1,
+            presentation_recovery_count=1,
+        )
+        host_records = [host, terminal_host]
+        viewer_records = [viewer, terminal_viewer]
+        result = self.runner.validate_records(
+            "quality",
+            host_records,
+            viewer_records,
+            require_hardware=False,
+        )
+        self.assertEqual(result["webrtc_encoder"], "VP8")
+        self.assertEqual(
+            result["hardware_encoder_status"],
+            "fallback:platform-unavailable",
+        )
+
+        terminal_host["webrtc_encoder"] = "H264"
+        with self.assertRaises(self.runner.SmokeRuntimeError):
+            self.runner.validate_records(
+                "standard",
+                host_records,
+                viewer_records,
+                require_hardware=False,
+            )
+
+        terminal_host["webrtc_encoder"] = "VP8"
+        for record in host_records + viewer_records:
+            record["width"] = 2560
+            record["height"] = 1440
+        with self.assertRaises(self.runner.SmokeRuntimeError):
+            self.runner.validate_records(
+                "quality",
+                host_records,
+                viewer_records,
+                require_hardware=False,
+            )
+
     def test_continuity_boundary_rejects_missing_and_regressing_voice(self):
         record = {
             "role": "host",

@@ -4,6 +4,10 @@
 
 #include "shareme/rtc/macos_screen_capture_source.hpp"
 
+#if defined(_WIN32)
+#include "windows_screen_capture_backend.hpp"
+#endif
+
 namespace shareme::rtc {
 namespace {
 
@@ -21,6 +25,8 @@ create_platform_screen_capture_backend(const ScreenCaptureConfig &config) {
   const auto mac_config = mac_capture_config(config);
   return std::make_unique<MacScreenCaptureSource>(
       mac_config, create_screen_capture_kit_stream(mac_config));
+#elif defined(_WIN32)
+  return create_windows_screen_capture_backend(config);
 #else
   static_cast<void>(config);
   return nullptr;

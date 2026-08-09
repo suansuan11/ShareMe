@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 
 namespace shareme::tools {
 namespace {
@@ -13,6 +14,15 @@ constexpr std::array<DriftScenarioEvent, 5> kEvents = {{
     {DriftScenarioAction::seek_backward, 210'000, -30'000},
     {DriftScenarioAction::complete, DriftScenario::kDurationMs, 0},
 }};
+
+constexpr std::int64_t saturating_add(std::int64_t left,
+                                      std::int64_t right) noexcept {
+  if (right > 0 && left > std::numeric_limits<std::int64_t>::max() - right)
+    return std::numeric_limits<std::int64_t>::max();
+  if (right < 0 && left < std::numeric_limits<std::int64_t>::min() - right)
+    return std::numeric_limits<std::int64_t>::min();
+  return left + right;
+}
 
 }  // namespace
 
@@ -59,7 +69,7 @@ std::int64_t bounded_seek_target(
     std::int64_t end_pts_ms) noexcept {
   if (end_pts_ms <= start_pts_ms)
     return start_pts_ms;
-  const auto candidate = static_cast<__int128>(current_pts_ms) + delta_ms;
+  const auto candidate = saturating_add(current_pts_ms, delta_ms);
   if (candidate <= start_pts_ms)
     return start_pts_ms;
   if (candidate >= end_pts_ms)
@@ -73,7 +83,12 @@ bool has_drift_study_duration(
     std::int64_t end_pts_ms) noexcept {
   if (current_pts_ms < start_pts_ms || end_pts_ms < current_pts_ms)
     return false;
-  return static_cast<__int128>(end_pts_ms) - current_pts_ms >= 330'000;
+  constexpr std::int64_t required_duration_ms = 330'000;
+  if (end_pts_ms <
+      std::numeric_limits<std::int64_t>::min() + required_duration_ms) {
+    return false;
+  }
+  return current_pts_ms <= end_pts_ms - required_duration_ms;
 }
 
 }  // namespace shareme::tools

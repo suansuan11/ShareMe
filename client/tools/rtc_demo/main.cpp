@@ -196,9 +196,10 @@ int main(int argc, char **argv) {
     exit_cli(2);
   }
 #endif
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && !defined(SHAREME_HAS_DESKTOP_CAPTURE)
   if (source_text == QStringLiteral("screen")) {
-    std::cerr << "screen source is only available on macOS" << std::endl;
+    std::cerr << "screen source requires macOS or Windows Desktop Duplication"
+              << std::endl;
     exit_cli(2);
   }
 #endif

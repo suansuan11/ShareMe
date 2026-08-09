@@ -369,6 +369,22 @@ class SignaledCallSmokeTest(unittest.TestCase):
         self.smoke.terminate_process_group(process, grace_seconds=0.1)
         self.smoke.terminate_process_group(process, grace_seconds=0.1)
 
+    def test_temporary_directory_cleanup_retries_transient_windows_lock(self):
+        class TransientlyLockedDirectory:
+            def __init__(self):
+                self.attempts = 0
+
+            def cleanup(self):
+                self.attempts += 1
+                if self.attempts < 3:
+                    raise PermissionError("transient executable lock")
+
+        directory = TransientlyLockedDirectory()
+        self.smoke.cleanup_temporary_directory(
+            directory, attempts=3, retry_delay_seconds=0
+        )
+        self.assertEqual(directory.attempts, 3)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()

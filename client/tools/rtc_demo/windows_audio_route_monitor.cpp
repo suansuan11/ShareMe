@@ -115,7 +115,7 @@ class WindowsAudioRouteNotification final : public IMMNotificationClient {
   }
 
  private:
-  ~WindowsAudioRouteNotification() override = default;
+  ~WindowsAudioRouteNotification() = default;
 
   std::atomic<ULONG> reference_count_{1};
   std::shared_ptr<WindowsAudioRouteCallbackState> state_;

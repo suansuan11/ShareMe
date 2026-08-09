@@ -49,3 +49,16 @@ if(APPLE)
       "-framework ScreenCaptureKit"
   )
 endif()
+
+if(WIN32)
+  target_sources(
+    shareme_screen_rtc
+    PRIVATE
+      src/windows_screen_capture_backend.cpp
+  )
+  target_link_libraries(
+    shareme_screen_rtc
+    PRIVATE
+      ShareMe::DesktopRTC
+  )
+endif()

@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -77,6 +78,22 @@ void bounds_seek_targets_and_requires_three_hundred_thirty_seconds_remaining() {
   REQUIRE(shareme::tools::has_drift_study_duration(0, 0, 330'000));
   REQUIRE(!shareme::tools::has_drift_study_duration(0, 1, 330'000));
   REQUIRE(!shareme::tools::has_drift_study_duration(0, 0, 329'999));
+  REQUIRE(shareme::tools::bounded_seek_target(
+              std::numeric_limits<std::int64_t>::max() - 1, 10, 0,
+              std::numeric_limits<std::int64_t>::max()) ==
+          std::numeric_limits<std::int64_t>::max());
+  REQUIRE(shareme::tools::bounded_seek_target(
+              std::numeric_limits<std::int64_t>::min() + 1, -10,
+              std::numeric_limits<std::int64_t>::min(), 0) ==
+          std::numeric_limits<std::int64_t>::min());
+  REQUIRE(shareme::tools::has_drift_study_duration(
+      std::numeric_limits<std::int64_t>::min(),
+      std::numeric_limits<std::int64_t>::min(),
+      std::numeric_limits<std::int64_t>::max()));
+  REQUIRE(!shareme::tools::has_drift_study_duration(
+      std::numeric_limits<std::int64_t>::min(),
+      std::numeric_limits<std::int64_t>::min(),
+      std::numeric_limits<std::int64_t>::min() + 329'999));
 }
 
 }  // namespace

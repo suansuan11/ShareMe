@@ -89,9 +89,9 @@ class RtcDemoCliTest(unittest.TestCase):
         )
         self.assertEqual(viewer.returncode, 2)
 
-    def test_screen_source_and_profile_contract_on_macos(self):
-        if sys.platform != "darwin":
-            self.skipTest("screen source contract is macOS-specific")
+    def test_screen_source_and_profile_contract_on_supported_desktops(self):
+        if sys.platform not in ("darwin", "win32"):
+            self.skipTest("screen source contract requires macOS or Windows")
 
         host = self.run_demo(
             "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "host",

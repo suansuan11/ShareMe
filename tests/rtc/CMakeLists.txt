@@ -50,6 +50,12 @@ add_test(
   NAME screen_video_source
   COMMAND shareme_screen_video_source_test
 )
+if(WIN32)
+  set_tests_properties(
+    screen_video_source
+    PROPERTIES SKIP_RETURN_CODE 77
+  )
+endif()
 
 add_executable(
   shareme_macos_screen_capture_source_test

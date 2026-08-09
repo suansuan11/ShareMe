@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Run a bounded macOS screen-stream smoke call and record sanitized evidence."""
+"""Run a bounded desktop screen-stream smoke call and record sanitized evidence."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_signaled_call_smoke import (  # noqa: E402
+    cleanup_temporary_directory,
     popen_group_options,
     start_managed_process,
     start_signaling_server,
@@ -319,12 +320,17 @@ def _validate_presentation_recovery(records: list[dict]) -> dict:
 
 
 def validate_records(
-    profile: str, host_records: list[dict], viewer_records: list[dict]
+    profile: str,
+    host_records: list[dict],
+    viewer_records: list[dict],
+    *,
+    require_hardware: bool = True,
 ) -> dict:
     host = _latest(host_records, "host")
     viewer = _latest(viewer_records, "viewer")
-    _validate_dimensions(host, profile, "host")
-    _validate_dimensions(viewer, profile, "viewer")
+    capture_profile = profile if require_hardware else "standard"
+    _validate_dimensions(host, capture_profile, "host")
+    _validate_dimensions(viewer, capture_profile, "viewer")
     if (host["width"], host["height"]) != (viewer["width"], viewer["height"]):
         raise SmokeRuntimeError("host and viewer geometry do not match")
     _require_positive(host, ("encoded", "callback", "submitted"), "host")
@@ -340,12 +346,22 @@ def validate_records(
     viewer_recovery = _validate_presentation_recovery(viewer_records)
     host_bitrate = _last_positive(host_records, "bitrate_bps")
     viewer_bitrate = _last_positive(viewer_records, "bitrate_bps")
-    if host.get("hardware_encoder_status") != "active":
-        raise SmokeRuntimeError(
-            "host did not maintain hardware VideoToolbox encoding"
-        )
-    if host.get("webrtc_encoder") != "H264":
-        raise SmokeRuntimeError("host did not report negotiated H264")
+    if require_hardware:
+        if host.get("hardware_encoder_status") != "active":
+            raise SmokeRuntimeError(
+                "host did not maintain hardware VideoToolbox encoding"
+            )
+        if host.get("webrtc_encoder") != "H264":
+            raise SmokeRuntimeError("host did not report negotiated H264")
+    else:
+        hardware_status = host.get("hardware_encoder_status")
+        if (
+            not isinstance(hardware_status, str)
+            or not hardware_status.startswith("fallback:")
+        ):
+            raise SmokeRuntimeError("host did not report an encoder fallback")
+        if host.get("webrtc_encoder") != "VP8":
+            raise SmokeRuntimeError("host did not report negotiated VP8 fallback")
     if host_bitrate <= 0 or viewer_bitrate <= 0:
         raise SmokeRuntimeError("video bitrate was not measured")
     return {
@@ -525,6 +541,8 @@ def _write_jsonl(handle, value: dict) -> None:
 
 def _find_demo(repo_root: Path) -> Path:
     candidates = (
+        repo_root / "build" / "call-dev" / "shareme_rtc_demo.exe",
+        repo_root / "build" / "movie-call-dev" / "shareme_rtc_demo.exe",
         repo_root / "build" / "call-dev" / "client" / "tools" / "rtc_demo" / "shareme_rtc_demo",
         repo_root / "build" / "movie-call-dev" / "client" / "tools" / "rtc_demo" / "shareme_rtc_demo",
     )
@@ -542,9 +560,14 @@ def run_smoke(
     duration_seconds: int,
     port: int,
     artifact: Path,
+    allow_software_fallback: bool = False,
 ) -> dict:
-    if sys.platform != "darwin":
-        raise SmokeRuntimeError("screen smoke requires macOS")
+    if sys.platform not in ("darwin", "win32"):
+        raise SmokeRuntimeError("screen smoke requires macOS or Windows")
+    if sys.platform == "win32" and not allow_software_fallback:
+        raise SmokeRuntimeError(
+            "Windows screen smoke requires --allow-software-fallback"
+        )
     profile_bounds(profile)
     if duration_seconds <= 0:
         raise SmokeRuntimeError("duration must be positive")
@@ -576,6 +599,9 @@ def run_smoke(
             "max_height": max_height,
             "max_frames_per_second": max_frames_per_second,
             "platform": sys.platform,
+            "encoder_requirement": (
+                "software-fallback" if allow_software_fallback else "hardware"
+            ),
         })
         try:
             server, server_log, server_directory = start_signaling_server(
@@ -619,6 +645,8 @@ def run_smoke(
                         + (f": {diagnostic}" if diagnostic else "")
                     )
                 for process, role in ((host, "host"), (viewer, "viewer")):
+                    if os.name == "nt":
+                        continue
                     metrics = _read_process_metrics(process)
                     process_records.append({
                         "kind": "process",
@@ -651,7 +679,12 @@ def run_smoke(
                         **record,
                     })
             records_written = True
-            summary = validate_records(profile, host_records, viewer_records)
+            summary = validate_records(
+                profile,
+                host_records,
+                viewer_records,
+                require_hardware=not allow_software_fallback,
+            )
             _write_jsonl(output, {"kind": "summary", "complete": True, **summary})
             return summary
         except (OSError, ValueError, subprocess.TimeoutExpired) as error:
@@ -667,7 +700,7 @@ def run_smoke(
             if server_log is not None:
                 server_log.close()
             if server_directory is not None:
-                server_directory.cleanup()
+                cleanup_temporary_directory(server_directory)
         if failure is not None:
             failure += (
                 f" [host: {_status_diagnostic(host_reader)};"
@@ -720,6 +753,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=tuple(PROFILE_BOUNDS), required=True)
     parser.add_argument("--duration-seconds", type=int, required=True)
     parser.add_argument("--artifact", type=Path)
+    parser.add_argument("--allow-software-fallback", action="store_true")
     args = parser.parse_args()
     demo = args.demo or _find_demo(repo_root)
     artifact = args.artifact or (
@@ -734,6 +768,7 @@ def main() -> int:
             duration_seconds=args.duration_seconds,
             port=args.port,
             artifact=artifact.resolve(),
+            allow_software_fallback=args.allow_software_fallback,
         ), sort_keys=True))
         return 0
     except (SmokeRuntimeError, OSError, ValueError) as error:
