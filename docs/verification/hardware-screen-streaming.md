@@ -125,8 +125,8 @@ than the standard 1920x1080 bound.
   cgo with the available `clang-cl` failed in `runtime/cgo` because that driver
   rejects the GCC-style `-dM` and `-fno-stack-protector` flags. This is a local
   toolchain limitation, not a passing race result.
-- **Verified - Windows Media Foundation H.264:** `call-dev` passed 44/44 and
-  `movie-call-dev` passed 69/69. The native codec integration produced Annex-B
+- **Verified - Windows Media Foundation H.264:** `call-dev` passed 51/51 and
+  `movie-call-dev` passed 76/76. The native codec integration produced Annex-B
   H.264 from a real hardware MFT and decoded it back to exact 1920x1080. The
   selection lifecycle test passed 50 consecutive runs and the hardware codec
   test passed 20 consecutive runs.

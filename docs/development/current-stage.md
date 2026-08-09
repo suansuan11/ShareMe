@@ -103,7 +103,7 @@ Windows now uses the existing Desktop Duplication screen source with a native
 Media Foundation H.264 encoder. Hardware selection requires a successful
 `MFT_ENUM_FLAG_HARDWARE` probe and real encoder initialization; the receiver
 uses the Windows Media Foundation H.264 decoder. On Windows AMD64 with MSVC
-19.51, `call-dev` passed 44/44 and `movie-call-dev` passed 69/69. Native
+19.51, `call-dev` passed 51/51 and `movie-call-dev` passed 76/76. Native
 two-peer runs passed at exact 1920x1080, 2560x1440, and 3840x2160 geometry with
 H.264 hardware status active, continuous host encode/viewer decode counters,
 nonzero bitrate, bidirectional synthetic primary voice, and one bounded
