@@ -99,21 +99,23 @@ human visual integrity, physical foreground/background behavior, temperature,
 and physical 1080p/1440p/4K display coverage remain partial or
 environment-dependent.
 
-Windows now has a native screen-source adapter over the existing Desktop
-Duplication implementation. On Windows AMD64 with MSVC 19.51, fresh
-`call-dev` and `movie-call-dev` builds passed 42/42 and 67/67 CTest tests. A
-local two-peer `standard` run delivered 1920x1080 VP8 from host to viewer with
-nonzero encode/decode counters and bitrate. Windows quality and cinema
-software-fallback routing is partial because static-desktop runs did not
-establish sustained cadence. Windows platform hardware WebRTC encoding, cursor
-composition, display selection, and output above the standard software fallback
-bound remain unimplemented. See
+Windows now uses the existing Desktop Duplication screen source with a native
+Media Foundation H.264 encoder. Hardware selection requires a successful
+`MFT_ENUM_FLAG_HARDWARE` probe and real encoder initialization; the receiver
+uses the Windows Media Foundation H.264 decoder. On Windows AMD64 with MSVC
+19.51, `call-dev` passed 44/44 and `movie-call-dev` passed 69/69. Native
+two-peer runs passed at exact 1920x1080, 2560x1440, and 3840x2160 geometry with
+H.264 hardware status active, continuous host encode/viewer decode counters,
+nonzero bitrate, bidirectional synthetic primary voice, and one bounded
+presentation recovery. Cursor composition, display selection, two-device
+visual/acoustic acceptance, and physical-display cadence remain partial or
+environment-dependent. See
 [Hardware Screen Streaming Verification](../verification/hardware-screen-streaming.md).
 
 The next product stage is the **remaining Windows Screen and Voice Acceptance**:
-close Windows hardware encoding and perform the two-device human audio/visual
-acceptance pass. Sustained quality/cinema cadence, cursor composition, display
-selection, and physical-display evidence remain explicit platform boundaries.
+perform the two-device human audio/visual acceptance pass, then close cursor
+composition and display selection. Physical-display cadence and thermal
+evidence remain explicit platform boundaries.
 macOS physical-display and acoustic evidence may be completed in parallel as
 environment permits.
 File sharing, Movie Stage 2B, system-audio capture, HDR, remote input, TURN, and
@@ -337,8 +339,10 @@ resolved.
 - **Partial — sender preview GUI:** the local-track callback and role routing
   pass native tests, and a real-movie host/viewer GUI session connected without
   RTC error; exact on-screen movie content still needs human visual confirmation.
-- **Environment-dependent — Windows:** rerun native movie-call build/tests and
-  GUI/media acceptance after pulling the merged `main`.
+- **Verified — Windows automated screen path:** both native build suites and
+  exact 1080p/1440p/4K Media Foundation H.264 local two-peer gates pass on the
+  stated host. Two-device GUI/media and physical acoustic acceptance remain
+  environment-dependent.
 - **Verified — playout-report core:** macOS tests cover 32-bit RTP wrap,
   same-generation movie anchors, stale rendered-frame/report rejection, and
   host sync-decision observation.
@@ -374,12 +378,11 @@ resolved.
 
 ## Next recommended stage
 
-After integrating the complete GUI, proceed with Windows Native Screen and
-Voice Parity through that GUI using the accepted macOS screen/voice contract:
-no quality reduction, host-video-send-only, viewer-video-receive-only,
-bidirectional primary voice, exact actual-capture geometry agreement, a bounded
-presentation recovery, and explicit native hardware evidence. Follow with a
-two-device human visual/audio acceptance run and production packaging planning.
+Proceed with the two-device Windows visual/audio acceptance run through the
+complete GUI, then close cursor composition, display selection, and production
+packaging planning. Preserve the verified hardware H.264,
+host-video-send-only, viewer-video-receive-only, bidirectional primary voice,
+exact actual-capture geometry, and bounded presentation recovery contracts.
 Do not resume file sharing, Movie Stage 2B, reportability repair, or hard-resync
 work while this primary product direction remains incomplete.
 

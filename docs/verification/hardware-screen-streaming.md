@@ -7,8 +7,10 @@
   screen source. The adapter reuses the existing DXGI capture implementation
   and supplies bounded, even-sized I420 frames to the screen track.
 - The bounded capture and Qt presentation paths keep only the latest frame.
-- VideoToolbox H.264 is selected only after probe, parameterized-format, factory,
-  encoder-creation, and encoder-initialization checks.
+- VideoToolbox on macOS and Media Foundation on Windows are selected only after
+  probe, parameterized-format, factory, encoder-creation, and
+  encoder-initialization checks. Windows hardware probing uses
+  `MFT_ENUM_FLAG_HARDWARE`; its receiver uses the system H.264 decoder.
 - VP8 fallback uses the standard 1920x1080 capture bound.
 - Viewer diagnostics identify receive-only state; they do not infer the remote
   encoder without a signaling field.
@@ -51,13 +53,14 @@ $env:QT_QPA_PLATFORM = 'offscreen'
 python scripts/run_screen_stream_smoke.py `
   --demo build/call-dev/shareme_rtc_demo.exe `
   --server-root server --profile standard --duration-seconds 10 `
-  --allow-software-fallback `
-  --artifact out/windows-current-parity/standard-10s.jsonl
+  --artifact out/hardware-screen-streaming/windows-mf-standard-10s.jsonl
 ```
 
-`--allow-software-fallback` is an explicit Windows acceptance mode, not the
-macOS hardware gate. It requires VP8, a `fallback:` hardware status, nonzero
-bitrate and delivered media at no more than the standard 1920x1080 bound.
+Windows now defaults to the hardware gate. It requires H.264,
+`hardware_encoder_status=active`, and
+`encoder_implementation=MediaFoundation`. `--allow-software-fallback` remains
+an explicit diagnostic mode requiring VP8 and a `fallback:` status at no more
+than the standard 1920x1080 bound.
 
 ## Integration Review
 
@@ -122,9 +125,21 @@ bitrate and delivered media at no more than the standard 1920x1080 bound.
   cgo with the available `clang-cl` failed in `runtime/cgo` because that driver
   rejects the GCC-style `-dM` and `-fno-stack-protector` flags. This is a local
   toolchain limitation, not a passing race result.
-- **Unimplemented on Windows:** platform hardware WebRTC encoding, cursor
-  composition, display selection, and quality/cinema output above the standard
-  software-fallback bound.
+- **Verified - Windows Media Foundation H.264:** `call-dev` passed 44/44 and
+  `movie-call-dev` passed 69/69. The native codec integration produced Annex-B
+  H.264 from a real hardware MFT and decoded it back to exact 1920x1080. The
+  selection lifecycle test passed 50 consecutive runs and the hardware codec
+  test passed 20 consecutive runs.
+- **Verified - exact native profile runs:** the final 10-second `standard` run
+  delivered 1920x1080 (364 host encoded / 360 viewer decoded); the 30-second
+  `quality` run delivered 2560x1440 (1161 / 1159); and the 30-second `cinema`
+  run delivered 3840x2160 (664 / 657). Every run reported H.264,
+  `MediaFoundation`, hardware active, nonzero bitrate, continuous synthetic
+  primary voice, and one bounded presentation recovery. Artifacts are
+  `windows-mf-standard-10s.jsonl`, `windows-mf-quality-30s.jsonl`, and
+  `windows-mf-cinema-30s.jsonl` under the ignored evidence directory.
+- **Remaining on Windows:** cursor composition, display selection, two-device
+  human visual/audio acceptance, and physical-display cadence/thermal evidence.
 
 ## Evidence Boundaries
 
@@ -137,9 +152,9 @@ bitrate and delivered media at no more than the standard 1920x1080 bound.
 - **Environment-dependent:** ScreenCaptureKit permission, actual VideoToolbox
   hardware activation, visual frame integrity, 1080p60/1440p60/4K30 stability,
   foreground/background recovery, and live voice continuity.
-- **Windows boundary:** Desktop Duplication capture and VP8 software transport
-  are verified on the stated Windows host. Windows hardware encoding and
-  sustained quality/cinema cadence remain unimplemented or partial as listed
-  above; macOS VideoToolbox results do not verify them.
+- **Windows boundary:** Desktop Duplication plus Media Foundation H.264 is
+  verified on the stated Windows host at exact 1080p, 1440p, and 4K geometry.
+  Static-desktop automated cadence is not a substitute for two-device human
+  visual/audio, cursor, display-selection, physical cadence, or thermal proof.
 - **Not part of this stage:** system audio capture, HDR, remote input, TURN,
   Movie Stage 2B correlation, hard resync, Linux hardware encoding, and 4K60.
