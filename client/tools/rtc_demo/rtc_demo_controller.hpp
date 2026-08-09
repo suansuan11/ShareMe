@@ -11,6 +11,7 @@
 #include "shareme/core/movie_audio_renderer.hpp"
 #include "movie_video_playout_adapter.hpp"
 #include "qt_audio_route_monitor.hpp"
+#include "rtc_control_state.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -83,6 +84,10 @@ class RtcDemoController final : public QObject {
   Q_PROPERTY(qulonglong presentationCoalesced READ presentationCoalesced NOTIFY presentationDiagnosticsChanged)
   Q_PROPERTY(qulonglong presentationDelayP95Ms READ presentationDelayP95Ms NOTIFY presentationDiagnosticsChanged)
   Q_PROPERTY(qulonglong presentationDelayMaxMs READ presentationDelayMaxMs NOTIFY presentationDiagnosticsChanged)
+  Q_PROPERTY(bool microphoneMuted READ microphoneMuted NOTIFY callControlsChanged)
+  Q_PROPERTY(bool speakerMuted READ speakerMuted NOTIFY callControlsChanged)
+  Q_PROPERTY(bool stoppable READ stoppable NOTIFY callControlsChanged)
+  Q_PROPERTY(bool sessionEnded READ sessionEnded NOTIFY sessionEndedChanged)
 
 public:
   RtcDemoController(QUrl server_url, shareme::rtc::SignaledRole role,
@@ -139,12 +144,19 @@ public:
   [[nodiscard]] qulonglong presentationCoalesced() const noexcept;
   [[nodiscard]] qulonglong presentationDelayP95Ms() const noexcept;
   [[nodiscard]] qulonglong presentationDelayMaxMs() const noexcept;
+  [[nodiscard]] bool microphoneMuted() const noexcept;
+  [[nodiscard]] bool speakerMuted() const noexcept;
+  [[nodiscard]] bool stoppable() const noexcept;
+  [[nodiscard]] bool sessionEnded() const noexcept;
 
   Q_INVOKABLE void setVideoSink(QVideoSink *sink);
   Q_INVOKABLE void start();
   Q_INVOKABLE void pauseHostPlayback();
   Q_INVOKABLE void resumeHostPlayback();
   Q_INVOKABLE void seekHostPlayback(qint64 absolute_pts_ms);
+  Q_INVOKABLE bool setMicrophoneMuted(bool muted);
+  Q_INVOKABLE bool setSpeakerMuted(bool muted);
+  Q_INVOKABLE void stop();
 
 signals:
   void statusChanged();
@@ -156,6 +168,8 @@ signals:
   void driftScenarioChanged();
   void videoDiagnosticsChanged();
   void presentationDiagnosticsChanged();
+  void callControlsChanged();
+  void sessionEndedChanged();
 
 private:
   bool createPeer();
@@ -311,4 +325,5 @@ private:
   bool movie_audio_output_ready_{true};
   bool start_requested_{false};
   bool shutting_down_{false};
+  shareme::tools::RtcControlState control_state_;
 };

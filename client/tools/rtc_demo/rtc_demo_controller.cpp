@@ -507,6 +507,49 @@ qulonglong RtcDemoController::presentationDelayMaxMs() const noexcept {
       : 0;
 }
 
+bool RtcDemoController::microphoneMuted() const noexcept {
+  return control_state_.microphone_muted();
+}
+
+bool RtcDemoController::speakerMuted() const noexcept {
+  return control_state_.speaker_muted();
+}
+
+bool RtcDemoController::stoppable() const noexcept {
+  return !control_state_.session_ended();
+}
+
+bool RtcDemoController::sessionEnded() const noexcept {
+  return control_state_.session_ended();
+}
+
+bool RtcDemoController::setMicrophoneMuted(bool muted) {
+  if (!peer_ || control_state_.session_ended() ||
+      !peer_->set_local_audio_enabled(!muted))
+    return false;
+  if (control_state_.set_microphone_muted(muted))
+    emit callControlsChanged();
+  return true;
+}
+
+bool RtcDemoController::setSpeakerMuted(bool muted) {
+  if (!peer_ || control_state_.session_ended() ||
+      !peer_->set_remote_audio_enabled(!muted))
+    return false;
+  if (control_state_.set_speaker_muted(muted))
+    emit callControlsChanged();
+  return true;
+}
+
+void RtcDemoController::stop() {
+  if (!control_state_.finish_session())
+    return;
+  stopPeer();
+  setStatus(QStringLiteral("ended"));
+  emit callControlsChanged();
+  emit sessionEndedChanged();
+}
+
 void RtcDemoController::setVideoSink(QVideoSink *sink) {
   video_sink_ = sink;
   if (movie_video_playout_adapter_)

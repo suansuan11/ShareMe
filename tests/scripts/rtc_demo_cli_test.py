@@ -695,7 +695,6 @@ class RtcDemoCliTest(unittest.TestCase):
     def test_primary_voice_playout_and_counters_are_wired(self):
         peer = self.peer_source.read_text(encoding="utf-8")
         controller = self.controller_source.read_text(encoding="utf-8")
-        self.assertIn("remote_audio_->set_enabled(config_.native_audio_playout)", peer)
         for counter in (
             "voice_packets_sent",
             "voice_packets_received",

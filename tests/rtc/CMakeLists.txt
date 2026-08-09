@@ -225,6 +225,20 @@ if(TARGET ShareMe::QtSignaling)
   add_test(NAME app_session_config COMMAND shareme_app_session_config_test)
 
   add_executable(
+    shareme_rtc_demo_control_state_test
+    rtc_demo_control_state_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/rtc_control_state.cpp"
+  )
+  target_include_directories(
+    shareme_rtc_demo_control_state_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_rtc_demo_control_state_test PRIVATE cxx_std_20)
+  target_link_libraries(shareme_rtc_demo_control_state_test PRIVATE Qt6::Core)
+  shareme_set_project_warnings(shareme_rtc_demo_control_state_test)
+  add_test(NAME rtc_demo_control_state COMMAND shareme_rtc_demo_control_state_test)
+
+  add_executable(
     shareme_playback_state_test
     playback_state_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/playback_state.cpp"

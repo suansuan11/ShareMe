@@ -126,6 +126,10 @@ public:
   [[nodiscard]] SignaledPeerResult wait(std::chrono::milliseconds timeout);
   [[nodiscard]] SignaledMediaStats media_stats() const noexcept;
   [[nodiscard]] std::string video_source_error() const;
+  [[nodiscard]] bool local_audio_enabled() const noexcept;
+  [[nodiscard]] bool remote_audio_enabled() const noexcept;
+  bool set_local_audio_enabled(bool enabled) noexcept;
+  bool set_remote_audio_enabled(bool enabled) noexcept;
   void cancel_wait() noexcept;
   void stop() noexcept;
 

@@ -527,6 +527,52 @@ public:
       result_.error = "no bidirectional audio RTP";
     return result_;
   }
+  bool local_audio_enabled() const noexcept {
+    return local_audio_enabled_.load(std::memory_order_acquire);
+  }
+  bool remote_audio_enabled() const noexcept {
+    return remote_audio_enabled_.load(std::memory_order_acquire);
+  }
+  bool set_local_audio_enabled(bool enabled) noexcept {
+    if (stopped_.load(std::memory_order_acquire) || !runtime_ ||
+        !runtime_->signaling_thread())
+      return false;
+    bool applied = false;
+    try {
+      runtime_->signaling_thread()->BlockingCall([&] {
+        if (!stopped_.load(std::memory_order_acquire) && audio_track_) {
+          audio_track_->set_enabled(enabled);
+          applied = true;
+        }
+      });
+    } catch (...) {
+      return false;
+    }
+    if (applied)
+      local_audio_enabled_.store(enabled, std::memory_order_release);
+    return applied;
+  }
+  bool set_remote_audio_enabled(bool enabled) noexcept {
+    if (stopped_.load(std::memory_order_acquire) || !runtime_ ||
+        !runtime_->signaling_thread())
+      return false;
+    bool applied = false;
+    try {
+      runtime_->signaling_thread()->BlockingCall([&] {
+        if (!stopped_.load(std::memory_order_acquire) && peer_) {
+          peer_->SetAudioPlayout(enabled);
+          if (remote_audio_)
+            remote_audio_->set_enabled(enabled);
+          applied = true;
+        }
+      });
+    } catch (...) {
+      return false;
+    }
+    if (applied)
+      remote_audio_enabled_.store(enabled, std::memory_order_release);
+    return applied;
+  }
   void cancel_wait() noexcept {
     wait_cancelled_.store(true, std::memory_order_release);
   }
@@ -839,7 +885,8 @@ private:
       auto audio_track = webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
           static_cast<webrtc::AudioTrackInterface *>(track.get()));
       remote_audio_ = std::move(audio_track);
-      remote_audio_->set_enabled(config_.native_audio_playout);
+      remote_audio_->set_enabled(
+          remote_audio_enabled_.load(std::memory_order_acquire));
     }
   }
   void populate_media_result() {
@@ -932,6 +979,8 @@ private:
   SignaledPeerResult result_;
   std::atomic_bool wait_cancelled_{false};
   std::atomic_bool stopped_{false};
+  std::atomic_bool local_audio_enabled_{true};
+  std::atomic_bool remote_audio_enabled_{config_.native_audio_playout};
   std::optional<std::string> remote_voice_mid_;
   std::shared_ptr<std::atomic_bool> callbacks_active_{
       std::make_shared<std::atomic_bool>(true)};
@@ -980,6 +1029,18 @@ SignaledMediaStats SignaledPeer::media_stats() const noexcept {
 }
 std::string SignaledPeer::video_source_error() const {
   return impl_->video_source_error();
+}
+bool SignaledPeer::local_audio_enabled() const noexcept {
+  return impl_->local_audio_enabled();
+}
+bool SignaledPeer::remote_audio_enabled() const noexcept {
+  return impl_->remote_audio_enabled();
+}
+bool SignaledPeer::set_local_audio_enabled(bool enabled) noexcept {
+  return impl_->set_local_audio_enabled(enabled);
+}
+bool SignaledPeer::set_remote_audio_enabled(bool enabled) noexcept {
+  return impl_->set_remote_audio_enabled(enabled);
 }
 void SignaledPeer::cancel_wait() noexcept { impl_->cancel_wait(); }
 void SignaledPeer::stop() noexcept { impl_->stop(); }

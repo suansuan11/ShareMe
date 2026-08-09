@@ -284,6 +284,15 @@ int main() {
   REQUIRE(control_host != nullptr);
   REQUIRE(control_viewer->start());
   REQUIRE(control_host->start());
+  REQUIRE(control_host->local_audio_enabled());
+  REQUIRE(!control_host->remote_audio_enabled());
+  REQUIRE(control_host->set_local_audio_enabled(false));
+  REQUIRE(!control_host->local_audio_enabled());
+  REQUIRE(control_host->set_remote_audio_enabled(true));
+  REQUIRE(control_host->remote_audio_enabled());
+  REQUIRE(control_host->set_local_audio_enabled(true));
+  REQUIRE(control_host->set_remote_audio_enabled(false));
+  REQUIRE(!control_host->remote_audio_enabled());
   const std::string control_payload{"{\"type\":\"playback-state\"}"};
   bool control_sent = false;
   for (int attempt = 0; attempt < 250 && !control_sent; ++attempt) {
@@ -308,6 +317,8 @@ int main() {
   REQUIRE(viewer_report_future.get() == viewer_report);
   control_host->stop();
   control_viewer->stop();
+  REQUIRE(!control_host->set_local_audio_enabled(false));
+  REQUIRE(!control_host->set_remote_audio_enabled(false));
 
   std::unique_ptr<shareme::rtc::SignaledPeer> send_only_host;
   std::unique_ptr<shareme::rtc::SignaledPeer> receive_only_viewer;
