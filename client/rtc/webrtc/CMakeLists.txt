@@ -51,6 +51,25 @@ else()
   )
 endif()
 
+if(WIN32)
+  target_sources(
+    shareme_webrtc
+    PRIVATE
+      src/windows_mf_h264_buffers.cpp
+      src/windows_mf_h264_encoder.cpp
+      src/windows_mf_video_codec.cpp
+  )
+  target_link_libraries(
+    shareme_webrtc
+    PRIVATE
+      mf
+      mfplat
+      mfreadwrite
+      mfuuid
+      ole32
+  )
+endif()
+
 target_compile_features(shareme_webrtc PUBLIC cxx_std_20)
 target_include_directories(
   shareme_webrtc

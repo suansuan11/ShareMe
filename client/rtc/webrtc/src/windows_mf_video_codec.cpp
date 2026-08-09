@@ -1,0 +1,44 @@
+#include "shareme/rtc/video_encoder_selection.hpp"
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "api/environment/environment.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "windows_mf_h264_encoder.hpp"
+
+namespace shareme::rtc {
+namespace {
+
+class WindowsMfH264EncoderFactory final
+    : public webrtc::VideoEncoderFactory {
+ public:
+  std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override {
+    return {webrtc::SdpVideoFormat(
+        "H264", {{"profile-level-id", "42e01f"},
+                  {"level-asymmetry-allowed", "1"},
+                  {"packetization-mode", "1"}})};
+  }
+
+  std::unique_ptr<webrtc::VideoEncoder> Create(
+      const webrtc::Environment &,
+      const webrtc::SdpVideoFormat &format) override {
+    if (format.name != "H264")
+      return nullptr;
+    return create_windows_mf_h264_encoder();
+  }
+};
+
+} // namespace
+
+bool probe_platform_h264_encoder(int width, int height, std::string &reason) {
+  return probe_windows_mf_h264_encoder(width, height, reason);
+}
+
+std::unique_ptr<webrtc::VideoEncoderFactory>
+create_platform_h264_encoder_factory() {
+  return std::make_unique<WindowsMfH264EncoderFactory>();
+}
+
+} // namespace shareme::rtc

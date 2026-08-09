@@ -124,7 +124,7 @@ bool initializes_h264_encoder(webrtc::VideoEncoder &encoder,
 
 } // namespace
 
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && !defined(_WIN32)
 bool probe_platform_h264_encoder(int, int, std::string &reason) {
   reason = "platform-unavailable";
   return false;
