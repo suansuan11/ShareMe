@@ -21,6 +21,29 @@ tests, and verification evidence before relying on it.
   recorded in their linked verification documents; this macOS stage does not
   replace or extend those Windows claims.
 
+### Complete Application GUI
+
+The complete GUI stage is delivered on `codex/complete-gui` and is ready for
+integration. Launching `shareme_rtc_demo` without RTC options now opens the
+ShareMe application: Calm Dark home, create/join preflight, one-recent-room
+privacy boundary, settings/help, focus-stage call view, local or remote video,
+live microphone/speaker controls, details diagnostics, leave, and recovery.
+Explicit command-line calls remain strict and compatible with existing smoke
+and diagnostic runners.
+
+On macOS 26.6.1 arm64, the GUI lifecycle gate passed all six states and real
+control actions. `call-dev` passed 47/47 and `movie-call-dev` passed 72/72;
+`signaled_peer` repeated 20/20. Separate native standard 10-second, quality
+30-second, and cinema 30-second calls all kept H.264 hardware encoding active,
+matched 1470x956 host/viewer geometry, moved video and bidirectional voice
+counters, and submitted frames after the bounded presentation recovery. See
+[Complete GUI Verification](../verification/complete-gui.md).
+
+Windows GUI hardware execution, human visual/acoustic acceptance, physical
+temperature, physical 1440p/4K displays, device hot-switching, and production
+packaging remain environment-dependent, unverified, or unimplemented. No
+resolution, cadence, bitrate, codec-quality, or media gate was lowered.
+
 ### Hardware Screen Streaming Foundation
 
 `main` includes the accepted macOS ScreenCaptureKit and VideoToolbox screen
@@ -351,16 +374,21 @@ resolved.
 
 ## Next recommended stage
 
-Proceed with Windows Native Screen and Voice Parity using the accepted macOS
-screen/voice contract: no quality reduction, host-video-send-only,
-viewer-video-receive-only, bidirectional primary voice, exact actual-capture
-geometry agreement, a bounded presentation recovery, and explicit native
-hardware evidence. Follow with a two-device human visual/audio acceptance run.
+After integrating the complete GUI, proceed with Windows Native Screen and
+Voice Parity through that GUI using the accepted macOS screen/voice contract:
+no quality reduction, host-video-send-only, viewer-video-receive-only,
+bidirectional primary voice, exact actual-capture geometry agreement, a bounded
+presentation recovery, and explicit native hardware evidence. Follow with a
+two-device human visual/audio acceptance run and production packaging planning.
 Do not resume file sharing, Movie Stage 2B, reportability repair, or hard-resync
 work while this primary product direction remains incomplete.
 
 ## Git handoff
 
+- `codex/complete-gui` contains the reviewed product GUI and verification
+  stage. Its generated builds, smoke JSONL, screenshots, caches, and local
+  settings are ignored and must not be committed. Integration may proceed only
+  after the final feature tip and merged `main` both pass their required gates.
 - `codex/screen-voice-acceptance` was pushed at `9e2a23f` and fast-forwarded
   into `main` after merged-result CTest 39/39 and 64/64, Go race/vet, workflow
   8/8, skill validation, and clean-tree checks. The feature worktree and local

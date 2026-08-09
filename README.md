@@ -1,15 +1,17 @@
 # ShareMe
 
-ShareMe 是面向一名主播和一名观众的桌面影片实时共享与语音通话软件。
-主播持有本地片源，观众通过 WebRTC 实时观看；影片声音、主播麦克风和
-观众麦克风保持独立。
+ShareMe 是面向一名主持人和一名参与者的高质量桌面屏幕共享与语音通话
+软件。主持人共享当前屏幕，参与者通过六位房间码加入；屏幕视频与双向
+语音通过 WebRTC 传输。影片分享能力保留为技术基础，但当前产品开发主线
+是简洁完整的连麦屏幕共享体验。
 
 项目已完成可移植 C++ 核心、构建基线、队列约束和同步决策测试，并在
 macOS ARM64 上已验证 FFmpeg 解码、Qt/QML 本地播放、libwebrtc 本机回环，
 以及经 Qt/Go 信令建立的双进程真实影片音视频和双向真实麦克风通话；
 Windows 上也已完成 Qt/FFmpeg/libwebrtc 真机构建、影片与麦克风回归、
-Desktop Duplication 硬件采集及本地双进程桌面传输。Windows 进程音频捕获
-仍是后续独立技术验证。
+Desktop Duplication 硬件采集及本地双进程桌面传输。macOS 已完成完整 GUI、
+ScreenCaptureKit、VideoToolbox H.264 和本地双端屏幕/语音自动化验收；Windows
+完整 GUI 真机验收、硬件编码及两台设备人工音画验收是下一阶段重点。
 
 ## 当前范围
 
@@ -96,6 +98,22 @@ SHAREME_ENABLE_FFMPEG
 SHAREME_ENABLE_WEBRTC
 ```
 
+## 启动完整 ShareMe 界面
+
+准备好仓库外 libwebrtc 依赖后，在 macOS 上构建屏幕通话版本：
+
+```bash
+cmake --preset call-dev -DWEBRTC_ROOT=/path/to/shareme-webrtc
+cmake --build --preset build-call-dev
+./build/call-dev/client/tools/rtc_demo/shareme_rtc_demo
+```
+
+无参数启动会打开 ShareMe 首页、创建/加入会前检查和完整通话界面。开发时
+先运行本地 Go 信令服务；设置页默认连接
+`ws://127.0.0.1:8080/v1/ws`。显式传入 `--server`、`--role` 等参数时仍使用
+严格的自动化/诊断 CLI，不会悄悄回退到交互界面。macOS 首次共享需在系统
+设置中授予屏幕录制和麦克风权限。
+
 ## 工程契约
 
 - [架构与模块边界](docs/architecture.md)
@@ -114,6 +132,7 @@ SHAREME_ENABLE_WEBRTC
 - [Windows 跨平台媒体回归验证](docs/verification/windows-cross-platform-regression.md)
 - [Windows Desktop Duplication 桌面共享验证](docs/verification/windows-desktop-duplication.md)
 - [主机播放控制验证](docs/verification/host-playback-controls.md)
+- [完整 GUI 验证](docs/verification/complete-gui.md)
 
 ## 验证状态
 
@@ -136,6 +155,8 @@ SHAREME_ENABLE_WEBRTC
 | macOS ARM64 FFmpeg + Qt + WebRTC 独立影片音频 | 观众端收到 48 kHz 双声道 Opus 解码 PCM，且主播发送端影片音视频 PTS 偏差通过自动化验收 |
 | macOS ARM64 接收端播放状态通道 | 可靠有序数据通道、真实双 Peer 状态收发与 37/37 组合测试通过；GUI 视觉验收受当前捕获环境限制 |
 | macOS ARM64 主机影片播放控制 | 共享时间线、独立音视频暂停/继续/前后跳转、generation 状态发布与 38/38 组合测试通过；QML 已构建但视觉验收未执行 |
+| macOS ARM64 完整屏幕通话 GUI | 首页、会前检查、通话舞台、音频控制、详情、离开/恢复自动化通过；真实 H.264 屏幕与双向语音计数通过 |
+| Windows 完整屏幕通话 GUI | 代码可移植性门禁通过；Windows 真机 GUI、硬件编码和两设备人工音画尚未验证 |
 
 当前已提供本地信令服务和双进程 WebRTC 测试媒体、真实麦克风通话及
 独立影片音视频轨道，运行与验证方式见
@@ -144,10 +165,11 @@ SHAREME_ENABLE_WEBRTC
 首个接收端播放状态阶段见
 [播放器/接收端控制验证](docs/verification/player-receiver-control.md)，主机端
 暂停、继续和前后跳转见
-[主机播放控制验证](docs/verification/host-playback-controls.md)。现有仓库外缓存
-的 libwebrtc 构建依赖仍用于这些验证并已保留。下一阶段建议增加接收端
-generation 感知的播放报告与有界硬同步；TURN、Windows 进程级音频捕获、持续
-性能测量和跨机器公网验收仍需后续完成。已有 Windows 结论仅覆盖上述真机
+[主机播放控制验证](docs/verification/host-playback-controls.md)，当前完整屏幕
+通话界面见[完整 GUI 验证](docs/verification/complete-gui.md)。现有仓库外缓存
+的 libwebrtc 构建依赖仍用于这些验证并已保留。下一阶段应优先完成 Windows
+原生屏幕/语音与完整 GUI 真机对齐；TURN、Windows
+进程级音频捕获、持续性能测量和跨机器公网验收仍需后续完成。已有 Windows 结论仅覆盖上述真机
 构建、媒体回归、硬件桌面采集和本地双进程范围，不代表这些后续项已验证。
 
 状态必须以最近一次真实构建或测试结果为准。平台、硬件或网络未参与
