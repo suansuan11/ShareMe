@@ -31,6 +31,14 @@ constexpr DWORD kInputStream = 0;
 constexpr DWORD kOutputStream = 0;
 constexpr std::size_t kMaxPendingFrames = 32;
 
+void shutdown_transform(IMFTransform *transform) {
+  if (transform == nullptr)
+    return;
+  ComPtr<IMFShutdown> shutdown;
+  if (SUCCEEDED(transform->QueryInterface(IID_PPV_ARGS(&shutdown))))
+    static_cast<void>(shutdown->Shutdown());
+}
+
 class MfScope final {
  public:
   MfScope() {
@@ -223,10 +231,9 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
       static_cast<void>(transform_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH,
                                                    0));
       static_cast<void>(transform_->ProcessMessage(
-          MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0));
-      static_cast<void>(transform_->ProcessMessage(
           MFT_MESSAGE_NOTIFY_END_STREAMING, 0));
     }
+    shutdown_transform(transform_.Get());
     transform_.Reset();
     if (activation_ != nullptr)
       static_cast<void>(activation_->ShutdownObject());
@@ -269,6 +276,9 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
                                            0)) ||
           FAILED(candidate->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM,
                                            0))) {
+        shutdown_transform(candidate.Get());
+        attributes.Reset();
+        candidate.Reset();
         static_cast<void>(activation->ShutdownObject());
         continue;
       }

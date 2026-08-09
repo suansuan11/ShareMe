@@ -8,6 +8,8 @@
 #include <string>
 #include <thread>
 
+#include "api/environment/environment_factory.h"
+#include "audio_device_factory.hpp"
 #include "loopback_signaling.hpp"
 #include "webrtc_runtime.hpp"
 
@@ -24,11 +26,18 @@ void require(bool condition, const char *expression, int line) {
 
 #define REQUIRE(expression) require((expression), #expression, __LINE__)
 
+std::shared_ptr<shareme::rtc::WebRtcRuntime> create_test_runtime() {
+  const auto audio = shareme::rtc::create_audio_device(
+      webrtc::CreateEnvironment(), shareme::rtc::AudioDeviceMode::synthetic);
+  REQUIRE(audio.ok());
+  return shareme::rtc::WebRtcRuntime::create(audio.device);
+}
+
 } // namespace
 
 int main() {
   const auto started_at = std::chrono::steady_clock::now();
-  auto runtime = shareme::rtc::WebRtcRuntime::create();
+  auto runtime = create_test_runtime();
   REQUIRE(runtime != nullptr);
   REQUIRE(runtime->threads_running());
 
@@ -78,7 +87,7 @@ int main() {
   REQUIRE(runtime->stop());
   runtime.reset();
 
-  auto runtime_first = shareme::rtc::WebRtcRuntime::create();
+  auto runtime_first = create_test_runtime();
   REQUIRE(runtime_first != nullptr);
   auto active_signaling =
       std::make_unique<shareme::rtc::LoopbackSignaling>(*runtime_first);
@@ -88,7 +97,7 @@ int main() {
   active_signaling.reset();
   runtime_first.reset();
 
-  auto concurrent_runtime = shareme::rtc::WebRtcRuntime::create();
+  auto concurrent_runtime = create_test_runtime();
   REQUIRE(concurrent_runtime != nullptr);
   auto concurrent_signaling =
       std::make_unique<shareme::rtc::LoopbackSignaling>(*concurrent_runtime);
@@ -107,7 +116,7 @@ int main() {
   signaling_destroyer.join();
   concurrent_runtime.reset();
 
-  auto concurrent_stop_runtime = shareme::rtc::WebRtcRuntime::create();
+  auto concurrent_stop_runtime = create_test_runtime();
   REQUIRE(concurrent_stop_runtime != nullptr);
   std::barrier start_concurrent_stop(3);
   std::atomic_bool first_stop{false};
@@ -129,7 +138,7 @@ int main() {
   REQUIRE(second_stop.load(std::memory_order_acquire));
   concurrent_stop_runtime.reset();
 
-  auto self_releasing_runtime = shareme::rtc::WebRtcRuntime::create();
+  auto self_releasing_runtime = create_test_runtime();
   REQUIRE(self_releasing_runtime != nullptr);
   auto self_release_completed = self_releasing_runtime->destruction_completed();
   auto *self_release_thread = self_releasing_runtime->signaling_thread();

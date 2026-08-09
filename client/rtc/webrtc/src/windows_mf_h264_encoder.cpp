@@ -39,6 +39,14 @@ constexpr DWORD kInputStream = 0;
 constexpr DWORD kOutputStream = 0;
 constexpr std::size_t kMaxPendingFrames = 8;
 
+void shutdown_transform(IMFTransform *transform) {
+  if (transform == nullptr)
+    return;
+  ComPtr<IMFShutdown> shutdown;
+  if (SUCCEEDED(transform->QueryInterface(IID_PPV_ARGS(&shutdown))))
+    static_cast<void>(shutdown->Shutdown());
+}
+
 class MfScope final {
  public:
   MfScope() {
@@ -200,6 +208,9 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
       if (!configure_transform(candidate.Get(), width_, height_,
                                frames_per_second_, bitrate_, asynchronous,
                                event_generator)) {
+        shutdown_transform(candidate.Get());
+        event_generator.Reset();
+        candidate.Reset();
         static_cast<void>(activation->ShutdownObject());
         continue;
       }
@@ -229,10 +240,9 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
       static_cast<void>(
           transform_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0));
       static_cast<void>(
-          transform_->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0));
-      static_cast<void>(
           transform_->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0));
     }
+    shutdown_transform(transform_.Get());
     event_generator_.Reset();
     transform_.Reset();
     if (activation_ != nullptr)
@@ -532,9 +542,17 @@ bool can_configure_hardware_encoder(int width, int height) {
     if (configured) {
       static_cast<void>(
           transform->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0));
+      static_cast<void>(
+          transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0));
+      shutdown_transform(transform.Get());
+      events.Reset();
+      transform.Reset();
       static_cast<void>(activation->ShutdownObject());
       return true;
     }
+    shutdown_transform(transform.Get());
+    events.Reset();
+    transform.Reset();
     static_cast<void>(activation->ShutdownObject());
   }
   return false;

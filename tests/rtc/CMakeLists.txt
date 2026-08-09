@@ -99,6 +99,24 @@ add_test(
 
 if(WIN32)
   add_executable(
+    shareme_windows_mf_h264_codec_test
+    windows_mf_h264_codec_test.cpp
+  )
+  target_compile_features(
+    shareme_windows_mf_h264_codec_test
+    PRIVATE cxx_std_20
+  )
+  target_link_libraries(
+    shareme_windows_mf_h264_codec_test
+    PRIVATE ShareMe::WebRTC
+  )
+  shareme_set_project_warnings(shareme_windows_mf_h264_codec_test)
+  add_test(
+    NAME windows_mf_h264_codec
+    COMMAND shareme_windows_mf_h264_codec_test
+  )
+
+  add_executable(
     shareme_windows_mf_h264_buffers_test
     windows_mf_h264_buffers_test.cpp
     "${PROJECT_SOURCE_DIR}/client/rtc/webrtc/src/windows_mf_h264_buffers.cpp"
