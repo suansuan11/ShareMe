@@ -1,6 +1,7 @@
 #include "shareme/rtc/video_encoder_selection.hpp"
 
 #include <chrono>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -96,6 +97,23 @@ class ReentrantDecodedCallback final : public webrtc::DecodedImageCallback {
   int count{0};
   int32_t release_result{-1};
   bool released_from_callback{false};
+};
+
+class BlockingEncodedCallback final : public webrtc::EncodedImageCallback {
+ public:
+  Result OnEncodedImage(const webrtc::EncodedImage &,
+                        const webrtc::CodecSpecificInfo *) override {
+    entered.store(true, std::memory_order_release);
+    while (!allow_return.load(std::memory_order_acquire))
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    ++count;
+    return Result(Result::OK);
+  }
+  void OnFrameDropped(uint32_t, int, bool) override {}
+
+  std::atomic<bool> entered{false};
+  std::atomic<bool> allow_return{false};
+  std::atomic<int> count{0};
 };
 
 void selects_hardware_media_foundation() {
@@ -265,6 +283,61 @@ void callback_reentrant_release_defers_teardown() {
   REQUIRE(decoder->Release() == 0);
 }
 
+void concurrent_release_waits_for_active_callback() {
+  auto factory = shareme::rtc::create_platform_h264_encoder_factory();
+  REQUIRE(factory != nullptr);
+  auto encoder = factory->Create(webrtc::CreateEnvironment(),
+                                 factory->GetSupportedFormats().front());
+  REQUIRE(encoder != nullptr);
+  webrtc::VideoCodec codec;
+  codec.codecType = webrtc::kVideoCodecH264;
+  codec.width = 640;
+  codec.height = 360;
+  codec.startBitrate = 2'000;
+  codec.maxFramerate = 30;
+  codec.active = true;
+  *codec.H264() = webrtc::VideoEncoder::GetDefaultH264Settings();
+  REQUIRE(encoder->InitEncode(
+              &codec, webrtc::VideoEncoder::Settings(
+                          webrtc::VideoEncoder::Capabilities(false), 1,
+                          1'200)) == 0);
+  BlockingEncodedCallback callback;
+  REQUIRE(encoder->RegisterEncodeCompleteCallback(&callback) == 0);
+  auto input = webrtc::I420Buffer::Create(codec.width, codec.height);
+  input->InitializeData();
+  const auto frame = webrtc::VideoFrame::Builder()
+                         .set_video_frame_buffer(input)
+                         .set_timestamp_us(0)
+                         .set_rtp_timestamp(8'000)
+                         .set_rotation(webrtc::kVideoRotation_0)
+                         .build();
+  const std::vector<webrtc::VideoFrameType> keyframe = {
+      webrtc::VideoFrameType::kVideoFrameKey};
+  std::atomic<int32_t> encode_result{-1};
+  std::thread encoding([&] {
+    encode_result.store(encoder->Encode(frame, &keyframe),
+                        std::memory_order_release);
+  });
+  for (int attempt = 0; attempt < 100 &&
+                        !callback.entered.load(std::memory_order_acquire);
+       ++attempt)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  REQUIRE(callback.entered.load(std::memory_order_acquire));
+  std::atomic<int32_t> release_result{-1};
+  std::thread releasing([&] {
+    release_result.store(encoder->Release(), std::memory_order_release);
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  REQUIRE(release_result.load(std::memory_order_acquire) == -1);
+  callback.allow_return.store(true, std::memory_order_release);
+  encoding.join();
+  releasing.join();
+  REQUIRE(encode_result.load(std::memory_order_acquire) == 0);
+  REQUIRE(release_result.load(std::memory_order_acquire) == 0);
+  REQUIRE(callback.count.load(std::memory_order_acquire) == 1);
+  REQUIRE(encoder->Release() == 0);
+}
+
 } // namespace
 
 int main() {
@@ -272,5 +345,6 @@ int main() {
   probe_requires_encoder_and_decoder_initialization();
   encodes_and_decodes_real_h264_frames();
   callback_reentrant_release_defers_teardown();
+  concurrent_release_waits_for_active_callback();
   return EXIT_SUCCESS;
 }

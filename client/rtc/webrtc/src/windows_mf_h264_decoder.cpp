@@ -25,6 +25,7 @@
 #include "modules/video_coding/include/video_error_codes.h"
 #include "windows_mf_h264_buffers.hpp"
 #include "windows/h264_bitstream.hpp"
+#include "windows/mf_codec_thread.hpp"
 
 namespace shareme::rtc {
 namespace {
@@ -185,6 +186,12 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
   ~WindowsMfH264Decoder() override { static_cast<void>(Release()); }
 
   bool Configure(const Settings &settings) override {
+    return codec_thread_.invoke(
+        [this, &settings] { return configure_on_codec_thread(settings); });
+  }
+
+ private:
+  bool configure_on_codec_thread(const Settings &settings) {
     auto *const registered_callback = callback_;
     static_cast<void>(Release());
     {
@@ -202,6 +209,8 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
     return configured_;
   }
 
+ public:
+
   int32_t RegisterDecodeCompleteCallback(
       webrtc::DecodedImageCallback *callback) override {
     std::lock_guard state_lock(state_mutex_);
@@ -212,6 +221,12 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
   }
 
   int32_t Decode(const webrtc::EncodedImage &input, int64_t) override {
+    return codec_thread_.invoke(
+        [this, &input] { return decode_on_codec_thread(input); });
+  }
+
+ private:
+  int32_t decode_on_codec_thread(const webrtc::EncodedImage &input) {
     std::lock_guard operation_lock(operation_mutex_);
     {
       std::lock_guard state_lock(state_mutex_);
@@ -302,7 +317,15 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
     return final_result;
   }
 
+ public:
+
   int32_t Release() override {
+    return codec_thread_.invoke(
+        [this] { return release_on_codec_thread(); });
+  }
+
+ private:
+  int32_t release_on_codec_thread() {
     {
       std::lock_guard state_lock(state_mutex_);
       callback_ = nullptr;
@@ -460,6 +483,9 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
     DWORD length = 0;
     if (FAILED(contiguous->Lock(&data, nullptr, &length)))
       return E_FAIL;
+    // A callback may retain this frame after Decoded() returns. The locked
+    // I420 ABI offers no reference-count inspection or release hook, so the
+    // adapter owns no delivered frame buffers and cannot safely recycle one.
     auto coded_buffer = webrtc::I420Buffer::Create(width_, height_);
     const bool copied = copy_nv12_to_i420(
         std::span<const std::uint8_t>(data, length), width_, height_, stride_,
@@ -502,6 +528,7 @@ class WindowsMfH264Decoder final : public webrtc::VideoDecoder {
     return S_OK;
   }
 
+  MfCodecThread codec_thread_;
   std::unique_ptr<MfScope> scope_;
   ComPtr<IMFActivate> activation_;
   ComPtr<IMFTransform> transform_;

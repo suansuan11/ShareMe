@@ -29,6 +29,7 @@
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/logging.h"
+#include "windows/mf_codec_thread.hpp"
 #include "windows_mf_h264_buffers.hpp"
 
 namespace shareme::rtc {
@@ -41,6 +42,8 @@ constexpr DWORD kOutputStream = 0;
 constexpr std::size_t kMaxPendingFrames = 1;
 constexpr auto kOutputDrainTimeout = std::chrono::milliseconds(100);
 constexpr std::size_t kMaxEncodedAccessUnitBytes = 32U * 1024U * 1024U;
+constexpr std::size_t kMaxPumpEventsPerPass = 16;
+constexpr std::size_t kMaxOutputsPerPass = 16;
 
 void shutdown_transform(IMFTransform *transform) {
   if (transform == nullptr)
@@ -122,7 +125,8 @@ HRESULT set_video_type(IMFMediaType *type, const GUID &subtype, int width,
 
 bool configure_transform(IMFTransform *transform, int width, int height,
                          int frames_per_second, int bitrate, bool &asynchronous,
-                         ComPtr<IMFMediaEventGenerator> &event_generator) {
+                         ComPtr<IMFMediaEventGenerator> &event_generator,
+                         DWORD &input_stream_flags) {
   ComPtr<IMFAttributes> attributes;
   UINT32 async_value = FALSE;
   if (SUCCEEDED(transform->GetAttributes(&attributes)) && attributes != nullptr) {
@@ -153,6 +157,12 @@ bool configure_transform(IMFTransform *transform, int width, int height,
       FAILED(transform->SetInputType(kInputStream, input_type.Get(), 0))) {
     return false;
   }
+  MFT_INPUT_STREAM_INFO input_info{};
+  if (FAILED(transform->GetInputStreamInfo(kInputStream, &input_info)) ||
+      (input_info.dwFlags & MFT_INPUT_STREAM_HOLDS_BUFFERS) != 0) {
+    return false;
+  }
+  input_stream_flags = input_info.dwFlags;
 
   ComPtr<ICodecAPI> codec_api;
   if (SUCCEEDED(transform->QueryInterface(IID_PPV_ARGS(&codec_api)))) {
@@ -184,6 +194,12 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
 
   int InitEncode(const webrtc::VideoCodec *codec,
                  const Settings &) override {
+    return codec_thread_.invoke(
+        [this, codec] { return init_encode_on_codec_thread(codec); });
+  }
+
+ private:
+  int init_encode_on_codec_thread(const webrtc::VideoCodec *codec) {
     static_cast<void>(Release());
     std::lock_guard operation_lock(operation_mutex_);
     {
@@ -213,9 +229,10 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
         continue;
       bool asynchronous = false;
       ComPtr<IMFMediaEventGenerator> event_generator;
+      DWORD input_stream_flags = 0;
       if (!configure_transform(candidate.Get(), width_, height_,
                                frames_per_second_, bitrate_, asynchronous,
-                               event_generator)) {
+                               event_generator, input_stream_flags)) {
         shutdown_transform(candidate.Get());
         event_generator.Reset();
         candidate.Reset();
@@ -226,6 +243,7 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
       activation_ = activation;
       event_generator_ = std::move(event_generator);
       asynchronous_ = asynchronous;
+      input_stream_flags_ = input_stream_flags;
       input_requested_ = !asynchronous_;
       initialized_ = true;
       return WEBRTC_VIDEO_CODEC_OK;
@@ -239,6 +257,8 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
+ public:
+
   int32_t RegisterEncodeCompleteCallback(
       webrtc::EncodedImageCallback *callback) override {
     std::lock_guard state_lock(state_mutex_);
@@ -249,6 +269,12 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
   }
 
   int32_t Release() override {
+    return codec_thread_.invoke(
+        [this] { return release_on_codec_thread(); });
+  }
+
+ private:
+  int32_t release_on_codec_thread() {
     {
       std::lock_guard state_lock(state_mutex_);
       callback_ = nullptr;
@@ -261,9 +287,20 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     return WEBRTC_VIDEO_CODEC_OK;
   }
 
+ public:
+
   int32_t Encode(
       const webrtc::VideoFrame &frame,
       const std::vector<webrtc::VideoFrameType> *frame_types) override {
+    return codec_thread_.invoke([this, &frame, frame_types] {
+      return encode_on_codec_thread(frame, frame_types);
+    });
+  }
+
+ private:
+  int32_t encode_on_codec_thread(
+      const webrtc::VideoFrame &frame,
+      const std::vector<webrtc::VideoFrameType> *frame_types) {
     std::lock_guard operation_lock(operation_mutex_);
     {
       std::lock_guard state_lock(state_mutex_);
@@ -281,12 +318,23 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     return result;
   }
 
+ public:
+
   void SetRates(const RateControlParameters &parameters) override {
+    codec_thread_.invoke([this, &parameters] {
+      set_rates_on_codec_thread(parameters);
+    });
+  }
+
+ private:
+  void set_rates_on_codec_thread(const RateControlParameters &parameters) {
     std::lock_guard operation_lock(operation_mutex_);
     if (release_requested())
       return;
     set_rates_locked(parameters);
   }
+
+ public:
 
   EncoderInfo GetEncoderInfo() const override {
     EncoderInfo info;
@@ -313,6 +361,12 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     output_sample_.Reset();
     output_buffer_.Reset();
     output_capacity_ = 0;
+    inflight_input_sample_.Reset();
+    inflight_input_buffer_.Reset();
+    input_sample_.Reset();
+    input_buffer_.Reset();
+    input_capacity_ = 0;
+    input_stream_flags_ = 0;
     transform_.Reset();
     if (activation_ != nullptr)
       static_cast<void>(activation_->ShutdownObject());
@@ -333,14 +387,15 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
   int32_t encode_locked(
       const webrtc::VideoFrame &frame,
       const std::vector<webrtc::VideoFrameType> *frame_types) {
+    const auto deadline = std::chrono::steady_clock::now() + kOutputDrainTimeout;
     if (pending_frames_.size() >= kMaxPendingFrames) {
       notify_drop(frame.rtp_timestamp());
       return WEBRTC_VIDEO_CODEC_OK;
     }
 
-    if (!pump_events())
+    if (!pump_events(deadline))
       return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-    if (asynchronous_ && !wait_for_input()) {
+    if (asynchronous_ && !wait_for_input(deadline)) {
       notify_drop(frame.rtp_timestamp());
       return WEBRTC_VIDEO_CODEC_OK;
     }
@@ -360,13 +415,24 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     if (request_keyframe)
       force_keyframe();
 
-    ComPtr<IMFSample> sample;
-    ComPtr<IMFMediaBuffer> buffer;
     const auto input_size = static_cast<DWORD>(
         static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) *
         3U / 2U);
-    if (FAILED(MFCreateSample(&sample)) ||
-        FAILED(MFCreateMemoryBuffer(input_size, &buffer))) {
+    if (inflight_input_sample_ != nullptr)
+      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+    if (input_buffer_ == nullptr || input_capacity_ < input_size) {
+      input_sample_.Reset();
+      input_buffer_.Reset();
+      if (FAILED(MFCreateSample(&input_sample_)) ||
+          FAILED(MFCreateMemoryBuffer(input_size, &input_buffer_)) ||
+          FAILED(input_sample_->AddBuffer(input_buffer_.Get()))) {
+        return WEBRTC_VIDEO_CODEC_MEMORY;
+      }
+      input_capacity_ = input_size;
+    }
+    auto &sample = input_sample_;
+    auto &buffer = input_buffer_;
+    if (input_stream_flags_ & MFT_INPUT_STREAM_HOLDS_BUFFERS) {
       return WEBRTC_VIDEO_CODEC_MEMORY;
     }
     BYTE *data = nullptr;
@@ -378,8 +444,7 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
                                    input_size),
         width_);
     static_cast<void>(buffer->Unlock());
-    if (!copied || FAILED(buffer->SetCurrentLength(input_size)) ||
-        FAILED(sample->AddBuffer(buffer.Get()))) {
+    if (!copied || FAILED(buffer->SetCurrentLength(input_size))) {
       return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
     }
 
@@ -391,19 +456,23 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     }
     auto input_result = transform_->ProcessInput(kInputStream, sample.Get(), 0);
     if (input_result == MF_E_NOTACCEPTING) {
-      if (!pump_events())
+      if (!pump_events(deadline))
         return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
       input_result = transform_->ProcessInput(kInputStream, sample.Get(), 0);
     }
     if (FAILED(input_result))
       return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    // ProcessInput is allowed to retain the sample. Keep one adapter-owned
+    // reference until its sole pending frame has produced output or teardown.
+    inflight_input_sample_ = sample;
+    inflight_input_buffer_ = buffer;
     input_requested_ = !asynchronous_;
     pending_frames_.push_back(
         {.rtp_timestamp = frame.rtp_timestamp(),
          .ntp_time_ms = frame.ntp_time_ms(),
          .capture_time_ms = frame.timestamp_us() / 1'000,
          .color_space = frame.color_space()});
-    return drain_pending_output() ? WEBRTC_VIDEO_CODEC_OK
+    return drain_pending_output(deadline) ? WEBRTC_VIDEO_CODEC_OK
                                   : WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
@@ -429,21 +498,22 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     VariantClear(&value);
   }
 
-  bool drain_pending_output() {
-    const auto deadline = std::chrono::steady_clock::now() + kOutputDrainTimeout;
-    do {
-      if (!pump_events())
+  bool drain_pending_output(std::chrono::steady_clock::time_point deadline) {
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (!pump_events(deadline))
         return false;
       if (pending_frames_.empty())
         return true;
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    } while (std::chrono::steady_clock::now() < deadline);
+    }
     return false;
   }
 
-  bool wait_for_input() {
-    for (int attempt = 0; attempt < 6 && !input_requested_; ++attempt) {
-      if (!pump_events())
+  bool wait_for_input(std::chrono::steady_clock::time_point deadline) {
+    for (int attempt = 0; attempt < 6 && !input_requested_ &&
+                        std::chrono::steady_clock::now() < deadline;
+         ++attempt) {
+      if (!pump_events(deadline))
         return false;
       if (!input_requested_)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -451,10 +521,12 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     return input_requested_;
   }
 
-  bool pump_events() {
+  bool pump_events(std::chrono::steady_clock::time_point deadline) {
     if (!asynchronous_)
-      return drain_synchronous_output();
-    while (true) {
+      return drain_synchronous_output(deadline);
+    for (std::size_t events = 0; events < kMaxPumpEventsPerPass; ++events) {
+      if (std::chrono::steady_clock::now() >= deadline)
+        return false;
       ComPtr<IMFMediaEvent> event;
       const auto result =
           event_generator_->GetEvent(MF_EVENT_FLAG_NO_WAIT, &event);
@@ -475,16 +547,21 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
           return false;
       }
     }
+    return std::chrono::steady_clock::now() < deadline;
   }
 
-  bool drain_synchronous_output() {
-    while (true) {
+  bool drain_synchronous_output(
+      std::chrono::steady_clock::time_point deadline) {
+    for (std::size_t outputs = 0; outputs < kMaxOutputsPerPass; ++outputs) {
+      if (std::chrono::steady_clock::now() >= deadline)
+        return false;
       const auto result = process_one_output_result();
       if (result == MF_E_TRANSFORM_NEED_MORE_INPUT)
         return true;
       if (FAILED(result))
         return false;
     }
+    return std::chrono::steady_clock::now() < deadline;
   }
 
   bool process_one_output() {
@@ -549,6 +626,8 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
 
     const auto metadata = std::move(pending_frames_.front());
     pending_frames_.pop_front();
+    inflight_input_sample_.Reset();
+    inflight_input_buffer_.Reset();
     webrtc::EncodedImage encoded;
     encoded.SetEncodedData(webrtc::EncodedImageBuffer::Create(
         normalized.data(), normalized.size()));
@@ -611,6 +690,7 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
     VariantClear(&value);
   }
 
+  MfCodecThread codec_thread_;
   std::unique_ptr<MfScope> scope_;
   ComPtr<IMFActivate> activation_;
   ComPtr<IMFTransform> transform_;
@@ -618,6 +698,12 @@ class WindowsMfH264Encoder final : public webrtc::VideoEncoder {
   ComPtr<IMFSample> output_sample_;
   ComPtr<IMFMediaBuffer> output_buffer_;
   DWORD output_capacity_{0};
+  ComPtr<IMFSample> inflight_input_sample_;
+  ComPtr<IMFMediaBuffer> inflight_input_buffer_;
+  ComPtr<IMFSample> input_sample_;
+  ComPtr<IMFMediaBuffer> input_buffer_;
+  DWORD input_capacity_{0};
+  DWORD input_stream_flags_{0};
   webrtc::EncodedImageCallback *callback_{nullptr};
   std::deque<PendingFrame> pending_frames_;
   int width_{0};
@@ -644,9 +730,10 @@ bool can_configure_hardware_encoder(int width, int height) {
       continue;
     bool asynchronous = false;
     ComPtr<IMFMediaEventGenerator> events;
+    DWORD input_stream_flags = 0;
     const bool configured = configure_transform(transform.Get(), width, height,
                                                 60, 8'000'000, asynchronous,
-                                                events);
+                                                events, input_stream_flags);
     if (configured) {
       static_cast<void>(
           transform->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0));
