@@ -113,9 +113,10 @@ void selects_hardware_only_after_a_true_probe_and_factory() {
 
   const auto unavailable = shareme::rtc::select_screen_video_encoder(
       ScreenStreamProfile::quality,
-      [](int width, int height, std::string &reason) {
+      [](int width, int height, int fps, std::string &reason) {
         REQUIRE(width == 2'560);
         REQUIRE(height == 1'440);
+        REQUIRE(fps == 60);
         reason = "probe-rejected";
         return false;
       },
@@ -131,9 +132,10 @@ void selects_hardware_only_after_a_true_probe_and_factory() {
   H264Factory::created_with_parameters = false;
   const auto selected = shareme::rtc::select_screen_video_encoder(
       ScreenStreamProfile::quality,
-      [](int width, int height, std::string &reason) {
+      [](int width, int height, int fps, std::string &reason) {
         REQUIRE(width == 2'560);
         REQUIRE(height == 1'440);
+        REQUIRE(fps == 60);
         reason.clear();
         return true;
       },
@@ -162,7 +164,7 @@ void selects_levels_that_cover_each_screen_profile() {
            std::pair{ScreenStreamProfile::cinema, "640c33"}}) {
     const auto selection = shareme::rtc::select_screen_video_encoder(
         profile,
-        [](int, int, std::string &reason) {
+        [](int, int, int, std::string &reason) {
           reason.clear();
           return true;
         },
@@ -180,7 +182,7 @@ void rejects_a_factory_without_h264_support() {
 
   const auto selection = shareme::rtc::select_screen_video_encoder(
       ScreenStreamProfile::quality,
-      [](int, int, std::string &reason) {
+      [](int, int, int, std::string &reason) {
         reason.clear();
         return true;
       },
@@ -188,7 +190,7 @@ void rejects_a_factory_without_h264_support() {
   REQUIRE(selection.factory != nullptr);
   REQUIRE(selection.diagnostics.fallback_active);
   REQUIRE(selection.diagnostics.fallback_reason ==
-          "videotoolbox-h264-unsupported");
+          "platform-h264-unsupported");
   REQUIRE(selection.capture_profile == ScreenStreamProfile::standard);
 }
 
@@ -197,7 +199,7 @@ void rejects_a_factory_that_cannot_create_an_encoder() {
 
   const auto selection = shareme::rtc::select_screen_video_encoder(
       ScreenStreamProfile::quality,
-      [](int, int, std::string &reason) {
+      [](int, int, int, std::string &reason) {
         reason.clear();
         return true;
       },
@@ -205,7 +207,7 @@ void rejects_a_factory_that_cannot_create_an_encoder() {
   REQUIRE(selection.factory != nullptr);
   REQUIRE(selection.diagnostics.fallback_active);
   REQUIRE(selection.diagnostics.fallback_reason ==
-          "videotoolbox-encoder-unavailable");
+          "platform-h264-encoder-unavailable");
   REQUIRE(selection.capture_profile == ScreenStreamProfile::standard);
 }
 
@@ -214,7 +216,7 @@ void rejects_a_factory_that_cannot_initialize_an_encoder() {
 
   const auto selection = shareme::rtc::select_screen_video_encoder(
       ScreenStreamProfile::quality,
-      [](int, int, std::string &reason) {
+      [](int, int, int, std::string &reason) {
         reason.clear();
         return true;
       },
@@ -222,7 +224,7 @@ void rejects_a_factory_that_cannot_initialize_an_encoder() {
   REQUIRE(selection.factory != nullptr);
   REQUIRE(selection.diagnostics.fallback_active);
   REQUIRE(selection.diagnostics.fallback_reason ==
-          "videotoolbox-encoder-initialization-failed");
+          "platform-h264-encoder-initialization-failed");
   REQUIRE(selection.capture_profile == ScreenStreamProfile::standard);
 }
 
@@ -231,7 +233,7 @@ void factory_failure_is_a_bounded_software_fallback() {
 
   const auto selection = shareme::rtc::select_screen_video_encoder(
       ScreenStreamProfile::cinema,
-      [](int, int, std::string &reason) {
+      [](int, int, int, std::string &reason) {
         reason.clear();
         return true;
       },
@@ -242,7 +244,7 @@ void factory_failure_is_a_bounded_software_fallback() {
   REQUIRE(selection.diagnostics.negotiated_codec == "VP8");
   REQUIRE(selection.capture_profile == ScreenStreamProfile::standard);
   REQUIRE(selection.diagnostics.fallback_reason ==
-          "videotoolbox-factory-unavailable");
+          "platform-h264-factory-unavailable");
   REQUIRE(selection.max_width == 1'920);
   REQUIRE(selection.max_height == 1'080);
 }

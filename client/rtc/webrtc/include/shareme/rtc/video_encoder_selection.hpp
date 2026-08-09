@@ -29,7 +29,8 @@ struct VideoEncoderSelection {
 };
 
 using PlatformH264Probe =
-    std::function<bool(int width, int height, std::string &reason)>;
+    std::function<bool(int width, int height, int frames_per_second,
+                       std::string &reason)>;
 using PlatformH264Factory =
     std::function<std::unique_ptr<webrtc::VideoEncoderFactory>()>;
 
@@ -43,6 +44,8 @@ using PlatformH264Factory =
 
 [[nodiscard]] bool probe_platform_h264_encoder(
     int width, int height, std::string &reason);
+[[nodiscard]] bool probe_platform_h264_codecs(
+    int width, int height, int frames_per_second, std::string &reason);
 [[nodiscard]] std::unique_ptr<webrtc::VideoEncoderFactory>
 create_platform_h264_encoder_factory();
 

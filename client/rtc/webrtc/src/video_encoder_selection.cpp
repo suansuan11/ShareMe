@@ -136,6 +136,11 @@ create_platform_h264_encoder_factory() {
 }
 #endif
 
+bool probe_platform_h264_codecs(int width, int height, int,
+                                std::string &reason) {
+  return probe_platform_h264_encoder(width, height, reason);
+}
+
 VideoEncoderSelection select_screen_video_encoder(
     core::ScreenStreamProfile profile, PlatformH264Probe probe,
     PlatformH264Factory factory) {
@@ -156,9 +161,11 @@ VideoEncoderSelection select_screen_video_encoder(
 
   std::string probe_reason;
   const bool hardware_probe_passed =
-      probe ? probe(bounds.max_width, bounds.max_height, probe_reason)
-            : probe_platform_h264_encoder(bounds.max_width, bounds.max_height,
-                                          probe_reason);
+      probe ? probe(bounds.max_width, bounds.max_height,
+                    bounds.max_frames_per_second, probe_reason)
+            : probe_platform_h264_codecs(
+                  bounds.max_width, bounds.max_height,
+                  bounds.max_frames_per_second, probe_reason);
   if (hardware_probe_passed) {
     auto hardware_factory =
         factory ? factory() : create_platform_h264_encoder_factory();
@@ -180,13 +187,13 @@ VideoEncoderSelection select_screen_video_encoder(
           return selection;
         }
         probe_reason = encoder == nullptr
-            ? "videotoolbox-encoder-unavailable"
-            : "videotoolbox-encoder-initialization-failed";
+            ? "platform-h264-encoder-unavailable"
+            : "platform-h264-encoder-initialization-failed";
       } else {
-        probe_reason = "videotoolbox-h264-unsupported";
+        probe_reason = "platform-h264-unsupported";
       }
     } else {
-      probe_reason = "videotoolbox-factory-unavailable";
+      probe_reason = "platform-h264-factory-unavailable";
     }
   }
 
@@ -198,7 +205,8 @@ VideoEncoderSelection select_screen_video_encoder(
   selection.diagnostics.negotiated_codec = "VP8";
   selection.diagnostics.fallback_active = true;
   selection.diagnostics.fallback_reason =
-      probe_reason.empty() ? "videotoolbox-unavailable" : std::move(probe_reason);
+      probe_reason.empty() ? "platform-h264-unavailable"
+                           : std::move(probe_reason);
   return selection;
 }
 
