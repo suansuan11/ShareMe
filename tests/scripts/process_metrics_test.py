@@ -6,6 +6,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 class ProcessMetricsTest(unittest.TestCase):
@@ -64,6 +65,21 @@ class ProcessMetricsTest(unittest.TestCase):
         self.assertGreater(sample.monotonic_ms, 0)
         self.assertGreater(sample.rss_bytes, 0)
         self.assertGreaterEqual(sample.cpu_percent, 0.0)
+
+    def test_closes_backend_deterministically(self):
+        class Backend:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        backend = Backend()
+        with mock.patch.object(self.metrics, "create_process_backend",
+                               return_value=backend):
+            sampler = self.metrics.ProcessSampler(123)
+            sampler.close()
+        self.assertTrue(backend.closed)
 
 
 if __name__ == "__main__":

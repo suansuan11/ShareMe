@@ -123,13 +123,18 @@ def collect_samples(process: subprocess.Popen, sampler: ProcessSampler,
 def sample_idle_process(demo: Path, duration_seconds: float,
                         sampler_factory=ProcessSampler) -> dict:
     process = launch_idle_demo(demo)
+    sampler = None
     try:
         sampler = sampler_factory(process.pid)
         return summarize_samples(collect_samples(process, sampler, duration_seconds))
     except ProcessMetricsError as error:
         raise GuiSmokeFailure(error.category, []) from error
     finally:
-        terminate_process(process)
+        try:
+            if sampler is not None:
+                sampler.close()
+        finally:
+            terminate_process(process)
 
 
 def atomic_write_json(path: Path, payload: dict) -> None:

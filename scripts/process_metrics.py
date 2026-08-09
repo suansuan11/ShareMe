@@ -112,6 +112,9 @@ class _PsProcessBackend:
         self._previous = current
         return result
 
+    def close(self) -> None:
+        return None
+
 
 class _WindowsProcessBackend:
     _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -232,3 +235,12 @@ class ProcessSampler:
 
     def sample(self) -> ProcessSample:
         return self._backend.sample()
+
+    def close(self) -> None:
+        self._backend.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()

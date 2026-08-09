@@ -69,11 +69,14 @@ class GuiCallSmokeTest(unittest.TestCase):
 
     def test_idle_sampling_uses_injected_cross_platform_sampler(self):
         runner = self.runner
+        samplers = []
 
         class FakeSampler:
             def __init__(self, pid: int):
                 self.pid = pid
                 self.index = 0
+                self.closed = False
+                samplers.append(self)
 
             def sample(self):
                 values = ((2.5, 1_024), (7.5, 2_048))
@@ -85,6 +88,9 @@ class GuiCallSmokeTest(unittest.TestCase):
                     rss_bytes=rss_bytes,
                 )
 
+            def close(self):
+                self.closed = True
+
         with tempfile.TemporaryDirectory() as temporary:
             demo = self.make_demo(Path(temporary), idle_seconds=2.0)
             idle = self.runner.sample_idle_process(
@@ -93,6 +99,31 @@ class GuiCallSmokeTest(unittest.TestCase):
         self.assertGreaterEqual(idle["sampleCount"], 1)
         self.assertGreater(idle["cpuMeanPercent"], 0.0)
         self.assertEqual(idle["rssMaxKiB"], 2)
+        self.assertTrue(samplers[0].closed)
+
+    def test_idle_sampling_closes_sampler_after_sampling_failure(self):
+        runner = self.runner
+        samplers = []
+
+        class FailingSampler:
+            def __init__(self, pid: int):
+                self.closed = False
+                samplers.append(self)
+
+            def sample(self):
+                raise runner.ProcessMetricsError("process-output-malformed")
+
+            def close(self):
+                self.closed = True
+
+        with tempfile.TemporaryDirectory() as temporary:
+            demo = self.make_demo(Path(temporary), idle_seconds=2.0)
+            with self.assertRaisesRegex(self.runner.GuiSmokeFailure,
+                                        "process-output-malformed"):
+                self.runner.sample_idle_process(
+                    demo, 0.3, sampler_factory=FailingSampler
+                )
+        self.assertTrue(samplers[0].closed)
 
 
 if __name__ == "__main__":
