@@ -42,7 +42,7 @@ configured bounds require higher levels. VideoToolbox returned
 profile and packetization parameters while advertising Level 4.2 for
 `standard` and Level 5.1 for `quality`/`cinema`.
 
-The current display produced `1470x956` frames, so exact target-resolution
+The current macOS display produced `1470x956` frames, so exact target-resolution
 behavior, visual frame integrity, foreground/background recovery, and live
 voice continuity remain partial or environment-dependent. Windows native
 screen evidence remains separate and unverified.
@@ -74,13 +74,25 @@ A separate native microphone probe verified nonzero microphone levels and
 bidirectional audio RTP. Actual speaker audibility, subjective echo control,
 human visual integrity, physical foreground/background behavior, temperature,
 and physical 1080p/1440p/4K display coverage remain partial or
-environment-dependent. Windows native evidence is unchanged.
+environment-dependent.
 
-The next product stage is **Windows Native Screen and Voice Parity**: implement
-or close the existing Windows capture/encoder path against the same geometry,
-voice-continuity, bounded-recovery, and no-quality-reduction gates, then perform
-a two-device human audio/visual acceptance pass. macOS physical-display and
-acoustic evidence may be completed in parallel as environment permits.
+Windows now has a native screen-source adapter over the existing Desktop
+Duplication implementation. On Windows AMD64 with MSVC 19.51, fresh
+`call-dev` and `movie-call-dev` builds passed 42/42 and 67/67 CTest tests. A
+local two-peer `standard` run delivered 1920x1080 VP8 from host to viewer with
+nonzero encode/decode counters and bitrate. Windows quality and cinema
+software-fallback routing is partial because static-desktop runs did not
+establish sustained cadence. Windows platform hardware WebRTC encoding, cursor
+composition, display selection, and output above the standard software fallback
+bound remain unimplemented. See
+[Hardware Screen Streaming Verification](../verification/hardware-screen-streaming.md).
+
+The next product stage is the **remaining Windows Screen and Voice Acceptance**:
+close Windows hardware encoding and perform the two-device human audio/visual
+acceptance pass. Sustained quality/cinema cadence, cursor composition, display
+selection, and physical-display evidence remain explicit platform boundaries.
+macOS physical-display and acoustic evidence may be completed in parallel as
+environment permits.
 File sharing, Movie Stage 2B, system-audio capture, HDR, remote input, TURN, and
 4K60 optimization remain postponed and must not displace this direction.
 
