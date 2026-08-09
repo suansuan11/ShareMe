@@ -239,6 +239,58 @@ if(TARGET ShareMe::QtSignaling)
   add_test(NAME rtc_demo_control_state COMMAND shareme_rtc_demo_control_state_test)
 
   add_executable(
+    shareme_launch_options_test
+    launch_options_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/launch_options.cpp"
+  )
+  target_include_directories(
+    shareme_launch_options_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_launch_options_test PRIVATE cxx_std_20)
+  target_link_libraries(shareme_launch_options_test PRIVATE Qt6::Core)
+  shareme_set_project_warnings(shareme_launch_options_test)
+  add_test(NAME launch_options COMMAND shareme_launch_options_test)
+
+  add_executable(
+    shareme_app_preferences_test
+    app_preferences_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/app_preferences.cpp"
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/app_session_config.cpp"
+  )
+  target_include_directories(
+    shareme_app_preferences_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_app_preferences_test PRIVATE cxx_std_20)
+  target_link_libraries(
+    shareme_app_preferences_test
+    PRIVATE ShareMe::Core ShareMe::WebRTC Qt6::Core
+  )
+  shareme_set_project_warnings(shareme_app_preferences_test)
+  add_test(NAME app_preferences COMMAND shareme_app_preferences_test)
+
+  add_executable(
+    shareme_app_controller_test
+    shareme_app_controller_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/shareme_app_controller.cpp"
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/app_preferences.cpp"
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/app_session_config.cpp"
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/call_session.cpp"
+  )
+  target_include_directories(
+    shareme_app_controller_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_app_controller_test PRIVATE cxx_std_20)
+  target_link_libraries(
+    shareme_app_controller_test
+    PRIVATE ShareMe::Core ShareMe::WebRTC Qt6::Core
+  )
+  shareme_set_project_warnings(shareme_app_controller_test)
+  add_test(NAME app_controller COMMAND shareme_app_controller_test)
+
+  add_executable(
     shareme_playback_state_test
     playback_state_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/playback_state.cpp"

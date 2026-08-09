@@ -181,7 +181,7 @@ RtcDemoController::RtcDemoController(QUrl server_url,
                                      QString drift_scenario_name,
                                      qint64 measurement_duration_seconds,
                                      QObject *parent)
-    : QObject(parent), server_url_(std::move(server_url)), role_(role),
+    : CallSession(parent), server_url_(std::move(server_url)), role_(role),
       requested_room_(std::move(requested_room)),
        desktop_source_(desktop_source), screen_source_(screen_source),
        screen_profile_(screen_profile), audio_mode_(audio_mode),

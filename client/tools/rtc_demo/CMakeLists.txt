@@ -40,6 +40,10 @@ endif()
 
 set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
                               app_session_config.cpp app_session_config.hpp
+                              app_preferences.cpp app_preferences.hpp
+                              call_session.cpp call_session.hpp
+                              launch_options.cpp launch_options.hpp
+                              shareme_app_controller.cpp shareme_app_controller.hpp
                               rtc_control_state.cpp rtc_control_state.hpp
                               playout_report.cpp playout_report.hpp
                               movie_audio_clock_message.cpp movie_audio_clock_message.hpp
@@ -73,6 +77,7 @@ qt_add_qml_module(
   VERSION 1.0
   QML_FILES
     qml/Main.qml
+    qml/LegacyCallView.qml
 )
 
 target_link_libraries(

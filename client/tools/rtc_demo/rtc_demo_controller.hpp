@@ -11,6 +11,7 @@
 #include "shareme/core/movie_audio_renderer.hpp"
 #include "movie_video_playout_adapter.hpp"
 #include "qt_audio_route_monitor.hpp"
+#include "call_session.hpp"
 #include "rtc_control_state.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
@@ -44,7 +45,7 @@ class MovieVideoSource;
 }
 #endif
 
-class RtcDemoController final : public QObject {
+class RtcDemoController final : public shareme::tools::CallSession {
   Q_OBJECT
   Q_PROPERTY(QString status READ status NOTIFY statusChanged)
   Q_PROPERTY(QString roomId READ roomId NOTIFY roomIdChanged)
@@ -106,8 +107,8 @@ public:
   RtcDemoController(const RtcDemoController &) = delete;
   RtcDemoController &operator=(const RtcDemoController &) = delete;
 
-  [[nodiscard]] QString status() const;
-  [[nodiscard]] QString roomId() const;
+  [[nodiscard]] QString status() const override;
+  [[nodiscard]] QString roomId() const override;
   [[nodiscard]] bool viewer() const noexcept;
   [[nodiscard]] bool remoteVideoAvailable() const noexcept;
   [[nodiscard]] QString remotePlaybackState() const;
@@ -147,20 +148,18 @@ public:
   [[nodiscard]] bool microphoneMuted() const noexcept;
   [[nodiscard]] bool speakerMuted() const noexcept;
   [[nodiscard]] bool stoppable() const noexcept;
-  [[nodiscard]] bool sessionEnded() const noexcept;
+  [[nodiscard]] bool sessionEnded() const noexcept override;
 
   Q_INVOKABLE void setVideoSink(QVideoSink *sink);
-  Q_INVOKABLE void start();
+  Q_INVOKABLE void start() override;
   Q_INVOKABLE void pauseHostPlayback();
   Q_INVOKABLE void resumeHostPlayback();
   Q_INVOKABLE void seekHostPlayback(qint64 absolute_pts_ms);
-  Q_INVOKABLE bool setMicrophoneMuted(bool muted);
-  Q_INVOKABLE bool setSpeakerMuted(bool muted);
-  Q_INVOKABLE void stop();
+  Q_INVOKABLE bool setMicrophoneMuted(bool muted) override;
+  Q_INVOKABLE bool setSpeakerMuted(bool muted) override;
+  Q_INVOKABLE void stop() override;
 
 signals:
-  void statusChanged();
-  void roomIdChanged();
   void remoteVideoAvailableChanged();
   void remotePlaybackChanged();
   void hostPlaybackChanged();
@@ -169,7 +168,6 @@ signals:
   void videoDiagnosticsChanged();
   void presentationDiagnosticsChanged();
   void callControlsChanged();
-  void sessionEndedChanged();
 
 private:
   bool createPeer();

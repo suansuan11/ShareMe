@@ -1,4 +1,6 @@
 #include "rtc_demo_controller.hpp"
+#include "launch_options.hpp"
+#include "shareme_app_controller.hpp"
 #include "shareme/core/screen_stream_profile.hpp"
 
 #include <QCommandLineOption>
@@ -6,6 +8,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <QSettings>
 #include <QVariant>
 
 #include <cstdlib>
@@ -32,6 +35,7 @@ int main(int argc, char **argv) {
   QQuickStyle::setStyle(QStringLiteral("Basic"));
   QGuiApplication app(argc, argv);
   QCoreApplication::setApplicationName(QStringLiteral("ShareMe RTC Demo"));
+  QCoreApplication::setOrganizationName(QStringLiteral("ShareMe"));
 
   QCommandLineParser parser;
   parser.setApplicationDescription(
@@ -111,6 +115,17 @@ int main(int argc, char **argv) {
   }
 
   const auto role_text = parser.value(role_option);
+  const auto any_rtc_option =
+      parser.isSet(server_option) || parser.isSet(role_option) ||
+      parser.isSet(room_option) || parser.isSet(source_option) ||
+      parser.isSet(screen_profile_option) || parser.isSet(audio_option) ||
+      parser.isSet(no_audio_playout_option) || parser.isSet(movie_option) ||
+      parser.isSet(movie_audio_option) ||
+      parser.isSet(video_acceleration_option) || parser.isSet(metrics_option) ||
+      parser.isSet(scenario_option) || parser.isSet(duration_option) ||
+      parser.isSet(validate_option);
+  const auto launch = shareme::tools::classify_launch(
+      any_rtc_option, parser.isSet(server_option), role_text);
   auto source_text = parser.value(source_option);
   if (source_text.isEmpty()) {
 #if defined(__APPLE__)
@@ -147,7 +162,8 @@ int main(int argc, char **argv) {
        source_text == QStringLiteral("movie") &&
        parser.value(scenario_option) == QStringLiteral("drift-study-v1") &&
        duration_ok && duration_seconds == 300);
-  if (!parser.isSet(server_option) ||
+  if (!launch.accepted ||
+      (!launch.interactive && (!parser.isSet(server_option) ||
       (role_text != QStringLiteral("host") &&
        role_text != QStringLiteral("viewer")) ||
       (role_text == QStringLiteral("viewer") &&
@@ -179,7 +195,7 @@ int main(int argc, char **argv) {
         (role_text != QStringLiteral("host") ||
          source_text != QStringLiteral("movie") || metrics_path.empty() ||
          metrics_matches_movie)) ||
-      !scenario_valid) {
+      !scenario_valid))) {
     std::cerr << "required: --server URL --role host|viewer "
                  "[--room ROOM] [--source test|desktop|movie|screen] "
                  "[--screen-profile standard|quality|cinema] [--movie PATH] "
@@ -191,20 +207,21 @@ int main(int argc, char **argv) {
     exit_cli(2);
   }
 #if !defined(SHAREME_HAS_DESKTOP_CAPTURE)
-  if (source_text == QStringLiteral("desktop")) {
+  if (!launch.interactive &&
+      source_text == QStringLiteral("desktop")) {
     std::cerr << "desktop source is only available on Windows" << std::endl;
     exit_cli(2);
   }
 #endif
 #if !defined(__APPLE__) && !defined(SHAREME_HAS_DESKTOP_CAPTURE)
-  if (source_text == QStringLiteral("screen")) {
+  if (!launch.interactive && source_text == QStringLiteral("screen")) {
     std::cerr << "screen source requires macOS or Windows Desktop Duplication"
               << std::endl;
     exit_cli(2);
   }
 #endif
 #if !defined(SHAREME_HAS_MOVIE_RTC)
-  if (source_text == QStringLiteral("movie")) {
+  if (!launch.interactive && source_text == QStringLiteral("movie")) {
     std::cerr << "movie source requires an FFmpeg-enabled build" << std::endl;
     exit_cli(2);
   }
@@ -212,32 +229,60 @@ int main(int argc, char **argv) {
   if (parser.isSet(validate_option))
     exit_cli(0);
 
-  const auto role = role_text == QStringLiteral("host")
-                        ? shareme::rtc::SignaledRole::host
-                        : shareme::rtc::SignaledRole::viewer;
-  const auto audio_mode =
-      audio_value == QStringLiteral("microphone")
-          ? shareme::rtc::SignaledAudioMode::microphone
-          : shareme::rtc::SignaledAudioMode::synthetic;
-  RtcDemoController controller(QUrl(parser.value(server_option)), role,
-                               parser.value(room_option),
-                               source_text == QStringLiteral("desktop"),
-                               source_text == QStringLiteral("screen"),
-                               *screen_profile,
-                               audio_mode,
-                               !parser.isSet(no_audio_playout_option),
-                               movie_path, parser.isSet(movie_audio_option),
-                               video_acceleration,
-                               parser.value(metrics_option),
-                               parser.value(scenario_option), duration_seconds);
+  const auto factory = [](const shareme::tools::AppSessionConfig &config,
+                          QObject *parent)
+      -> std::unique_ptr<shareme::tools::CallSession> {
+    const auto role = config.role == shareme::tools::InteractiveRole::host
+                          ? shareme::rtc::SignaledRole::host
+                          : shareme::rtc::SignaledRole::viewer;
+    return std::make_unique<RtcDemoController>(
+        config.server_url, role, config.requested_room,
+        config.video_source == shareme::tools::SessionVideoSource::desktop,
+        config.video_source == shareme::tools::SessionVideoSource::screen,
+        config.screen_profile, config.audio_mode, config.native_audio_playout,
+        config.movie_path, config.movie_audio, config.video_acceleration,
+        config.metrics_jsonl_path, config.drift_scenario_name,
+        config.measurement_duration_seconds, parent);
+  };
+  QSettings settings;
+  shareme::tools::AppPreferences preferences(settings);
+  shareme::tools::ShareMeAppController app_controller(factory, &preferences);
   QQmlApplicationEngine engine;
   engine.setInitialProperties(
-      {{QStringLiteral("controller"), QVariant::fromValue(&controller)}});
+      {{QStringLiteral("appController"),
+        QVariant::fromValue(&app_controller)}});
   engine.loadFromModule(QStringLiteral("ShareMe.RtcDemo"),
                         QStringLiteral("Main"));
   if (engine.rootObjects().isEmpty())
     return EXIT_FAILURE;
-  QMetaObject::invokeMethod(&controller, &RtcDemoController::start,
-                            Qt::QueuedConnection);
+  if (!launch.interactive) {
+    shareme::tools::AppSessionConfig config;
+    config.server_url = QUrl(parser.value(server_option));
+    config.role = role_text == QStringLiteral("host")
+                      ? shareme::tools::InteractiveRole::host
+                      : shareme::tools::InteractiveRole::viewer;
+    config.requested_room = parser.value(room_option);
+    if (source_text == QStringLiteral("desktop"))
+      config.video_source = shareme::tools::SessionVideoSource::desktop;
+    else if (source_text == QStringLiteral("movie"))
+      config.video_source = shareme::tools::SessionVideoSource::movie;
+    else if (source_text == QStringLiteral("screen"))
+      config.video_source = shareme::tools::SessionVideoSource::screen;
+    else
+      config.video_source = shareme::tools::SessionVideoSource::test;
+    config.screen_profile = *screen_profile;
+    config.audio_mode = audio_value == QStringLiteral("microphone")
+                            ? shareme::rtc::SignaledAudioMode::microphone
+                            : shareme::rtc::SignaledAudioMode::synthetic;
+    config.native_audio_playout = !parser.isSet(no_audio_playout_option);
+    config.movie_path = movie_path;
+    config.movie_audio = parser.isSet(movie_audio_option);
+    config.video_acceleration = video_acceleration;
+    config.metrics_jsonl_path = parser.value(metrics_option);
+    config.drift_scenario_name = parser.value(scenario_option);
+    config.measurement_duration_seconds = duration_seconds;
+    if (!app_controller.startConfiguredCall(std::move(config)))
+      return EXIT_FAILURE;
+  }
   return app.exec();
 }

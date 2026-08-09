@@ -4,6 +4,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -48,8 +49,28 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("--drift-scenario", result.stdout)
         self.assertIn("--measurement-duration-seconds", result.stdout)
 
-    def test_missing_required_options_is_usage_error(self):
-        self.assertEqual(self.run_demo().returncode, 2)
+    def test_no_arguments_launches_interactive_home(self):
+        environment = os.environ.copy()
+        environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+        process = subprocess.Popen(
+            [str(self.demo)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+        )
+        try:
+            time.sleep(0.5)
+            self.assertIsNone(process.poll())
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+
+    def test_partial_or_invalid_explicit_options_are_usage_errors(self):
+        self.assertEqual(
+            self.run_demo("--server", "ws://127.0.0.1:18080/v1/ws").returncode,
+            2,
+        )
         self.assertEqual(
             self.run_demo(
                 "--server", "ws://127.0.0.1:18080/v1/ws", "--role", "bad"
