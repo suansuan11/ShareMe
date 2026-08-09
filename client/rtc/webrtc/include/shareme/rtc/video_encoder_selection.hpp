@@ -35,8 +35,11 @@ using PlatformH264Factory =
 
 [[nodiscard]] VideoEncoderSelection select_screen_video_encoder(
     core::ScreenStreamProfile profile, PlatformH264Probe probe = {},
-    PlatformH264Factory factory = {},
-    std::string_view hardware_implementation = {});
+    PlatformH264Factory factory = {});
+
+[[nodiscard]] VideoEncoderSelection select_screen_video_encoder(
+    core::ScreenStreamProfile profile, PlatformH264Probe probe,
+    PlatformH264Factory factory, std::string_view hardware_implementation);
 
 [[nodiscard]] bool probe_platform_h264_encoder(
     int width, int height, std::string &reason);

@@ -138,6 +138,13 @@ create_platform_h264_encoder_factory() {
 
 VideoEncoderSelection select_screen_video_encoder(
     core::ScreenStreamProfile profile, PlatformH264Probe probe,
+    PlatformH264Factory factory) {
+  return select_screen_video_encoder(profile, std::move(probe),
+                                     std::move(factory), {});
+}
+
+VideoEncoderSelection select_screen_video_encoder(
+    core::ScreenStreamProfile profile, PlatformH264Probe probe,
     PlatformH264Factory factory, std::string_view hardware_implementation) {
   const auto bounds = core::screen_stream_profile_bounds(profile);
   VideoEncoderSelection selection{
