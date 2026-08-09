@@ -39,6 +39,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
+                              app_session_config.cpp app_session_config.hpp
                               playout_report.cpp playout_report.hpp
                               movie_audio_clock_message.cpp movie_audio_clock_message.hpp
                               drift_metrics_jsonl.cpp drift_metrics_jsonl.hpp

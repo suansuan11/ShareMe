@@ -208,6 +208,23 @@ add_test(NAME drift_scenario COMMAND shareme_drift_scenario_test)
 
 if(TARGET ShareMe::QtSignaling)
   add_executable(
+    shareme_app_session_config_test
+    app_session_config_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/app_session_config.cpp"
+  )
+  target_include_directories(
+    shareme_app_session_config_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(shareme_app_session_config_test PRIVATE cxx_std_20)
+  target_link_libraries(
+    shareme_app_session_config_test
+    PRIVATE ShareMe::Core ShareMe::WebRTC Qt6::Core
+  )
+  shareme_set_project_warnings(shareme_app_session_config_test)
+  add_test(NAME app_session_config COMMAND shareme_app_session_config_test)
+
+  add_executable(
     shareme_playback_state_test
     playback_state_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/playback_state.cpp"
