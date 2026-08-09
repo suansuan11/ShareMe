@@ -35,14 +35,14 @@
 **Interfaces:**
 - Produces: `SignaledPeerConfig::native_audio_playout` and an RTC demo `--audio microphone|synthetic`, `--no-audio-playout` contract.
 
-- [ ] Add failing peer tests proving `native_audio_playout=false` is accepted and invalid audio modes are rejected.
-- [ ] Add failing CLI tests proving interactive defaults are microphone/playout and explicit synthetic/no-playout validation is accepted.
-- [ ] Run focused tests and confirm the new assertions fail for missing policy wiring.
-- [ ] Add `native_audio_playout` to `SignaledPeerConfig` and pass it to `PeerConnection::SetAudioPlayout`.
-- [ ] Parse RTC demo voice options, pass `SignaledAudioMode` and playout policy into `RtcDemoController`, and then into `SignaledPeerConfig`.
-- [ ] Keep automated commands explicit; never silently fall back from microphone to synthetic.
-- [ ] Run focused C++ and CLI tests until green.
-- [ ] Commit as `feat: enable primary voice in screen calls`.
+- [x] Add failing peer tests proving `native_audio_playout=false` is accepted and invalid audio modes are rejected.
+- [x] Add failing CLI tests proving interactive defaults are microphone/playout and explicit synthetic/no-playout validation is accepted.
+- [x] Run focused tests and confirm the new assertions fail for missing policy wiring.
+- [x] Add `native_audio_playout` to `SignaledPeerConfig` and pass it to `PeerConnection::SetAudioPlayout`.
+- [x] Parse RTC demo voice options, pass `SignaledAudioMode` and playout policy into `RtcDemoController`, and then into `SignaledPeerConfig`.
+- [x] Keep automated commands explicit; never silently fall back from microphone to synthetic.
+- [x] Run focused C++ and CLI tests until green.
+- [x] Commit as `feat: enable primary voice in screen calls`.
 
 ### Task 2: Non-blocking primary voice statistics
 
@@ -58,13 +58,13 @@
 - Produces: `SignaledMediaStats media_stats() const noexcept` with video fields and `voice_packets_sent`, `voice_packets_received`, `voice_bytes_sent`, `voice_bytes_received`.
 - Consumes: expected primary voice track helpers already used by final wait stats.
 
-- [ ] Add failing tests for outbound/inbound primary voice selection and periodic media-stat fields.
-- [ ] Confirm the focused tests fail before production changes.
-- [ ] Rename the periodic result/API to `SignaledMediaStats` and collect expected audio RTP packet/byte totals in the existing async stats report.
-- [ ] Update the controller worker and sanitized `PERF_COUNTERS` line without adding a second stats poller.
-- [ ] Assert the Qt counter timer contains no direct `GetStats` or `media_stats()` call.
-- [ ] Run signaled-peer and CLI contract suites until green.
-- [ ] Commit as `feat: expose primary voice continuity stats`.
+- [x] Add failing tests for outbound/inbound primary voice selection and periodic media-stat fields.
+- [x] Confirm the focused tests fail before production changes.
+- [x] Rename the periodic result/API to `SignaledMediaStats` and collect expected audio RTP packet/byte totals in the existing async stats report.
+- [x] Update the controller worker and sanitized `PERF_COUNTERS` line without adding a second stats poller.
+- [x] Assert the Qt counter timer contains no direct `GetStats` or `media_stats()` call.
+- [x] Run signaled-peer and CLI contract suites until green.
+- [x] Commit as `feat: expose primary voice continuity stats`.
 
 ### Task 3: Geometry and voice continuity gates
 
@@ -77,13 +77,13 @@
 - Produces: monotonic counter validation, five-sample maximum voice stall window, host/viewer geometry agreement, and JSONL summary fields.
 - Consumes: Task 2 `PERF_COUNTERS` voice totals.
 
-- [ ] Add failing Python tests for missing voice fields, counter regression, six-sample stalls, dimension disagreement, and valid five-sample DTX gaps.
-- [ ] Run the focused Python suite and confirm expected failures.
-- [ ] Add the four voice integer keys to the parser and require explicit synthetic/no-playout in host/viewer commands.
-- [ ] Implement monotonic/progress validation after warm-up and profile/aspect geometry checks.
-- [ ] Include voice packet totals and maximum no-progress windows in the sanitized summary.
-- [ ] Run the focused Python suite and registered smoke contract until green.
-- [ ] Commit as `test: gate screen calls on voice continuity`.
+- [x] Add failing Python tests for missing voice fields, counter regression, six-sample stalls, dimension disagreement, and valid five-sample DTX gaps.
+- [x] Run the focused Python suite and confirm expected failures.
+- [x] Add the four voice integer keys to the parser and require explicit synthetic/no-playout in host/viewer commands.
+- [x] Implement monotonic/progress validation after warm-up and profile/aspect geometry checks.
+- [x] Include voice packet totals and maximum no-progress windows in the sanitized summary.
+- [x] Run the focused Python suite and registered smoke contract until green.
+- [x] Commit as `test: gate screen calls on voice continuity`.
 
 ### Task 4: Bounded presentation recovery probe
 
@@ -99,13 +99,13 @@
 **Interfaces:**
 - Produces: `VideoPreviewAdapter::close_ingress()`, `reopen_ingress(QVideoSink*)`, `presentation_epoch`, and `presentation_recovery_count` diagnostics.
 
-- [ ] Add failing adapter tests: close rejects frames, reopen accepts only a new frame, pending depth stays at one, and no stale pending frame is replayed.
-- [ ] Confirm the adapter tests fail before implementation.
-- [ ] Implement close/reopen on the shared state without recreating the adapter or peer.
-- [ ] Under `SHAREME_SCREEN_RECOVERY_PROBE`, schedule one viewer close/reopen after initial submissions and record the first post-recovery submission.
-- [ ] Extend counters and runner tests to require exactly one recovery and post-recovery progress when the probe is enabled.
-- [ ] Run adapter, CLI, and smoke-contract suites until green.
-- [ ] Commit as `feat: verify bounded screen presentation recovery`.
+- [x] Add failing adapter tests: close rejects frames, reopen accepts only a new frame, pending depth stays at one, and no stale pending frame is replayed.
+- [x] Confirm the adapter tests fail before implementation.
+- [x] Implement close/reopen on the shared state without recreating the adapter or peer.
+- [x] Under `SHAREME_SCREEN_RECOVERY_PROBE`, schedule one viewer close/reopen after initial submissions and record the first post-recovery submission.
+- [x] Extend counters and runner tests to require exactly one recovery and post-recovery progress when the probe is enabled.
+- [x] Run adapter, CLI, and smoke-contract suites until green.
+- [x] Commit as `feat: verify bounded screen presentation recovery`.
 
 ### Task 5: Native acceptance, review, and handoff
 
@@ -117,13 +117,12 @@
 **Interfaces:**
 - Produces: exact macOS evidence, Windows/environment boundaries, rollback SHA, and next-stage recommendation.
 
-- [ ] Fresh-configure and build `call-dev` and `movie-call-dev` against the preserved external WebRTC root.
-- [ ] Run focused tests, full CTest, Go race/vet, workflow 8/8, skill validation, portable-header scan, and `git diff --check`.
-- [ ] Run macOS native standard 10/30 seconds, quality 30 seconds, cinema 30 seconds, and one cinema 120-second stability/recovery gate on distinct ports.
-- [ ] Run an interactive microphone/playout launch where current permissions permit; label actual listening and echo observations separately from RTP evidence.
-- [ ] Review the full branch for lifecycle, stats-thread, audio-path isolation, privacy, and scope findings; resolve Critical/Important findings.
-- [ ] Update verification and canonical handoff with verified/partial/environment-dependent/unimplemented labels.
+- [x] Fresh-configure and build `call-dev` and `movie-call-dev` against the preserved external WebRTC root.
+- [x] Run focused tests, full CTest, Go race/vet, workflow 8/8, skill validation, portable-header scan, and `git diff --check`.
+- [x] Run macOS native standard 10/30 seconds, quality 30 seconds, cinema 30 seconds, and one cinema 120-second stability/recovery gate on distinct ports.
+- [x] Run an interactive microphone/playout launch where current permissions permit; label actual listening and echo observations separately from RTP evidence.
+- [x] Review the full branch for lifecycle, stats-thread, audio-path isolation, privacy, and scope findings; resolve Critical/Important findings.
+- [x] Update verification and canonical handoff with verified/partial/environment-dependent/unimplemented labels.
 - [ ] Commit as `docs: record screen and voice acceptance`.
 - [ ] Push the feature branch and verify the exact remote ref.
 - [ ] If all merge gates pass, fast-forward `main`, rerun full affected tests, push `main`, and remove only this merged worktree.
-

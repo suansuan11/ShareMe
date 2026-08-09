@@ -47,11 +47,37 @@ behavior, visual frame integrity, foreground/background recovery, and live
 voice continuity remain partial or environment-dependent. Windows native
 screen evidence remains separate and unverified.
 
-The next product stage is **Screen Streaming Quality and Voice Acceptance**:
-close exact profile/aspect behavior where suitable display evidence is
-available, verify visible integrity and foreground/background recovery, and
-exercise bidirectional voice continuously during screen sharing. Windows native
-GPU capture/encoding parity follows as a platform-specific delivery boundary.
+### Screen Streaming Quality and Voice Acceptance
+
+The accepted implementation is on `codex/screen-voice-acceptance` at code tip
+`0908b53` before the final evidence commit. Interactive RTC demo calls now use
+the real microphone and native primary-voice playout by default; deterministic
+smoke calls explicitly select synthetic voice and disable speaker playout.
+One background stats poller reports both video and primary-voice RTP totals,
+excluding independent movie audio.
+
+On macOS 26.6.1, Apple M4 arm64, `call-dev` passed 39/39 and
+`movie-call-dev` passed 64/64. Standard 10/30-second, quality 30-second,
+cinema 30-second, and cinema 120-second native runs all kept H.264
+VideoToolbox active, reported identical 1470x956 geometry at both peers,
+maintained bidirectional voice counter progress, and recovered exactly once
+from a screen-only bounded presentation close/reopen without replaying a stale
+frame. The two-minute run delivered 3471 host encoded and 3498 viewer decoded
+frames, roughly six thousand voice packets per direction, and 3397
+post-recovery viewer submissions. See
+[Screen Streaming Quality and Voice Acceptance](../verification/screen-streaming-quality-voice.md).
+
+A separate native microphone probe verified nonzero microphone levels and
+bidirectional audio RTP. Actual speaker audibility, subjective echo control,
+human visual integrity, physical foreground/background behavior, temperature,
+and physical 1080p/1440p/4K display coverage remain partial or
+environment-dependent. Windows native evidence is unchanged.
+
+The next product stage is **Windows Native Screen and Voice Parity**: implement
+or close the existing Windows capture/encoder path against the same geometry,
+voice-continuity, bounded-recovery, and no-quality-reduction gates, then perform
+a two-device human audio/visual acceptance pass. macOS physical-display and
+acoustic evidence may be completed in parallel as environment permits.
 File sharing, Movie Stage 2B, system-audio capture, HDR, remote input, TURN, and
 4K60 optimization remain postponed and must not displace this direction.
 
@@ -310,12 +336,13 @@ resolved.
 
 ## Next recommended stage
 
-Complete the remaining quality-preserving performance gate for the bounded
-diagnostics stage: a distinct baseline/candidate comparison, same-timestamp
-PSNR/SSIM samples, a paused probe, human GUI/audio acceptance, and Windows
-reruns. Do not lower quality, tune thresholds, resume viewer reportability
-repair, or start hard-resync until the frozen performance gate is genuinely
-satisfied. Windows validation remains a separate, environment-dependent stage.
+Proceed with Windows Native Screen and Voice Parity using the accepted macOS
+screen/voice contract: no quality reduction, host-video-send-only,
+viewer-video-receive-only, bidirectional primary voice, exact actual-capture
+geometry agreement, a bounded presentation recovery, and explicit native
+hardware evidence. Follow with a two-device human visual/audio acceptance run.
+Do not resume file sharing, Movie Stage 2B, reportability repair, or hard-resync
+work while this primary product direction remains incomplete.
 
 ## Git handoff
 

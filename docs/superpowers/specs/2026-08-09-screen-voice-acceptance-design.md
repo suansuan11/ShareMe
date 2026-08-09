@@ -130,4 +130,3 @@ The stage is mergeable when focused tests, `call-dev`, `movie-call-dev`, Go
 race/vet, workflow validation, and fresh standard/quality/cinema native smoke
 pass; the final evidence clearly separates synthetic RTP proof from human
 microphone/speaker proof; and no Critical or Important review finding remains.
-
