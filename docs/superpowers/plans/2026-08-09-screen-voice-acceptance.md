@@ -124,5 +124,5 @@
 - [x] Review the full branch for lifecycle, stats-thread, audio-path isolation, privacy, and scope findings; resolve Critical/Important findings.
 - [x] Update verification and canonical handoff with verified/partial/environment-dependent/unimplemented labels.
 - [x] Commit as `docs: record screen and voice acceptance`.
-- [ ] Push the feature branch and verify the exact remote ref.
-- [ ] If all merge gates pass, fast-forward `main`, rerun full affected tests, push `main`, and remove only this merged worktree.
+- [x] Push the feature branch and verify the exact remote ref.
+- [x] If all merge gates pass, fast-forward `main`, rerun full affected tests, push `main`, and remove only this merged worktree.

@@ -49,8 +49,9 @@ screen evidence remains separate and unverified.
 
 ### Screen Streaming Quality and Voice Acceptance
 
-The accepted implementation is on `codex/screen-voice-acceptance` at code tip
-`211b783` before the final evidence commit. Interactive RTC demo calls now use
+`main` includes the accepted screen/voice stage through fast-forward
+integration tip `9e2a23f`; its reviewed code tip is `211b783`. Interactive RTC
+demo calls now use
 the real microphone and native primary-voice playout by default; deterministic
 smoke calls explicitly select synthetic voice and disable speaker playout.
 One background stats poller reports both video and primary-voice RTP totals,
@@ -348,6 +349,10 @@ work while this primary product direction remains incomplete.
 
 ## Git handoff
 
+- `codex/screen-voice-acceptance` was pushed at `9e2a23f` and fast-forwarded
+  into `main` after merged-result CTest 39/39 and 64/64, Go race/vet, workflow
+  8/8, skill validation, and clean-tree checks. The feature worktree and local
+  branch may be removed after this integration handoff is pushed.
 - `codex/movie-audio-isolation` and `codex/receiver-movie-audio-playout` are
   fully merged; their linked worktrees and local branches were removed after
   merged-main verification.
