@@ -21,11 +21,14 @@ tests, and verification evidence before relying on it.
   recorded in their linked verification documents; this macOS stage does not
   replace or extend those Windows claims.
 
-### Local Hardware Screen Streaming Stage
+### Hardware Screen Streaming Foundation
 
-The uncommitted local branch `codex/hardware-screen-streaming` implements the
-macOS ScreenCaptureKit and VideoToolbox screen path. On macOS arm64, the
-`build/movie-call-dev` build and 64-test CTest suite pass. The documented
+`main` includes the accepted macOS ScreenCaptureKit and VideoToolbox screen
+path through implementation/fix tip `77722c3`. The source branch
+`codex/hardware-screen-streaming` was committed and published before local
+integration. On macOS arm64, the `build/movie-call-dev` build and 64-test CTest
+suite pass; the Qt/WebRTC-only `call-dev` configuration also builds without
+Movie/FFmpeg and passes 39/39. The documented
 10-second and 30-second `standard`, 30-second `quality`, and 30-second
 `cinema` smoke gates, plus a 120-second `cinema` stability run, negotiated
 H.264 with active VideoToolbox encoding, bounded queues, nonzero bitrate, host
@@ -42,8 +45,15 @@ profile and packetization parameters while advertising Level 4.2 for
 The current display produced `1470x956` frames, so exact target-resolution
 behavior, visual frame integrity, foreground/background recovery, and live
 voice continuity remain partial or environment-dependent. Windows native
-screen evidence remains separate and unverified. This branch has not been
-merged or pushed.
+screen evidence remains separate and unverified.
+
+The next product stage is **Screen Streaming Quality and Voice Acceptance**:
+close exact profile/aspect behavior where suitable display evidence is
+available, verify visible integrity and foreground/background recovery, and
+exercise bidirectional voice continuously during screen sharing. Windows native
+GPU capture/encoding parity follows as a platform-specific delivery boundary.
+File sharing, Movie Stage 2B, system-audio capture, HDR, remote input, TURN, and
+4K60 optimization remain postponed and must not displace this direction.
 
 ## Active stage
 

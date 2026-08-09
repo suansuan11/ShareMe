@@ -15,7 +15,7 @@
 Run from the worktree:
 
 ```bash
-python3 scripts/bootstrap_webrtc_test.py
+python3 tests/scripts/bootstrap_webrtc_test.py
 cmake --build build/movie-call-dev -j2
 ctest --test-dir build/movie-call-dev --output-on-failure
 python3 scripts/run_screen_stream_smoke.py --profile standard --duration-seconds 10
@@ -28,6 +28,20 @@ The smoke runner writes sanitized JSONL under `out/hardware-screen-streaming`
 by default. It requires a macOS screen-capture permission grant and fails closed
 unless the host reports active H.264, bounded queues, nonzero bitrate, and media
 delivery on both peers.
+
+## Integration Review
+
+- **Verified — macOS arm64 at `77722c3`:** bootstrap contracts passed 16/16;
+  `call-dev` built without Movie/FFmpeg and passed 39/39; `movie-call-dev`
+  rebuilt and passed 64/64; portable `dev` passed 15/15; Go race tests and vet,
+  Sol–Terra workflow 8/8, skill validation, and `git diff --check` passed.
+- **Verified — fresh native media gates:** `standard` passed at 10 and 30
+  seconds, `quality` passed at 30 seconds, and `cinema` passed at 30 and 120
+  seconds. Every run reported H.264, active VideoToolbox encoding, nonzero
+  bitrate, and increasing host encode plus viewer receive/decode counters.
+- The fresh runs again produced `1470x956`; they do not upgrade the exact
+  target-resolution, visual-integrity, live-voice, foreground/background,
+  Windows, or physical thermal evidence boundaries below.
 
 ## Latest Native Attempt
 
