@@ -207,6 +207,39 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         with self.assertRaisesRegex(self.runner.SmokeRuntimeError, "stalled"):
             self.runner.validate_records("standard", stalled_hosts, stalled_viewers)
 
+    def test_continuity_boundary_rejects_missing_and_regressing_voice(self):
+        record = {
+            "role": "host",
+            "encoded": 20,
+            "callback": 20,
+            "submitted": 20,
+            "voice_packets_sent": 20,
+            "voice_packets_received": 20,
+            "voice_bytes_sent": 2000,
+            "voice_bytes_received": 2000,
+            "stats_unavailable": 0,
+        }
+        five_stalls = [dict(record) for _ in range(6)]
+        accepted = self.runner._validate_continuous_progress(
+            five_stalls, "host", ("encoded", "callback", "submitted")
+        )
+        self.assertEqual(accepted["max_stall_samples"], 5)
+
+        missing = dict(record)
+        del missing["voice_packets_received"]
+        with self.assertRaisesRegex(self.runner.SmokeRuntimeError, "never became ready"):
+            self.runner._validate_continuous_progress(
+                [missing], "host", ("encoded", "callback", "submitted")
+            )
+
+        regressed = dict(record, voice_packets_sent=19)
+        with self.assertRaisesRegex(self.runner.SmokeRuntimeError, "regressed"):
+            self.runner._validate_continuous_progress(
+                [record, regressed],
+                "host",
+                ("encoded", "callback", "submitted"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
