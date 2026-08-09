@@ -353,6 +353,13 @@ def validate_records(
             )
         if host.get("webrtc_encoder") != "H264":
             raise SmokeRuntimeError("host did not report negotiated H264")
+        expected_implementation = (
+            "MediaFoundation" if sys.platform == "win32" else "VideoToolbox"
+        )
+        if host.get("encoder_implementation") != expected_implementation:
+            raise SmokeRuntimeError(
+                "host did not report the native hardware encoder implementation"
+            )
     else:
         hardware_status = host.get("hardware_encoder_status")
         if (
@@ -368,6 +375,7 @@ def validate_records(
         "profile": profile,
         "hardware_encoder_status": host["hardware_encoder_status"],
         "webrtc_encoder": host["webrtc_encoder"],
+        "encoder_implementation": host["encoder_implementation"],
         "host": {
             "width": host["width"],
             "height": host["height"],
@@ -564,10 +572,6 @@ def run_smoke(
 ) -> dict:
     if sys.platform not in ("darwin", "win32"):
         raise SmokeRuntimeError("screen smoke requires macOS or Windows")
-    if sys.platform == "win32" and not allow_software_fallback:
-        raise SmokeRuntimeError(
-            "Windows screen smoke requires --allow-software-fallback"
-        )
     profile_bounds(profile)
     if duration_seconds <= 0:
         raise SmokeRuntimeError("duration must be positive")

@@ -92,6 +92,11 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "presentation_recovery_count": 0,
             "webrtc_encoder": "H264",
             "hardware_encoder_status": "active",
+            "encoder_implementation": (
+                "MediaFoundation"
+                if self.runner.sys.platform == "win32"
+                else "VideoToolbox"
+            ),
         }
         viewer = {
             "role": "viewer",
@@ -169,6 +174,11 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "fallback_copies": 0,
             "webrtc_encoder": "H264",
             "hardware_encoder_status": "active",
+            "encoder_implementation": (
+                "MediaFoundation"
+                if self.runner.sys.platform == "win32"
+                else "VideoToolbox"
+            ),
             "voice_packets_sent": 20,
             "voice_packets_received": 20,
             "voice_bytes_sent": 2000,
@@ -222,6 +232,7 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "fallback_copies": 0,
             "webrtc_encoder": "VP8",
             "hardware_encoder_status": "fallback:platform-unavailable",
+            "encoder_implementation": "VP8Template",
             "voice_packets_sent": 20,
             "voice_packets_received": 21,
             "voice_bytes_sent": 2000,
