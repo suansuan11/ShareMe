@@ -36,10 +36,12 @@
 #include <string>
 #include <thread>
 
+#if defined(SHAREME_HAS_MOVIE_RTC)
 namespace shareme::rtc {
 class MovieTimeline;
 class MovieVideoSource;
 }
+#endif
 
 class RtcDemoController final : public QObject {
   Q_OBJECT
@@ -197,8 +199,10 @@ private:
   QString metrics_jsonl_path_;
   QString drift_scenario_name_;
   qint64 measurement_duration_seconds_{0};
+#if defined(SHAREME_HAS_MOVIE_RTC)
   std::shared_ptr<shareme::rtc::MovieTimeline> movie_timeline_;
   webrtc::scoped_refptr<shareme::rtc::MovieVideoSource> movie_video_source_;
+#endif
   QString status_{QStringLiteral("idle")};
   QString room_id_;
   bool remote_video_available_{false};

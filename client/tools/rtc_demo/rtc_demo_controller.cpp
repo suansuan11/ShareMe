@@ -48,6 +48,7 @@ QByteArray candidate_payload(const std::string &mid, int line,
       .toJson(QJsonDocument::Compact);
 }
 
+#if defined(SHAREME_HAS_MOVIE_RTC)
 QString sync_action_name(shareme::core::SyncAction action) {
   switch (action) {
   case shareme::core::SyncAction::none:
@@ -61,6 +62,7 @@ QString sync_action_name(shareme::core::SyncAction action) {
   }
   return QStringLiteral("unavailable");
 }
+#endif
 
 QString video_suggested_action_name(
     shareme::core::VideoSuggestedAction action) {
@@ -1084,11 +1086,13 @@ void RtcDemoController::emitPerformanceCounters() {
   const auto max_pending = preview.max_pending_depth;
   const auto render_queue = preview.pending_callbacks;
   const auto pending_callback_bytes = preview.pending_callback_bytes;
+#if defined(SHAREME_HAS_MOVIE_RTC)
   const auto add_bytes = [](std::size_t lhs, std::size_t rhs) {
     return rhs > std::numeric_limits<std::size_t>::max() - lhs
                ? std::numeric_limits<std::size_t>::max()
                : lhs + rhs;
   };
+#endif
   std::size_t source_pending = 0;
   std::size_t source_pending_bytes = 0;
   std::size_t source_peak_pending = 0;
@@ -1130,6 +1134,7 @@ void RtcDemoController::emitPerformanceCounters() {
   if (requested_mode != "software" && requested_mode != "auto")
     requested_mode = "software";
   std::string decoder_path = "software";
+#if defined(SHAREME_HAS_MOVIE_RTC)
   if (!movie_video_source_) {
     width = performance_frame_width_.load(std::memory_order_relaxed);
     height = performance_frame_height_.load(std::memory_order_relaxed);
@@ -1199,6 +1204,10 @@ void RtcDemoController::emitPerformanceCounters() {
                   : "playing";
     }
   }
+#else
+  width = performance_frame_width_.load(std::memory_order_relaxed);
+  height = performance_frame_height_.load(std::memory_order_relaxed);
+#endif
   shareme::rtc::SignaledVideoStats video_stats;
   {
     std::lock_guard lock(performance_stats_mutex_);
