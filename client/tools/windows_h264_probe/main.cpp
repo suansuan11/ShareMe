@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "api/environment/environment_factory.h"
@@ -34,6 +35,16 @@ bool parse(int argc, char **argv, Options &options) {
   }
   return options.frames > 0 && !options.artifact.empty() &&
          (options.profile == "standard" || options.profile == "quality" || options.profile == "cinema");
+}
+
+std::string json_escape(const std::string &value) {
+  std::string escaped;
+  for (const char character : value) {
+    if (character == '\\' || character == '"') escaped += '\\';
+    if (static_cast<unsigned char>(character) < 0x20) { escaped += '?'; continue; }
+    escaped += character;
+  }
+  return escaped;
 }
 
 class Encoded final : public webrtc::EncodedImageCallback {
@@ -109,7 +120,10 @@ class DecodedCallback final : public webrtc::DecodedImageCallback {
     has_timestamp = true;
     last_timestamp = frame.rtp_timestamp();
     const auto image = frame.video_frame_buffer()->ToI420();
-    const auto sequence = frame.rtp_timestamp() / (90'000U / fps);
+    const auto timestamp = frame.rtp_timestamp();
+    const auto sequence = timestamp / (90'000U / fps);
+    if (timestamp % (90'000U / fps) != 0 || !seen_timestamps.insert(timestamp).second)
+      timestamps_monotonic = false;
     for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) observe(image->DataY()[y * image->StrideY() + x], expected_y(x, y, sequence, expected_width, expected_height), squared_y, samples_y, true);
     for (int y = 0; y < height / 2; ++y) for (int x = 0; x < width / 2; ++x) { observe(image->DataU()[y * image->StrideU() + x], expected_u(x, y, sequence, expected_width, expected_height), squared_u, samples_u, false); observe(image->DataV()[y * image->StrideV() + x], expected_v(x, y, sequence, expected_width, expected_height), squared_v, samples_v, false); }
     return 0;
@@ -117,21 +131,23 @@ class DecodedCallback final : public webrtc::DecodedImageCallback {
   void observe(double actual, double expected, double &squared, std::uint64_t &samples, bool luma) { const auto delta = actual - expected; squared += delta * delta; ++samples; if (luma) { sum_actual += actual; sum_expected += expected; sum_actual2 += actual * actual; sum_expected2 += expected * expected; sum_cross += actual * expected; } }
   double psnr(double squared, std::uint64_t samples) const { return samples == 0 || squared == 0 ? 99.0 : 10.0 * std::log10((255.0 * 255.0) / (squared / samples)); }
   double ssim_y() const { const double n = static_cast<double>(samples_y); if (n == 0) return 0; const double mx=sum_actual/n,my=sum_expected/n; const double vx=sum_actual2/n-mx*mx,vy=sum_expected2/n-my*my,cov=sum_cross/n-mx*my; return ((2*mx*my+6.5025)*(2*cov+58.5225))/((mx*mx+my*my+6.5025)*(vx+vy+58.5225)); }
-  int expected_width{}; int expected_height{}; int fps{}; int count{}; int width{}; int height{}; int after_release{}; bool released{}; bool has_timestamp{}; bool timestamps_monotonic{true}; uint32_t last_timestamp{}; double squared_y{}; double squared_u{}; double squared_v{}; std::uint64_t samples_y{}; std::uint64_t samples_u{}; std::uint64_t samples_v{}; double sum_actual{}; double sum_expected{}; double sum_actual2{}; double sum_expected2{}; double sum_cross{};
+  int expected_width{}; int expected_height{}; int fps{}; int count{}; int width{}; int height{}; int after_release{}; bool released{}; bool has_timestamp{}; bool timestamps_monotonic{true}; uint32_t last_timestamp{}; std::unordered_set<uint32_t> seen_timestamps; double squared_y{}; double squared_u{}; double squared_v{}; std::uint64_t samples_y{}; std::uint64_t samples_u{}; std::uint64_t samples_v{}; double sum_actual{}; double sum_expected{}; double sum_actual2{}; double sum_expected2{}; double sum_cross{};
 };
 
-void write_artifact(const Options &options, bool verified, const std::string &reason,
+bool write_artifact(const Options &options, bool verified, const std::string &reason,
                     int submitted, int extra_pump_accepted, int callbacks_before_release,
                     const Encoded &encoded, const DecodedCallback &decoded,
                     int width, int height, int frames_per_second) {
+  try {
   std::filesystem::create_directories(options.artifact.parent_path());
   const auto temporary = options.artifact.string() + ".tmp";
   std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+  if (!output) return false;
   output << "{\n  \"schema\": \"windows-h264-probe-v1\",\n"
          << "  \"status\": \"" << (verified ? "verified" : "blocked") << "\",\n"
          << "  \"profile\": \"" << options.profile << "\",\n"
          << "  \"implementation\": \"MediaFoundation\",\n  \"hardware\": true,\n"
-         << "  \"reason\": \"" << reason << "\",\n"
+         << "  \"reason\": \"" << json_escape(reason) << "\",\n"
          << "  \"framesSubmitted\": " << submitted << ",\n  \"framesEncoded\": " << encoded.count
          << ",\n  \"framesDecoded\": " << decoded.count << ",\n"
          << "  \"diagnosticExtraPumpAccepted\": " << extra_pump_accepted << ",\n"
@@ -146,8 +162,13 @@ void write_artifact(const Options &options, bool verified, const std::string &re
          << "  \"spsPpsIdrFrames\": " << encoded.sps_pps_idr << ",\n"
          << "  \"timestampsMonotonic\": " << (decoded.timestamps_monotonic && submitted > 0 && decoded.last_timestamp == static_cast<uint32_t>((submitted - 1) * (90'000 / frames_per_second)) ? "true" : "false") << ",\n"
          << "  \"encoderCallbacksAfterRelease\": " << encoded.after_release << ",\n  \"decoderCallbacksAfterRelease\": " << decoded.after_release << "\n}\n";
+  output.flush();
+  if (!output) return false;
   output.close();
+  if (!output) return false;
   std::filesystem::rename(temporary, options.artifact);
+  return true;
+  } catch (const std::filesystem::filesystem_error &) { return false; }
 }
 
 } // namespace
@@ -162,7 +183,7 @@ int main(int argc, char **argv) {
   const int frames_per_second = options.profile == "cinema" ? 30 : 60;
   std::string reason;
   if (!shareme::rtc::probe_windows_media_foundation_h264_codecs(width, height, frames_per_second, reason)) {
-    Encoded encoded; DecodedCallback decoded(width, height, frames_per_second); write_artifact(options, false, reason, 0, 0, 0, encoded, decoded, width, height, frames_per_second); return EXIT_FAILURE;
+    Encoded encoded; DecodedCallback decoded(width, height, frames_per_second); static_cast<void>(write_artifact(options, false, reason, 0, 0, 0, encoded, decoded, width, height, frames_per_second)); return EXIT_FAILURE;
   }
   auto encoder_factory = shareme::rtc::create_platform_h264_encoder_factory();
   auto decoder_factory = shareme::rtc::create_platform_video_decoder_factory();
@@ -196,7 +217,8 @@ int main(int argc, char **argv) {
   const int callbacks_before_release = encoded.count;
   encoded.released = true; decoded.released = true;
   if (encoder) encoder->Release(); if (decoder) decoder->Release();
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
   const bool verified = ok && submitted == options.frames && encoded.count == options.frames && decoded.count == options.frames && encoded.idr > 0 && encoded.sps_pps_idr > 0 && decoded.timestamps_monotonic && decoded.width == width && decoded.height == height && decoded.psnr(decoded.squared_y, decoded.samples_y) >= 35.0 && decoded.psnr(decoded.squared_u, decoded.samples_u) >= 32.0 && decoded.psnr(decoded.squared_v, decoded.samples_v) >= 32.0 && decoded.ssim_y() >= 0.95 && encoded.after_release == 0 && decoded.after_release == 0;
-  write_artifact(options, verified, verified ? "" : "mf-h264-roundtrip-failed", submitted, extra_pump_accepted, callbacks_before_release, encoded, decoded, width, height, frames_per_second);
-  return verified ? EXIT_SUCCESS : EXIT_FAILURE;
+  const bool artifact_written = write_artifact(options, verified, verified ? "" : "mf-h264-roundtrip-failed", submitted, extra_pump_accepted, callbacks_before_release, encoded, decoded, width, height, frames_per_second);
+  return verified && artifact_written ? EXIT_SUCCESS : EXIT_FAILURE;
 }

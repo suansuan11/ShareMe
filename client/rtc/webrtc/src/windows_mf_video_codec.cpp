@@ -36,6 +36,9 @@ class WindowsMfH264DecoderFactory final
     : public webrtc::VideoDecoderFactory {
  public:
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override {
+    std::string reason;
+    if (!probe_windows_mf_h264_decoder(3'840, 2'160, reason))
+      return {};
     return {webrtc::SdpVideoFormat(
         "H264", {{"profile-level-id", "42e01f"},
                   {"level-asymmetry-allowed", "1"},
@@ -45,8 +48,11 @@ class WindowsMfH264DecoderFactory final
   std::unique_ptr<webrtc::VideoDecoder> Create(
       const webrtc::Environment &,
       const webrtc::SdpVideoFormat &format) override {
-    return format.name == "H264" ? create_windows_mf_h264_decoder()
-                                 : nullptr;
+    std::string reason;
+    return format.name == "H264" &&
+                   probe_windows_mf_h264_decoder(3'840, 2'160, reason)
+               ? create_windows_mf_h264_decoder()
+               : nullptr;
   }
 };
 

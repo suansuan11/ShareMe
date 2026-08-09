@@ -62,6 +62,42 @@ class DecodedCallback final : public webrtc::DecodedImageCallback {
   std::uint32_t rtp_timestamp{0};
 };
 
+// Release is intentionally called by the callback, while the adapter owns its
+// operation lock.  The adapter must defer teardown until the callback returns.
+class ReentrantEncodedCallback final : public webrtc::EncodedImageCallback {
+ public:
+  Result OnEncodedImage(const webrtc::EncodedImage &image,
+                        const webrtc::CodecSpecificInfo *) override {
+    images.push_back(image);
+    REQUIRE(encoder != nullptr);
+    release_result = encoder->Release();
+    released_from_callback = true;
+    return Result(Result::OK);
+  }
+  void OnFrameDropped(uint32_t, int, bool) override {}
+
+  webrtc::VideoEncoder *encoder{nullptr};
+  std::vector<webrtc::EncodedImage> images;
+  int32_t release_result{-1};
+  bool released_from_callback{false};
+};
+
+class ReentrantDecodedCallback final : public webrtc::DecodedImageCallback {
+ public:
+  int32_t Decoded(webrtc::VideoFrame &) override {
+    ++count;
+    REQUIRE(decoder != nullptr);
+    release_result = decoder->Release();
+    released_from_callback = true;
+    return 0;
+  }
+
+  webrtc::VideoDecoder *decoder{nullptr};
+  int count{0};
+  int32_t release_result{-1};
+  bool released_from_callback{false};
+};
+
 void selects_hardware_media_foundation() {
   std::string reason;
   REQUIRE(shareme::rtc::probe_platform_h264_encoder(1'920, 1'080, reason));
@@ -162,10 +198,70 @@ void encodes_and_decodes_real_h264_frames() {
       truncated_access_unit, sizeof(truncated_access_unit)));
   malformed.SetRtpTimestamp(30'000);
   const int decoded_before_corruption = decoded_callback.count;
-  REQUIRE(decoder->Decode(malformed, 0) == 0);
+  REQUIRE(decoder->Decode(malformed, 0) != 0);
+  REQUIRE(decoder->Decode(encoded_callback.images[1], 0) != 0);
+  REQUIRE(decoder->Decode(encoded_callback.images[0], 0) == 0);
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  REQUIRE(decoded_callback.count == decoded_before_corruption);
+  REQUIRE(decoded_callback.count > decoded_before_corruption);
   REQUIRE(decoder->Release() == 0);
+  REQUIRE(decoder->Release() == 0);
+}
+
+void callback_reentrant_release_defers_teardown() {
+  auto encoder_factory = shareme::rtc::create_platform_h264_encoder_factory();
+  REQUIRE(encoder_factory != nullptr);
+  auto encoder = encoder_factory->Create(webrtc::CreateEnvironment(),
+                                         encoder_factory->GetSupportedFormats().front());
+  REQUIRE(encoder != nullptr);
+
+  webrtc::VideoCodec codec;
+  codec.codecType = webrtc::kVideoCodecH264;
+  codec.width = 640;
+  codec.height = 360;
+  codec.startBitrate = 2'000;
+  codec.maxBitrate = 4'000;
+  codec.minBitrate = 100;
+  codec.maxFramerate = 30;
+  codec.active = true;
+  *codec.H264() = webrtc::VideoEncoder::GetDefaultH264Settings();
+  const webrtc::VideoEncoder::Settings settings(
+      webrtc::VideoEncoder::Capabilities(false), 1, 1'200);
+  REQUIRE(encoder->InitEncode(&codec, settings) == 0);
+
+  ReentrantEncodedCallback encoded_callback;
+  encoded_callback.encoder = encoder.get();
+  REQUIRE(encoder->RegisterEncodeCompleteCallback(&encoded_callback) == 0);
+  auto input = webrtc::I420Buffer::Create(codec.width, codec.height);
+  input->InitializeData();
+  const auto frame = webrtc::VideoFrame::Builder()
+                         .set_video_frame_buffer(input)
+                         .set_timestamp_us(0)
+                         .set_rtp_timestamp(7'000)
+                         .set_rotation(webrtc::kVideoRotation_0)
+                         .build();
+  const std::vector<webrtc::VideoFrameType> keyframe = {
+      webrtc::VideoFrameType::kVideoFrameKey};
+  REQUIRE(encoder->Encode(frame, &keyframe) == 0);
+  REQUIRE(encoded_callback.released_from_callback);
+  REQUIRE(encoded_callback.release_result == 0);
+  REQUIRE(encoded_callback.images.size() == 1);
+  REQUIRE(encoder->Release() == 0);
+
+  auto decoder_factory = shareme::rtc::create_platform_video_decoder_factory();
+  REQUIRE(decoder_factory != nullptr);
+  auto decoder = decoder_factory->Create(webrtc::CreateEnvironment(),
+                                         decoder_factory->GetSupportedFormats().front());
+  REQUIRE(decoder != nullptr);
+  ReentrantDecodedCallback decoded_callback;
+  decoded_callback.decoder = decoder.get();
+  REQUIRE(decoder->RegisterDecodeCompleteCallback(&decoded_callback) == 0);
+  webrtc::VideoDecoder::Settings decoder_settings;
+  decoder_settings.set_codec_type(webrtc::kVideoCodecH264);
+  REQUIRE(decoder->Configure(decoder_settings));
+  REQUIRE(decoder->Decode(encoded_callback.images.front(), 0) == 0);
+  REQUIRE(decoded_callback.released_from_callback);
+  REQUIRE(decoded_callback.release_result == 0);
+  REQUIRE(decoded_callback.count == 1);
   REQUIRE(decoder->Release() == 0);
 }
 
@@ -175,5 +271,6 @@ int main() {
   selects_hardware_media_foundation();
   probe_requires_encoder_and_decoder_initialization();
   encodes_and_decodes_real_h264_frames();
+  callback_reentrant_release_defers_teardown();
   return EXIT_SUCCESS;
 }

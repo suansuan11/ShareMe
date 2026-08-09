@@ -2,72 +2,12 @@
 
 #include <algorithm>
 #include <limits>
-#include <optional>
 #include <utility>
 
 #include "libyuv/convert.h"
 #include "windows/h264_bitstream.hpp"
 
 namespace shareme::rtc {
-namespace {
-
-struct StartCode {
-  std::size_t offset{0};
-  std::size_t size{0};
-};
-
-std::optional<StartCode> find_start_code(
-    std::span<const std::uint8_t> input, std::size_t offset) {
-  for (std::size_t index = offset; index + 3 <= input.size(); ++index) {
-    if (input[index] != 0 || input[index + 1] != 0)
-      continue;
-    if (input[index + 2] == 1)
-      return StartCode{index, 3};
-    if (index + 4 <= input.size() && input[index + 2] == 0 &&
-        input[index + 3] == 1) {
-      return StartCode{index, 4};
-    }
-  }
-  return std::nullopt;
-}
-
-void observe_nal(std::uint8_t header, bool &keyframe) {
-  if ((header & 0x1fU) == 5U)
-    keyframe = true;
-}
-
-H264AccessUnitResult validate_annex_b(
-    std::span<const std::uint8_t> input) {
-  const auto first = find_start_code(input, 0);
-  if (!first.has_value() || first->offset != 0)
-    return {};
-
-  bool keyframe = false;
-  auto current = *first;
-  while (true) {
-    const auto payload = current.offset + current.size;
-    const auto next = find_start_code(input, payload);
-    const auto end = next.has_value() ? next->offset : input.size();
-    if (payload >= end)
-      return {};
-    observe_nal(input[payload], keyframe);
-    if (!next.has_value())
-      break;
-    current = *next;
-  }
-  return {.valid = true, .keyframe = keyframe};
-}
-
-std::uint32_t read_big_endian_length(std::span<const std::uint8_t> input,
-                                     std::size_t offset) {
-  return (static_cast<std::uint32_t>(input[offset]) << 24U) |
-         (static_cast<std::uint32_t>(input[offset + 1]) << 16U) |
-         (static_cast<std::uint32_t>(input[offset + 2]) << 8U) |
-         static_cast<std::uint32_t>(input[offset + 3]);
-}
-
-} // namespace
-
 bool copy_i420_to_nv12(const webrtc::I420BufferInterface &input,
                        std::span<std::byte> output, int output_pitch) {
   const int width = input.width();
