@@ -195,7 +195,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
        drift_diagnostics_enabled_(std::getenv("SHAREME_DRIFT_DIAGNOSTICS") !=
                                   nullptr),
        performance_counters_enabled_(
-           std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr) {
+           std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr),
+       screen_recovery_probe_enabled_(
+           std::getenv("SHAREME_SCREEN_RECOVERY_PROBE") != nullptr) {
   audio_route_monitor_ = std::make_unique<QtAudioRouteMonitor>();
   movie_video_playout_adapter_ =
       std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(
@@ -213,6 +215,17 @@ RtcDemoController::RtcDemoController(QUrl server_url,
           recordRenderedFrame(timestamp);
         }
         emit presentationDiagnosticsChanged();
+        if (viewer() && screen_source_ && screen_recovery_probe_enabled_ &&
+            !screen_recovery_probe_scheduled_ &&
+            performance_sink_submissions_.load(std::memory_order_relaxed) >=
+                120) {
+          screen_recovery_probe_scheduled_ = true;
+          movie_video_playout_adapter_->close_ingress();
+          QTimer::singleShot(100, this, [this] {
+            if (!shutting_down_ && movie_video_playout_adapter_ && video_sink_)
+              movie_video_playout_adapter_->reopen_ingress(video_sink_);
+          });
+        }
       });
   playback_state_timer_.setInterval(100);
   connect(&playback_state_timer_, &QTimer::timeout, this,
@@ -1298,6 +1311,9 @@ void RtcDemoController::emitPerformanceCounters() {
             << " owned_bytes=" << owned_bytes
              << " owned_peak_bytes=" << owned_peak_bytes
              << " backpressure_events=" << backpressure_events
+             << " presentation_epoch=" << preview.presentation_epoch
+             << " presentation_recovery_count="
+             << preview.presentation_recovery_count
              << " stats_unavailable=" << stats_unavailable
              << " width=" << width << " height=" << height
              << " cadence_num=" << cadence_num

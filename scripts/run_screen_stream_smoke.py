@@ -74,6 +74,8 @@ INTEGER_KEYS = {
     "cadence_den",
     "pixel_aspect_num",
     "pixel_aspect_den",
+    "presentation_epoch",
+    "presentation_recovery_count",
 }
 ALLOWED_KEYS = INTEGER_KEYS | {
     "role",
@@ -282,6 +284,40 @@ def _validate_continuous_progress(
     }
 
 
+def _validate_presentation_recovery(records: list[dict]) -> dict:
+    matching = [record for record in records if record.get("role") == "viewer"]
+    recovery_index = next(
+        (
+            index
+            for index, record in enumerate(matching)
+            if record.get("presentation_recovery_count") == 1
+            and record.get("presentation_epoch") == 1
+        ),
+        None,
+    )
+    if recovery_index is None or recovery_index == 0:
+        raise SmokeRuntimeError("viewer presentation recovery was not observed")
+    if any(
+        record.get("presentation_recovery_count") not in {0, 1}
+        or record.get("presentation_epoch") not in {0, 1}
+        for record in matching
+    ):
+        raise SmokeRuntimeError("viewer presentation recovery count is invalid")
+    before_submitted = matching[recovery_index - 1].get("submitted", 0)
+    final_submitted = matching[-1].get("submitted", 0)
+    if (
+        not isinstance(before_submitted, int)
+        or not isinstance(final_submitted, int)
+        or final_submitted <= before_submitted
+    ):
+        raise SmokeRuntimeError("viewer presentation did not progress after recovery")
+    return {
+        "presentation_epoch": 1,
+        "presentation_recovery_count": 1,
+        "post_recovery_submissions": final_submitted - before_submitted,
+    }
+
+
 def validate_records(
     profile: str, host_records: list[dict], viewer_records: list[dict]
 ) -> dict:
@@ -301,6 +337,7 @@ def validate_records(
     viewer_continuity = _validate_continuous_progress(
         viewer_records, "viewer", ("received", "decoded", "callback", "submitted")
     )
+    viewer_recovery = _validate_presentation_recovery(viewer_records)
     host_bitrate = _last_positive(host_records, "bitrate_bps")
     viewer_bitrate = _last_positive(viewer_records, "bitrate_bps")
     if host.get("hardware_encoder_status") != "active":
@@ -341,6 +378,7 @@ def validate_records(
             "voice_bytes_sent": viewer["voice_bytes_sent"],
             "voice_bytes_received": viewer["voice_bytes_received"],
             "continuity": viewer_continuity,
+            **viewer_recovery,
         },
     }
 
@@ -526,6 +564,7 @@ def run_smoke(
     environment = os.environ.copy()
     environment["SHAREME_PERFORMANCE_COUNTERS"] = "1"
     environment["SHAREME_SCREEN_SMOKE_DIAGNOSTICS"] = "1"
+    environment["SHAREME_SCREEN_RECOVERY_PROBE"] = "1"
 
     with artifact.open("x", encoding="utf-8") as output:
         _write_jsonl(output, {

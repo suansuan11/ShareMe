@@ -265,6 +265,8 @@ private:
   std::string selected_candidate_type_;
   bool drift_diagnostics_enabled_{false};
   bool performance_counters_enabled_{false};
+  bool screen_recovery_probe_enabled_{false};
+  bool screen_recovery_probe_scheduled_{false};
   std::atomic<std::uint64_t> performance_callback_count_{0};
   std::atomic<std::uint64_t> performance_coalesced_count_{0};
   std::atomic<std::uint64_t> performance_sink_submissions_{0};

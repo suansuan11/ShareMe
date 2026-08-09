@@ -88,6 +88,8 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "voice_bytes_sent": 2000,
             "voice_bytes_received": 2100,
             "stats_unavailable": 0,
+            "presentation_epoch": 0,
+            "presentation_recovery_count": 0,
             "webrtc_encoder": "H264",
             "hardware_encoder_status": "active",
         }
@@ -109,6 +111,8 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "voice_bytes_sent": 2200,
             "voice_bytes_received": 2300,
             "stats_unavailable": 0,
+            "presentation_epoch": 0,
+            "presentation_recovery_count": 0,
         }
         terminal_host = dict(
             host,
@@ -132,6 +136,8 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             voice_packets_received=43,
             voice_bytes_sent=4200,
             voice_bytes_received=4300,
+            presentation_epoch=1,
+            presentation_recovery_count=1,
         )
         result = self.runner.validate_records(
             "standard", [host, terminal_host], [viewer, terminal_viewer]
@@ -142,6 +148,7 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertEqual(result["viewer"]["bitrate_bps"], 8000)
         self.assertEqual(result["host"]["voice_packets_sent"], 40)
         self.assertEqual(result["viewer"]["voice_packets_received"], 43)
+        self.assertEqual(result["viewer"]["presentation_recovery_count"], 1)
 
         host["hardware_encoder_status"] = "fallback:probe-rejected"
         with self.assertRaises(self.runner.SmokeRuntimeError):
@@ -167,6 +174,8 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "voice_bytes_sent": 2000,
             "voice_bytes_received": 2000,
             "stats_unavailable": 0,
+            "presentation_epoch": 0,
+            "presentation_recovery_count": 0,
         }
         viewer = {
             "role": "viewer",
@@ -186,6 +195,8 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "voice_bytes_sent": 2000,
             "voice_bytes_received": 2000,
             "stats_unavailable": 0,
+            "presentation_epoch": 1,
+            "presentation_recovery_count": 1,
         }
         with self.assertRaisesRegex(self.runner.SmokeRuntimeError, "geometry"):
             self.runner.validate_records("standard", [host], [viewer])

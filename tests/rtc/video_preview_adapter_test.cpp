@@ -269,6 +269,30 @@ void keeps_the_i420_buffer_alive_without_copying_planes(QGuiApplication& app) {
   delivered.unmap();
 }
 
+void closes_and_reopens_without_replaying_pending_frames(QGuiApplication& app) {
+  QVideoSink sink;
+  shareme::tools::VideoPreviewAdapter adapter(&sink);
+  adapter.set_sink(&sink);
+  REQUIRE(adapter.submit(frame(90, 100)).submitted);
+  adapter.close_ingress();
+  app.processEvents();
+  REQUIRE(!sink.videoFrame().isValid());
+  const auto closed = adapter.submit(frame(91, 200));
+  REQUIRE(!closed.submitted);
+  REQUIRE(closed.path == shareme::tools::PreviewPath::no_sink);
+
+  adapter.reopen_ingress(&sink);
+  const auto reopened = adapter.counters();
+  REQUIRE(reopened.presentation_epoch == 1);
+  REQUIRE(reopened.presentation_recovery_count == 1);
+  REQUIRE(reopened.pending_callbacks == 0);
+  REQUIRE(adapter.submit(frame(92, 300)).submitted);
+  app.processEvents();
+  REQUIRE(sink.videoFrame().isValid());
+  REQUIRE(sink.videoFrame().startTime() == 300);
+  REQUIRE(adapter.counters().max_pending_depth == 1);
+}
+
 void observational_movie_adapter_preserves_preview_delivery(QGuiApplication& app) {
   QVideoSink sink;
   shareme::tools::MovieVideoPlayoutAdapter adapter(&sink);
@@ -597,6 +621,7 @@ int main(int argc, char** argv) {
   presents_the_newest_frame_when_multiple_callbacks_are_pending(app);
   rejects_without_sink(app);
   keeps_the_i420_buffer_alive_without_copying_planes(app);
+  closes_and_reopens_without_replaying_pending_frames(app);
   observational_movie_adapter_preserves_preview_delivery(app);
   movie_adapter_submit_does_not_wait_on_conversion_lock(app);
   policy_adapter_releases_held_payloads(app);

@@ -113,6 +113,7 @@ struct VideoPreviewState {
   std::optional<PreparedFrame> pending_frame;
   bool drain_scheduled{false};
   bool closed{false};
+  bool destroyed{false};
   std::atomic<std::uint64_t> submissions{0};
   std::atomic<std::uint64_t> coalesced{0};
   std::atomic<std::uint64_t> remote_callbacks{0};
@@ -125,6 +126,8 @@ struct VideoPreviewState {
   std::size_t delay_sample_count{0};
   std::size_t delay_sample_next{0};
   std::uint64_t presentation_callback_delay_max{0};
+  std::uint64_t presentation_epoch{0};
+  std::uint64_t presentation_recovery_count{0};
 };
 
 void update_peak(
@@ -236,9 +239,11 @@ VideoPreviewAdapter::VideoPreviewAdapter(QObject* queue_target)
 VideoPreviewAdapter::~VideoPreviewAdapter() {
   std::lock_guard lock(state_->mutex);
   state_->closed = true;
+  state_->destroyed = true;
   state_->pending_frame.reset();
   state_->submitted_callback = {};
   state_->queue_target = nullptr;
+  state_->sink = nullptr;
   state_->pending_callback_bytes.store(0, std::memory_order_release);
 }
 
@@ -251,6 +256,26 @@ void VideoPreviewAdapter::set_submitted_callback(
     std::function<void(std::uint32_t)> callback) {
   std::lock_guard lock(state_->mutex);
   state_->submitted_callback = std::move(callback);
+}
+
+void VideoPreviewAdapter::close_ingress() noexcept {
+  std::lock_guard lock(state_->mutex);
+  if (state_->destroyed)
+    return;
+  state_->closed = true;
+  state_->sink = nullptr;
+  clear_pending_frame(*state_);
+}
+
+void VideoPreviewAdapter::reopen_ingress(QVideoSink* sink) noexcept {
+  std::lock_guard lock(state_->mutex);
+  if (state_->destroyed || sink == nullptr)
+    return;
+  clear_pending_frame(*state_);
+  state_->sink = sink;
+  state_->closed = false;
+  ++state_->presentation_epoch;
+  ++state_->presentation_recovery_count;
 }
 
 VideoPreviewResult VideoPreviewAdapter::submit(const webrtc::VideoFrame& source) {
@@ -352,6 +377,8 @@ VideoPreviewCounters VideoPreviewAdapter::counters() const noexcept {
           state_->pending_callback_bytes.load(std::memory_order_acquire),
       .peak_pending_callback_bytes =
           state_->peak_pending_callback_bytes.load(std::memory_order_relaxed),
+      .presentation_epoch = state_->presentation_epoch,
+      .presentation_recovery_count = state_->presentation_recovery_count,
   };
 }
 

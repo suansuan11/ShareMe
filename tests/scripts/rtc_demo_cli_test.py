@@ -705,6 +705,13 @@ class RtcDemoCliTest(unittest.TestCase):
             self.assertIn(counter, peer)
             self.assertIn(counter, controller)
 
+    def test_presentation_recovery_probe_is_screen_only(self):
+        controller = self.controller_source.read_text(encoding="utf-8")
+        self.assertIn(
+            "viewer() && screen_source_ && screen_recovery_probe_enabled_",
+            controller,
+        )
+
     def test_controller_error_notification_does_not_block_before_exit(self):
         source = self.controller_source.read_text(encoding="utf-8")
         start = source.index("void RtcDemoController::recordDriftError")

@@ -29,6 +29,17 @@ void MovieVideoPlayoutAdapter::set_submitted_callback(
 void MovieVideoPlayoutAdapter::close_ingress() noexcept {
   std::lock_guard lock(mutex_);
   ingress_closed_ = true;
+  pending_frames_.clear();
+  preview_.close_ingress();
+}
+
+void MovieVideoPlayoutAdapter::reopen_ingress(QVideoSink *sink) noexcept {
+  std::lock_guard lock(mutex_);
+  if (shutdown_complete_ || sink == nullptr)
+    return;
+  pending_frames_.clear();
+  preview_.reopen_ingress(sink);
+  ingress_closed_ = false;
 }
 
 void MovieVideoPlayoutAdapter::shutdown() noexcept {
@@ -51,7 +62,7 @@ MovieVideoPlayoutResult MovieVideoPlayoutAdapter::submit(
   if (!lock.owns_lock())
     return {};
   if (ingress_closed_)
-    return {};
+    return {.preview = {.path = PreviewPath::no_sink}};
   if (!timing) {
     return {.preview = preview_.submit(frame),
             .disposition =

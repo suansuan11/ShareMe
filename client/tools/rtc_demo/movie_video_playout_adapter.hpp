@@ -32,6 +32,7 @@ public:
   void set_sink(QVideoSink *sink) noexcept;
   void set_submitted_callback(std::function<void(std::uint32_t)> callback);
   void close_ingress() noexcept;
+  void reopen_ingress(QVideoSink *sink) noexcept;
   void shutdown() noexcept;
   [[nodiscard]] MovieVideoPlayoutResult submit(
       const webrtc::VideoFrame &frame,

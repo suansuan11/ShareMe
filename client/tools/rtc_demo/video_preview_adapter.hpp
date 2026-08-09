@@ -45,6 +45,8 @@ struct VideoPreviewCounters {
   std::uint64_t pending_callbacks{0};
   std::uint64_t pending_callback_bytes{0};
   std::uint64_t peak_pending_callback_bytes{0};
+  std::uint64_t presentation_epoch{0};
+  std::uint64_t presentation_recovery_count{0};
 };
 
 class VideoPreviewAdapter final {
@@ -58,6 +60,8 @@ public:
   void set_sink(QVideoSink* sink) noexcept;
   void set_submitted_callback(
       std::function<void(std::uint32_t)> callback);
+  void close_ingress() noexcept;
+  void reopen_ingress(QVideoSink* sink) noexcept;
   [[nodiscard]] VideoPreviewResult submit(const webrtc::VideoFrame& frame);
   [[nodiscard]] VideoPreviewCounters counters() const noexcept;
 
