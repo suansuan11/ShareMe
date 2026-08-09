@@ -51,6 +51,24 @@ void rejects_invalid_nv12_storage_without_partial_writes() {
   }));
 }
 
+void copies_padded_nv12_into_i420() {
+  const std::vector<std::uint8_t> input{
+      1, 2, 3, 4, 99, 99, 5, 6, 7, 8, 99, 99,
+      9, 11, 10, 12, 99, 99};
+  auto output = webrtc::I420Buffer::Create(4, 2);
+  REQUIRE(shareme::rtc::copy_nv12_to_i420(
+      input, 4, 2, 6, static_cast<webrtc::I420Buffer &>(*output)));
+  REQUIRE(std::equal(output->DataY(), output->DataY() + 4,
+                     std::vector<std::uint8_t>{1, 2, 3, 4}.begin()));
+  REQUIRE(std::equal(output->DataY() + output->StrideY(),
+                     output->DataY() + output->StrideY() + 4,
+                     std::vector<std::uint8_t>{5, 6, 7, 8}.begin()));
+  REQUIRE(output->DataU()[0] == 9);
+  REQUIRE(output->DataU()[1] == 10);
+  REQUIRE(output->DataV()[0] == 11);
+  REQUIRE(output->DataV()[1] == 12);
+}
+
 void normalizes_annex_b_and_avcc_access_units() {
   const std::vector<std::uint8_t> annex_b{
       0, 0, 0, 1, 0x67, 0x42, 0, 0, 1, 0x68, 0xce,
@@ -88,6 +106,7 @@ void rejects_malformed_avcc_without_mutating_output() {
 int main() {
   copies_i420_into_padded_nv12_without_touching_padding();
   rejects_invalid_nv12_storage_without_partial_writes();
+  copies_padded_nv12_into_i420();
   normalizes_annex_b_and_avcc_access_units();
   rejects_malformed_avcc_without_mutating_output();
   return EXIT_SUCCESS;

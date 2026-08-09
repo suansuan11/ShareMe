@@ -90,6 +90,28 @@ bool copy_i420_to_nv12(const webrtc::I420BufferInterface &input,
              destination_uv, output_pitch, width, height) == 0;
 }
 
+bool copy_nv12_to_i420(std::span<const std::uint8_t> input, int width,
+                       int height, int input_pitch,
+                       webrtc::I420Buffer &output) {
+  if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0 ||
+      input_pitch < width || output.width() != width ||
+      output.height() != height) {
+    return false;
+  }
+  const auto pitch = static_cast<std::size_t>(input_pitch);
+  const auto rows = static_cast<std::size_t>(height) * 3U / 2U;
+  if (pitch > std::numeric_limits<std::size_t>::max() / rows ||
+      input.size() < pitch * rows) {
+    return false;
+  }
+  const auto *input_uv = input.data() + pitch * static_cast<std::size_t>(height);
+  return libyuv::NV12ToI420(
+             input.data(), input_pitch, input_uv, input_pitch,
+             output.MutableDataY(), output.StrideY(), output.MutableDataU(),
+             output.StrideU(), output.MutableDataV(), output.StrideV(), width,
+             height) == 0;
+}
+
 H264AccessUnitResult normalize_h264_access_unit(
     std::span<const std::uint8_t> input, std::vector<std::uint8_t> &output) {
   if (input.empty())

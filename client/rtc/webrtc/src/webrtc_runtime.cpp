@@ -84,7 +84,7 @@ std::unique_ptr<webrtc::VideoDecoderFactory> create_video_decoder_factory() {
 
 } // namespace
 
-#if !defined(__APPLE__)
+#if !defined(__APPLE__) && !defined(_WIN32)
 std::unique_ptr<webrtc::VideoDecoderFactory>
 create_platform_video_decoder_factory() {
   return nullptr;

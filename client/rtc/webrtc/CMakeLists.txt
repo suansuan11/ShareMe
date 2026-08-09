@@ -56,6 +56,7 @@ if(WIN32)
     shareme_webrtc
     PRIVATE
       src/windows_mf_h264_buffers.cpp
+      src/windows_mf_h264_decoder.cpp
       src/windows_mf_h264_encoder.cpp
       src/windows_mf_video_codec.cpp
   )
