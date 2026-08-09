@@ -17,6 +17,16 @@ std::unique_ptr<webrtc::VideoEncoderFactory> create_vp8_factory() {
       webrtc::LibvpxVp8EncoderTemplateAdapter>>();
 }
 
+std::string_view default_platform_h264_implementation() {
+#if defined(__APPLE__)
+  return "VideoToolbox";
+#elif defined(_WIN32)
+  return "MediaFoundation";
+#else
+  return "PlatformH264";
+#endif
+}
+
 std::optional<webrtc::H264Level> required_h264_level(
     core::ScreenStreamProfile profile) {
   switch (profile) {
@@ -115,20 +125,20 @@ bool initializes_h264_encoder(webrtc::VideoEncoder &encoder,
 } // namespace
 
 #if !defined(__APPLE__)
-bool probe_platform_video_toolbox_encoder(int, int, std::string &reason) {
+bool probe_platform_h264_encoder(int, int, std::string &reason) {
   reason = "platform-unavailable";
   return false;
 }
 
 std::unique_ptr<webrtc::VideoEncoderFactory>
-create_platform_video_toolbox_encoder_factory() {
+create_platform_h264_encoder_factory() {
   return nullptr;
 }
 #endif
 
 VideoEncoderSelection select_screen_video_encoder(
-    core::ScreenStreamProfile profile, VideoToolboxProbe probe,
-    VideoToolboxFactory factory) {
+    core::ScreenStreamProfile profile, PlatformH264Probe probe,
+    PlatformH264Factory factory, std::string_view hardware_implementation) {
   const auto bounds = core::screen_stream_profile_bounds(profile);
   VideoEncoderSelection selection{
       .factory = nullptr,
@@ -140,12 +150,11 @@ VideoEncoderSelection select_screen_video_encoder(
   std::string probe_reason;
   const bool hardware_probe_passed =
       probe ? probe(bounds.max_width, bounds.max_height, probe_reason)
-            : probe_platform_video_toolbox_encoder(bounds.max_width,
-                                                   bounds.max_height,
-                                                   probe_reason);
+            : probe_platform_h264_encoder(bounds.max_width, bounds.max_height,
+                                          probe_reason);
   if (hardware_probe_passed) {
     auto hardware_factory =
-        factory ? factory() : create_platform_video_toolbox_encoder_factory();
+        factory ? factory() : create_platform_h264_encoder_factory();
     if (hardware_factory != nullptr) {
       auto screen_factory = std::make_unique<ScreenH264Factory>(
           std::move(hardware_factory), profile);
@@ -155,7 +164,10 @@ VideoEncoderSelection select_screen_video_encoder(
                                               *h264_format);
         if (encoder != nullptr && initializes_h264_encoder(*encoder, profile)) {
           selection.factory = std::move(screen_factory);
-          selection.diagnostics.encoder_implementation = "VideoToolbox";
+          selection.diagnostics.encoder_implementation =
+              hardware_implementation.empty()
+                  ? std::string(default_platform_h264_implementation())
+                  : std::string(hardware_implementation);
           selection.diagnostics.negotiated_codec = "H264";
           selection.diagnostics.hardware_active = true;
           return selection;

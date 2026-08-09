@@ -135,11 +135,11 @@ void selects_hardware_only_after_a_true_probe_and_factory() {
         reason.clear();
         return true;
       },
-      h264_factory);
+      h264_factory, "MediaFoundation");
   REQUIRE(selected.factory != nullptr);
   REQUIRE(selected.diagnostics.requested_codec == "H264");
   REQUIRE(selected.diagnostics.negotiated_codec == "H264");
-  REQUIRE(selected.diagnostics.encoder_implementation == "VideoToolbox");
+  REQUIRE(selected.diagnostics.encoder_implementation == "MediaFoundation");
   REQUIRE(selected.diagnostics.hardware_active);
   REQUIRE(!selected.diagnostics.fallback_active);
   REQUIRE(H264Factory::created_with_parameters);

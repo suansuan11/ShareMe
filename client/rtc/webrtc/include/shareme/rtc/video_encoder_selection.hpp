@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "api/video_codecs/video_encoder_factory.h"
 #include "shareme/core/screen_stream_profile.hpp"
@@ -27,18 +28,19 @@ struct VideoEncoderSelection {
       core::ScreenStreamProfile::standard};
 };
 
-using VideoToolboxProbe =
+using PlatformH264Probe =
     std::function<bool(int width, int height, std::string &reason)>;
-using VideoToolboxFactory =
+using PlatformH264Factory =
     std::function<std::unique_ptr<webrtc::VideoEncoderFactory>()>;
 
 [[nodiscard]] VideoEncoderSelection select_screen_video_encoder(
-    core::ScreenStreamProfile profile, VideoToolboxProbe probe = {},
-    VideoToolboxFactory factory = {});
+    core::ScreenStreamProfile profile, PlatformH264Probe probe = {},
+    PlatformH264Factory factory = {},
+    std::string_view hardware_implementation = {});
 
-[[nodiscard]] bool probe_platform_video_toolbox_encoder(
+[[nodiscard]] bool probe_platform_h264_encoder(
     int width, int height, std::string &reason);
 [[nodiscard]] std::unique_ptr<webrtc::VideoEncoderFactory>
-create_platform_video_toolbox_encoder_factory();
+create_platform_h264_encoder_factory();
 
 } // namespace shareme::rtc

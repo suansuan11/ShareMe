@@ -10,8 +10,7 @@
 
 namespace shareme::rtc {
 
-bool probe_platform_video_toolbox_encoder(int width, int height,
-                                          std::string &reason) {
+bool probe_platform_h264_encoder(int width, int height, std::string &reason) {
   NSDictionary *specification = @{
     (__bridge NSString *)kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder : @YES
   };
@@ -47,7 +46,7 @@ bool probe_platform_video_toolbox_encoder(int width, int height,
 }
 
 std::unique_ptr<webrtc::VideoEncoderFactory>
-create_platform_video_toolbox_encoder_factory() {
+create_platform_h264_encoder_factory() {
   auto *objc_factory =
       [[RTC_OBJC_TYPE(RTCVideoEncoderFactoryH264) alloc] init];
   if (objc_factory == nil)
