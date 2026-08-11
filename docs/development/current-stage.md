@@ -99,18 +99,24 @@ human visual integrity, physical foreground/background behavior, temperature,
 and physical 1080p/1440p/4K display coverage remain partial or
 environment-dependent.
 
-Windows now uses the existing Desktop Duplication screen source with a native
-Media Foundation H.264 encoder. Hardware selection requires a successful
-`MFT_ENUM_FLAG_HARDWARE` probe and real encoder initialization; the receiver
-uses the Windows Media Foundation H.264 decoder. On Windows AMD64 with MSVC
-19.51, `call-dev` passed 51/51 and `movie-call-dev` passed 76/76. Native
-two-peer runs passed at exact 1920x1080, 2560x1440, and 3840x2160 geometry with
-H.264 hardware status active, continuous host encode/viewer decode counters,
-nonzero bitrate, bidirectional synthetic primary voice, and one bounded
-presentation recovery. Cursor composition, display selection, two-device
-visual/acoustic acceptance, and physical-display cadence remain partial or
+Windows now uses the existing Desktop Duplication screen source with a guarded
+native Media Foundation H.264 encoder and decoder. Hardware selection requires
+a successful `MFT_ENUM_FLAG_HARDWARE` probe plus real encoder and decoder
+initialization; explicit software diagnosis remains standard-only VP8. On
+Windows 11 AMD64 with MSVC 19.51, `call-dev` passed 55/55 and `movie-call-dev`
+passed 80/80. Three 180-second 1920x1080 software baselines and three matching
+hardware runs from the same executable passed the frozen gate: median host CPU
+mean fell from 6.5545% to 4.1118% (37.2675%), CPU P95 improved, RSS P95 changed
+by -14.9605%, and hardware submitted cadence was 99.9868%. A 120-second
+2560x1440 quality run kept Media Foundation H.264 active at 99.9611% cadence
+with video, bidirectional synthetic primary voice, and bounded recovery.
+
+The stage outcome is `partial-windows-hardware-evidence`: Windows automated GUI
+and hardware screen gates are verified, while two-device human visual/acoustic
+acceptance, physical 4K, thermal observation, cursor composition, display
+selection, and this branch's native macOS regression remain not-run or
 environment-dependent. See
-[Hardware Screen Streaming Verification](../verification/hardware-screen-streaming.md).
+[Windows GUI and Hardware Screen Parity Verification](../verification/windows-gui-hardware-parity.md).
 
 The next product stage is the **remaining Windows Screen and Voice Acceptance**:
 perform the two-device human audio/visual acceptance pass, then close cursor

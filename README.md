@@ -11,7 +11,8 @@ macOS ARM64 上已验证 FFmpeg 解码、Qt/QML 本地播放、libwebrtc 本机�
 Windows 上也已完成 Qt/FFmpeg/libwebrtc 真机构建、影片与麦克风回归、
 Desktop Duplication 硬件采集及本地双进程桌面传输。macOS 已完成完整 GUI、
 ScreenCaptureKit、VideoToolbox H.264 和本地双端屏幕/语音自动化验收；Windows
-完整 GUI 真机验收、硬件编码及两台设备人工音画验收是下一阶段重点。
+已完成原生 GUI 自动化、Media Foundation H.264 编解码、本地双端屏幕/语音和
+1080p 性能门禁。两台设备人工音画、物理 4K/热感及本分支 macOS 回归仍待补齐。
 
 ## 当前范围
 
@@ -108,6 +109,23 @@ cmake --build --preset build-call-dev
 ./build/call-dev/client/tools/rtc_demo/shareme_rtc_demo
 ```
 
+Windows 上从 x64 Visual Studio 开发者终端复用已有锁定 WebRTC 构建：
+
+```powershell
+cmake --fresh --preset call-dev `
+  -DWEBRTC_ROOT=<existing-shareme-webrtc-root> `
+  -DCMAKE_PREFIX_PATH=<qt-msvc-prefix> `
+  -DCMAKE_LINKER=<locked-webrtc-lld-link>
+cmake --build --preset build-call-dev --config Release
+ctest --test-dir build/call-dev -C Release --output-on-failure
+build/call-dev/shareme_rtc_demo.exe
+```
+
+Windows GUI 默认使用 `--screen-encoder auto` 语义：只有 Media Foundation
+H.264 编解码探针和初始化均成功时才启用硬件路径；显式诊断模式
+`--screen-encoder software` 仅允许 `standard`，并使用 VP8。不要重新下载或
+重建仓库外的锁定 WebRTC 依赖。
+
 无参数启动会打开 ShareMe 首页、创建/加入会前检查和完整通话界面。开发时
 先运行本地 Go 信令服务；设置页默认连接
 `ws://127.0.0.1:8080/v1/ws`。显式传入 `--server`、`--role` 等参数时仍使用
@@ -133,6 +151,7 @@ cmake --build --preset build-call-dev
 - [Windows Desktop Duplication 桌面共享验证](docs/verification/windows-desktop-duplication.md)
 - [主机播放控制验证](docs/verification/host-playback-controls.md)
 - [完整 GUI 验证](docs/verification/complete-gui.md)
+- [Windows GUI 与硬件屏幕对齐验证](docs/verification/windows-gui-hardware-parity.md)
 
 ## 验证状态
 
@@ -156,7 +175,7 @@ cmake --build --preset build-call-dev
 | macOS ARM64 接收端播放状态通道 | 可靠有序数据通道、真实双 Peer 状态收发与 37/37 组合测试通过；GUI 视觉验收受当前捕获环境限制 |
 | macOS ARM64 主机影片播放控制 | 共享时间线、独立音视频暂停/继续/前后跳转、generation 状态发布与 38/38 组合测试通过；QML 已构建但视觉验收未执行 |
 | macOS ARM64 完整屏幕通话 GUI | 首页、会前检查、通话舞台、音频控制、详情、离开/恢复自动化通过；真实 H.264 屏幕与双向语音计数通过 |
-| Windows 完整屏幕通话 GUI | 代码可移植性门禁通过；Windows 真机 GUI、硬件编码和两设备人工音画尚未验证 |
+| Windows 完整屏幕通话 GUI | 原生自动化、MF H.264、本地双端屏幕/语音、1080p 性能和 1440p 门禁通过；双设备人工音画与物理 4K/热感环境受限 |
 
 当前已提供本地信令服务和双进程 WebRTC 测试媒体、真实麦克风通话及
 独立影片音视频轨道，运行与验证方式见
@@ -168,9 +187,9 @@ cmake --build --preset build-call-dev
 [主机播放控制验证](docs/verification/host-playback-controls.md)，当前完整屏幕
 通话界面见[完整 GUI 验证](docs/verification/complete-gui.md)。现有仓库外缓存
 的 libwebrtc 构建依赖仍用于这些验证并已保留。下一阶段应优先完成 Windows
-原生屏幕/语音与完整 GUI 真机对齐；TURN、Windows
-进程级音频捕获、持续性能测量和跨机器公网验收仍需后续完成。已有 Windows 结论仅覆盖上述真机
-构建、媒体回归、硬件桌面采集和本地双进程范围，不代表这些后续项已验证。
+双设备人工音画验收、光标合成和显示器选择；TURN、Windows 进程级音频捕获、
+物理 4K/热感和跨机器公网验收仍需后续完成。已有 Windows 结论仅覆盖上述
+真机构建、自动化 GUI、硬件编解码和本地双进程范围，不代表这些后续项已验证。
 
 状态必须以最近一次真实构建或测试结果为准。平台、硬件或网络未参与
 验证时，应明确标记为未验证或环境受限。
