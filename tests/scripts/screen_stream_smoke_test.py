@@ -26,13 +26,20 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertEqual(self.runner.profile_bounds("cinema"), (3840, 2160, 30))
 
         host = self.runner.build_host_command(
-            Path("demo"), "ws://127.0.0.1:18080/v1/ws", "quality"
+            Path("demo"), "ws://127.0.0.1:18080/v1/ws", "quality", "auto"
         )
         self.assertIn("--source", host)
         self.assertIn("screen", host)
         self.assertIn("--screen-profile", host)
         self.assertIn("quality", host)
+        self.assertIn("--screen-encoder", host)
+        self.assertIn("auto", host)
         self.assertEqual(host[-3:], ["--audio", "synthetic", "--no-audio-playout"])
+
+        software = self.runner.build_host_command(
+            Path("demo"), "ws://127.0.0.1:18080/v1/ws", "standard", "software"
+        )
+        self.assertIn("software", software)
 
         viewer = self.runner.build_viewer_command(
             Path("demo"), "ws://127.0.0.1:18080/v1/ws", "ABC234"
@@ -69,6 +76,11 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         )
         self.assertNotIn("/private/secret", diagnostic)
         self.assertNotIn("ABC234", diagnostic)
+        windows_diagnostic = self.runner.redact_diagnostic(
+            r"failed C:\Users\Alice\private\capture.dll"
+        )
+        self.assertNotIn("Alice", windows_diagnostic)
+        self.assertNotIn("capture.dll", windows_diagnostic)
 
     def test_profile_validation_requires_hardware_and_bounded_media(self):
         host = {

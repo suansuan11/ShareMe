@@ -116,6 +116,14 @@ add_test(
 set_tests_properties(screen_stream_smoke_contract PROPERTIES TIMEOUT 10)
 
 add_test(
+  NAME windows_screen_acceptance
+  COMMAND
+    "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/windows_screen_acceptance_test.py"
+)
+set_tests_properties(windows_screen_acceptance PROPERTIES TIMEOUT 10)
+
+add_test(
   NAME movie_drift_study_contract
   COMMAND
     "${Python3_EXECUTABLE}"

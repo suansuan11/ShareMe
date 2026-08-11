@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -16,10 +17,11 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from process_metrics import ProcessMetricsError, ProcessSampler  # noqa: E402
 from run_signaled_call_smoke import (  # noqa: E402
+    attach_windows_kill_job,
     cleanup_temporary_directory,
     popen_group_options,
-    start_managed_process,
     start_signaling_server,
     terminate_process_group,
     wait_for_health,
@@ -101,6 +103,11 @@ class SmokeRuntimeError(RuntimeError):
 
 def redact_diagnostic(message: str) -> str:
     redacted = re.sub(r"/(?:[^\s/]+/)+[^\s]+", "[path-redacted]", message)
+    redacted = re.sub(
+        r"\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s\\]+",
+        "[path-redacted]",
+        redacted,
+    )
     redacted = re.sub(r"\b(?:ROOM|room)\s+[A-Z2-7]{6}\b", "[redacted]", redacted)
     redacted = re.sub(
         r"\b(?:ROOM|room|TOKEN|token|SDP|sdp|ICE|ice)\b[^\s]*",
@@ -118,7 +125,7 @@ def profile_bounds(profile: str) -> tuple[int, int, int]:
 
 
 def build_host_command(
-    demo: Path, server_url: str, profile: str
+    demo: Path, server_url: str, profile: str, screen_encoder: str = "auto"
 ) -> list[str]:
     return [
         str(demo),
@@ -130,6 +137,8 @@ def build_host_command(
         "screen",
         "--screen-profile",
         profile,
+        "--screen-encoder",
+        screen_encoder,
         "--audio",
         "synthetic",
         "--no-audio-playout",
@@ -522,26 +531,6 @@ def _codec_diagnostic(reader: OutputReader | None) -> str:
     return f"codec-diagnostics={codecs[-12:]}"
 
 
-def _read_process_metrics(process: subprocess.Popen[str]) -> dict:
-    if process.poll() is not None:
-        raise SmokeRuntimeError("screen smoke process exited before metrics")
-    result = subprocess.run(
-        ["ps", "-o", "%cpu=", "-o", "rss=", "-p", str(process.pid)],
-        capture_output=True,
-        text=True,
-        timeout=1,
-        check=False,
-    )
-    fields = result.stdout.split()
-    if result.returncode != 0 or len(fields) < 2:
-        raise SmokeRuntimeError("screen smoke process metrics unavailable")
-    cpu = float(fields[0])
-    rss_kib = int(fields[1])
-    if cpu < 0 or rss_kib <= 0:
-        raise SmokeRuntimeError("screen smoke process metrics invalid")
-    return {"cpu_percent": cpu, "rss_bytes": rss_kib * 1024}
-
-
 def _write_jsonl(handle, value: dict) -> None:
     handle.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
     handle.flush()
@@ -560,6 +549,18 @@ def _find_demo(repo_root: Path) -> Path:
     raise SmokeRuntimeError("screen demo binary not found")
 
 
+def _start_measured_demo(command: list[str], **options):
+    process = subprocess.Popen(command, **options)
+    if os.name == "nt":
+        try:
+            attach_windows_kill_job(process)
+        except BaseException:
+            process.kill()
+            process.wait()
+            raise
+    return process
+
+
 def run_smoke(
     *,
     demo: Path,
@@ -569,10 +570,15 @@ def run_smoke(
     port: int,
     artifact: Path,
     allow_software_fallback: bool = False,
+    screen_encoder: str = "auto",
 ) -> dict:
     if sys.platform not in ("darwin", "win32"):
         raise SmokeRuntimeError("screen smoke requires macOS or Windows")
     profile_bounds(profile)
+    if screen_encoder not in ("auto", "software"):
+        raise SmokeRuntimeError("invalid screen encoder")
+    if screen_encoder == "software" and profile != "standard":
+        raise SmokeRuntimeError("software screen encoding requires standard")
     if duration_seconds <= 0:
         raise SmokeRuntimeError("duration must be positive")
     if artifact.exists():
@@ -586,6 +592,7 @@ def run_smoke(
     host_records: list[dict] = []
     viewer_records: list[dict] = []
     process_records: list[dict] = []
+    process_samplers: dict[str, ProcessSampler] = {}
     failure: str | None = None
     records_written = False
     environment = os.environ.copy()
@@ -606,6 +613,8 @@ def run_smoke(
             "encoder_requirement": (
                 "software-fallback" if allow_software_fallback else "hardware"
             ),
+            "screen_encoder": screen_encoder,
+            "demo_sha256": hashlib.sha256(demo.read_bytes()).hexdigest(),
         })
         try:
             server, server_log, server_directory = start_signaling_server(
@@ -614,8 +623,10 @@ def run_smoke(
             wait_for_health(
                 f"http://127.0.0.1:{port}/healthz", server, server_log=server_log
             )
-            host = start_managed_process(
-                build_host_command(demo, f"ws://{address}/v1/ws", profile),
+            host = _start_measured_demo(
+                build_host_command(
+                    demo, f"ws://{address}/v1/ws", profile, screen_encoder
+                ),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -626,7 +637,7 @@ def run_smoke(
             )
             host_reader = OutputReader(host)
             room = _wait_for_room(host_reader, host)
-            viewer = start_managed_process(
+            viewer = _start_measured_demo(
                 build_viewer_command(demo, f"ws://{address}/v1/ws", room),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -637,7 +648,16 @@ def run_smoke(
                 **popen_group_options(),
             )
             viewer_reader = OutputReader(viewer)
-            deadline = time.monotonic() + duration_seconds
+            process_samplers["host"] = ProcessSampler(host.pid)
+            try:
+                process_samplers["viewer"] = ProcessSampler(viewer.pid)
+            except BaseException:
+                process_samplers["host"].close()
+                process_samplers.clear()
+                raise
+            scenario_started = time.monotonic()
+            deadline = scenario_started + duration_seconds
+            next_sample = scenario_started + 1.0
             sample = 0
             while time.monotonic() < deadline:
                 if host.poll() is not None or viewer.poll() is not None:
@@ -648,18 +668,24 @@ def run_smoke(
                         "screen smoke peer exited during call"
                         + (f": {diagnostic}" if diagnostic else "")
                     )
+                now = time.monotonic()
+                if now < next_sample:
+                    time.sleep(min(0.25, next_sample - now))
+                    continue
                 for process, role in ((host, "host"), (viewer, "viewer")):
-                    if os.name == "nt":
-                        continue
-                    metrics = _read_process_metrics(process)
+                    measured = process_samplers[role].sample()
                     process_records.append({
                         "kind": "process",
                         "role": role,
                         "sample": sample,
-                        **metrics,
+                        "elapsed_seconds": int(
+                            time.monotonic() - scenario_started
+                        ),
+                        "cpu_percent": measured.cpu_percent,
+                        "rss_bytes": measured.rss_bytes,
                     })
                 sample += 1
-                time.sleep(1)
+                next_sample += 1.0
             terminate_process_group(viewer, grace_seconds=1)
             terminate_process_group(host, grace_seconds=1)
             host_reader.join()
@@ -691,11 +717,16 @@ def run_smoke(
             )
             _write_jsonl(output, {"kind": "summary", "complete": True, **summary})
             return summary
-        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
-            failure = str(error)
+        except (OSError, ValueError, subprocess.TimeoutExpired,
+                ProcessMetricsError) as error:
+            failure = redact_diagnostic(str(error))
         except SmokeRuntimeError as error:
-            failure = str(error)
+            failure = redact_diagnostic(str(error))
+        except KeyboardInterrupt:
+            failure = "interrupted"
         finally:
+            for sampler in process_samplers.values():
+                sampler.close()
             for process in (viewer, host):
                 if process is not None and process.poll() is None:
                     terminate_process_group(process, grace_seconds=1)
@@ -758,6 +789,8 @@ def main() -> int:
     parser.add_argument("--duration-seconds", type=int, required=True)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--allow-software-fallback", action="store_true")
+    parser.add_argument("--screen-encoder", choices=("auto", "software"),
+                        default="auto")
     args = parser.parse_args()
     demo = args.demo or _find_demo(repo_root)
     artifact = args.artifact or (
@@ -772,7 +805,10 @@ def main() -> int:
             duration_seconds=args.duration_seconds,
             port=args.port,
             artifact=artifact.resolve(),
-            allow_software_fallback=args.allow_software_fallback,
+            allow_software_fallback=(
+                args.allow_software_fallback or args.screen_encoder == "software"
+            ),
+            screen_encoder=args.screen_encoder,
         ), sort_keys=True))
         return 0
     except (SmokeRuntimeError, OSError, ValueError) as error:
