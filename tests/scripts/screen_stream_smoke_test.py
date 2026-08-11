@@ -49,6 +49,17 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertIn("screen", viewer)
         self.assertEqual(viewer[-3:], ["--audio", "synthetic", "--no-audio-playout"])
 
+    def test_guard_process_exit_fails_the_measurement(self):
+        class ExitedProcess:
+            def poll(self):
+                return 3
+
+        with self.assertRaisesRegex(self.runner.SmokeRuntimeError,
+                                    "fixture-early-exit"):
+            self.runner.require_guard_processes_alive(
+                (("fixture", ExitedProcess()),)
+            )
+
     def test_parses_sanitized_counter_lines(self):
         parsed = self.runner.parse_counter_line(
             "PERF_COUNTERS version=1 role=host cpu_percent=0 rss_bytes=0 "

@@ -7,6 +7,7 @@ Window {
     height: 720
     visible: true
     visibility: Window.Maximized
+    flags: Qt.Window | Qt.WindowStaysOnTopHint
     color: "#101010"
     title: "ShareMe Screen Motion Fixture"
     Accessible.name: "ShareMe deterministic screen motion fixture"

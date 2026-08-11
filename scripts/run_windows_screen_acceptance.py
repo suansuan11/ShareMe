@@ -323,6 +323,7 @@ def run_acceptance(*, demo: Path, fixture: Path, server_root: Path,
             artifact=artifact,
             allow_software_fallback=(mode == "software-baseline"),
             screen_encoder=screen_encoder_for_mode(mode),
+            guard_processes=(("fixture", fixture_process),),
         )
     except (OSError, SmokeRuntimeError, ValueError) as error:
         raise AcceptanceError(str(error)) from error

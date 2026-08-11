@@ -561,6 +561,12 @@ def _start_measured_demo(command: list[str], **options):
     return process
 
 
+def require_guard_processes_alive(guard_processes) -> None:
+    for name, process in guard_processes:
+        if process.poll() is not None:
+            raise SmokeRuntimeError(f"{name}-early-exit")
+
+
 def run_smoke(
     *,
     demo: Path,
@@ -571,6 +577,7 @@ def run_smoke(
     artifact: Path,
     allow_software_fallback: bool = False,
     screen_encoder: str = "auto",
+    guard_processes=(),
 ) -> dict:
     if sys.platform not in ("darwin", "win32"):
         raise SmokeRuntimeError("screen smoke requires macOS or Windows")
@@ -660,6 +667,7 @@ def run_smoke(
             next_sample = scenario_started + 1.0
             sample = 0
             while time.monotonic() < deadline:
+                require_guard_processes_alive(guard_processes)
                 if host.poll() is not None or viewer.poll() is not None:
                     diagnostic = _process_exit_diagnostic(
                         host, viewer, host_reader, viewer_reader
