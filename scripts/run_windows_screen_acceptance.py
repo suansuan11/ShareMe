@@ -77,6 +77,25 @@ def validate_comparison_path(comparison: Path, output_root: Path) -> None:
         raise AcceptanceError("comparison-exists")
 
 
+def atomic_append_jsonl(artifact: Path, record: dict) -> None:
+    encoded_record = (
+        json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{artifact.name}.", suffix=".tmp", dir=artifact.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(file_descriptor, "wb") as output:
+            output.write(artifact.read_bytes())
+            output.write(encoded_record)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, artifact)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def measurement_window(samples: list[dict], start_s: int = 30,
                        end_s: int = 150) -> list[dict]:
     selected = [
@@ -332,12 +351,11 @@ def run_acceptance(*, demo: Path, fixture: Path, server_root: Path,
             terminate_process_group(fixture_process, grace_seconds=1)
             fixture_stopped = fixture_process.poll() is not None
         if artifact.exists():
-            with artifact.open("a", encoding="utf-8") as output:
-                output.write(json.dumps({
-                    "kind": "acceptance",
-                    "fixture_started": fixture_started,
-                    "fixture_stopped": fixture_stopped,
-                }, sort_keys=True, separators=(",", ":")) + "\n")
+            atomic_append_jsonl(artifact, {
+                "kind": "acceptance",
+                "fixture_started": fixture_started,
+                "fixture_stopped": fixture_stopped,
+            })
     summary = summarize_run(artifact, mode)
     if not summary["qualityPassed"]:
         raise AcceptanceError("quality-gate-failed")

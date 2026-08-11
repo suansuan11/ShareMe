@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def load_runner():
@@ -143,6 +144,23 @@ class WindowsScreenAcceptanceTest(unittest.TestCase):
             with self.assertRaisesRegex(self.runner.AcceptanceError,
                                         "comparison-exists"):
                 self.runner.validate_comparison_path(comparison, allowed)
+
+    def test_atomic_append_preserves_original_when_replace_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = Path(temporary) / "run.jsonl"
+            original = '{"kind":"run"}\n'
+            artifact.write_text(original, encoding="utf-8")
+
+            with mock.patch.object(
+                    self.runner.os, "replace", side_effect=OSError("blocked")):
+                with self.assertRaisesRegex(OSError, "blocked"):
+                    self.runner.atomic_append_jsonl(
+                        artifact,
+                        {"kind": "acceptance", "fixture_stopped": True},
+                    )
+
+            self.assertEqual(artifact.read_text(encoding="utf-8"), original)
+            self.assertEqual(list(Path(temporary).glob("*.tmp")), [])
 
 
 if __name__ == "__main__":
