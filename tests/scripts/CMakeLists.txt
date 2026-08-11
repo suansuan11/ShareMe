@@ -78,6 +78,20 @@ if(TARGET shareme_rtc_demo)
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/gui_call_smoke_test.py"
   )
+  if(TARGET shareme_screen_motion_fixture)
+    add_test(
+      NAME windows_gui_acceptance
+      COMMAND "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/windows_gui_acceptance_test.py"
+    )
+    set_tests_properties(
+      windows_gui_acceptance
+      PROPERTIES
+        TIMEOUT 15
+        ENVIRONMENT_MODIFICATION
+          "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>;QT_QPA_PLATFORM=set:offscreen;SHAREME_MOTION_FIXTURE=set:$<TARGET_FILE:shareme_screen_motion_fixture>"
+    )
+  endif()
   set_tests_properties(
     rtc_demo_cli_contract
     PROPERTIES
