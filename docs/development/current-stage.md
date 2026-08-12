@@ -118,10 +118,36 @@ selection, and this branch's native macOS regression remain not-run or
 environment-dependent. See
 [Windows GUI and Hardware Screen Parity Verification](../verification/windows-gui-hardware-parity.md).
 
-The next product stage is the **remaining Windows Screen and Voice Acceptance**:
-perform the two-device human audio/visual acceptance pass, then close cursor
-composition and display selection. Physical-display cadence and thermal
-evidence remain explicit platform boundaries.
+### macOS Evidence Hardening
+
+The portable evidence hardening stage is delivered on
+`codex/macos-evidence-hardening`. New screen-smoke runs carry an independent
+random `run_id`; formal performance comparison rejects reused artifact paths or
+run identities, malformed executable SHA-256 values, and any missing,
+duplicated, unordered, or invalid one-second process sample in the 30-through-
+150-second measurement window. The existing Windows three-plus-three result is
+preserved as historical evidence, but a replacement formal result must be
+collected on Windows with six independent artifacts under this hardened
+contract.
+
+On macOS 26.6.1 arm64, fresh `call-dev` and `movie-call-dev` builds passed
+51/51 and 76/76 CTest respectively, and `signaled_peer` repeated 20/20. A
+standard 10-second native call negotiated H.264, kept VideoToolbox hardware
+encoding active, matched 1470x956 geometry, advanced video and bidirectional
+voice counters without a continuity stall, and completed the bounded viewer
+presentation recovery. GUI lifecycle passed all six probes. A separate
+30-second diagnostic stopped advancing video late in the run and remains an
+explicit partial result rather than a successful stability claim. See
+[macOS Evidence Hardening Verification](../verification/macos-evidence-hardening.md).
+
+The next evidence task is a **hardened Windows performance rerun**: collect
+three independent software-baseline and three independent Media Foundation
+candidate artifacts, then require the strict identities and continuous sample
+window before accepting the comparison. The next product task remains the
+**remaining Windows Screen and Voice Acceptance**: perform the two-device human
+audio/visual acceptance pass, then close cursor composition and display
+selection. Physical-display cadence and thermal evidence remain explicit
+platform boundaries.
 macOS physical-display and acoustic evidence may be completed in parallel as
 environment permits.
 File sharing, Movie Stage 2B, system-audio capture, HDR, remote input, TURN, and
