@@ -172,6 +172,32 @@ environment permits.
 File sharing, Movie Stage 2B, system-audio capture, HDR, remote input, TURN, and
 4K60 optimization remain postponed and must not displace this direction.
 
+### macOS Native Capture Restart Recovery
+
+The macOS restart stage is delivered on `codex/macos-motion-recovery`. The host
+now retains the same ref-counted screen source used by its WebRTC track, and a
+bounded test probe can stop/start that source once without rebuilding signaling,
+the peer connection, VideoToolbox selection, or voice tracks. Sanitized counters
+prove the exact restart attempt, success, and generation; the smoke runner
+records role-aligned recovery boundaries and owns safe fixture resume/cleanup.
+
+On macOS 26.6.1 arm64, a 60-second standard call recreated ScreenCaptureKit
+after 15 seconds while its dynamic fixture paused for three seconds. Restart
+generation changed from zero to one in one sample; host and viewer video both
+advanced one sample after resume, with 42 post-recovery samples remaining.
+H.264 VideoToolbox stayed active, geometry matched at 1470x956, full-call video
+stall maxima were one host observation and zero viewer observations,
+bidirectional synthetic voice passed the bounded
+continuity gate, and viewer presentation recovered exactly once. `call-dev`
+passed 51/51, `signaled_peer` repeated 20/20, and repository gates passed. See
+[macOS Screen Capture Restart Recovery](../verification/macos-motion-recovery.md).
+
+The next macOS product stage is automatic bounded recovery after an unsolicited
+`SCStreamDelegate` error, with retry limit, backoff, user-visible failure, and
+the same frozen video/voice/quality gates. Actual sleep/wake, lock, permission
+revocation, physical display/audio/temperature, Windows, and 4K remain separate
+environment-dependent evidence.
+
 ## Active stage
 
 Movie-audio transport isolation is merged on `main` through `2d806a5`.

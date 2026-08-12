@@ -1,112 +1,99 @@
-# macOS Screen Motion Recovery Design
+# macOS Screen Capture Restart Recovery Design
 
 ## Outcome
 
-Add a deterministic macOS screen-sharing recovery gate that proves an active
-call survives a bounded interruption of changing screen content. The host and
-viewer must keep bidirectional synthetic voice alive, retain the current
-VideoToolbox H.264 and quality gates, and resume video progress within five
-seconds after the controlled content producer resumes.
+Prove that an active high-quality macOS screen-sharing call survives a real
+ScreenCaptureKit stream teardown and recreation without rebuilding the WebRTC
+session or interrupting bidirectional voice. Video at both peers must continue
+within five observation samples and all existing quality gates remain frozen.
 
-## Selected approach
+## Evidence-driven approach
 
-The existing smoke runner owns `shareme_screen_motion_fixture`. For an optional
-recovery probe, the runner sends `SIGSTOP` to that process after a configured
-number of measured seconds and sends `SIGCONT` after a short configured
-interval. The fixture window remains visible but stops producing motion; the
-product capture, codec, transport, decode, and presentation processes remain
-running throughout.
+The initial design paused the runner-owned motion fixture with `SIGSTOP` and
+resumed it with `SIGCONT`. Two 60-second diagnostics showed that ScreenCaptureKit
+can continue delivering frames while visible content is static; neither native
+nor offscreen peers produced a reliable counter plateau. A static-content stall
+is therefore not a truthful prerequisite for capture recovery.
 
-The runner records only sanitized phase names and elapsed seconds. It never
-records the fixture path, process ID, room, child output, or user information.
-Cleanup always resumes a stopped fixture before terminating its process group.
+The accepted design keeps that bounded content pause as an additional stress
+condition but also performs an actual native capture restart. The host retains
+the `ScreenVideoSource` used by its unchanged WebRTC video track. A test-only,
+bounded environment probe calls `stop()` and `start()` on that same source once
+during the live call. On macOS this destroys and recreates `SCStream`; the peer
+connection, H.264 encoder selection, audio tracks, and UI session remain alive.
 
-This approach is preferred over UI scripting because it needs no Accessibility
-or Automation permission, and over a ScreenCaptureKit restart hook because the
-current evidence does not show a native stream failure. It is also preferred
-over loosening continuity thresholds: all current media and quality gates stay
-unchanged.
+## Components and interfaces
 
-## Interfaces
+`RtcDemoController`:
 
-`scripts/run_screen_stream_smoke.py` gains:
+- retains the host `ScreenVideoSource` while the peer factory receives the same
+  ref-counted instance;
+- accepts `SHAREME_SCREEN_CAPTURE_RESTART_TRIGGER_FILE` only in macOS builds;
+- polls for a one-use private trigger created by the runner at the fixture
+  interruption boundary, then performs exactly one stop/start cycle;
+- emits monotonic counters for restart attempts, successes, and generation;
+- reports a sanitized failure status if restart fails.
 
-- `MotionInterruption(after_seconds: int, duration_seconds: int)` as a narrow
-  validated configuration value;
-- `validate_motion_interruption(...)` to reject unsupported platforms, missing
-  fixtures, intervals outside the measured run, durations over five seconds,
-  or insufficient post-recovery observation;
-- `suspend_motion_fixture(process)` and `resume_motion_fixture(process)`, using
-  `SIGSTOP` and `SIGCONT` only on macOS;
-- `validate_motion_recovery(host_records, viewer_records, resume_sample,
-  deadline_samples=5)` to require every role's video counters to advance by the
-  recovery deadline and to require voice counters to advance across the probe;
-- CLI options `--motion-interruption-after-seconds` and
-  `--motion-interruption-duration-seconds`, which must be supplied together and
-  require `--motion-fixture`;
-- sanitized JSONL run/phase/summary fields describing the requested boundary,
-  actual suspend/resume elapsed seconds, and measured recovery samples.
+`run_screen_stream_smoke.py`:
 
-The default smoke path and Windows acceptance behavior remain unchanged when
-the two new options are absent.
+- accepts paired fixture interruption timing for macOS only;
+- pauses/resumes only its owned fixture and always resumes it before teardown;
+- activates the native restart probe at the same initial boundary;
+- records role-aligned host/viewer counter samples for the interruption and
+  resume phases;
+- requires the host restart counters to transition exactly from `0/0/0` to
+  `1/1/1` inside the probe window;
+- requires every host and viewer video-stage counter to advance within five
+  samples after resume, voice counters to advance at every probe sample, and at
+  least ten post-resume samples;
+- records sanitized JSONL only, excluding paths, PIDs, rooms, SDP, ICE, and
+  child output.
 
-## Data flow and lifecycle
+## Lifecycle and failure behavior
 
-1. Validate the interruption configuration before opening the artifact.
-2. Start and verify the owned fixture, signaling server, host, and viewer using
-   the existing lifecycle.
-3. Start the measured scenario clock only after both peers exist.
-4. At the configured boundary, verify the fixture is alive and send `SIGSTOP`.
-5. At the configured resume boundary, send `SIGCONT` and continue the call.
-6. Keep sampling peer resources and checking every guard process. A deliberately
-   stopped fixture is alive and therefore remains a valid guard.
-7. At call end, terminate peers and parse their once-per-second counters.
-8. Apply all existing screen gates, then apply the extra pre/probe/post recovery
-   gate. The final post-recovery observation window must be at least ten seconds.
-9. In every failure or interruption path, send `SIGCONT` if needed before normal
-   process-group cleanup.
+1. Validate macOS, fixture ownership, warmup, 3–5 second fixture pause, and a
+   ten-second post-recovery observation window before artifact creation.
+2. Start the fixture, signaling, host, and viewer through existing guarded
+   lifecycle paths.
+3. Start the host trigger poller only after the peer has started.
+4. At the runner boundary, record role-specific counter indices, pause the
+   fixture, and publish the private one-use trigger. The host tears down and
+   restarts its native capture.
+5. Require exact host acknowledgement before resuming the fixture and recording
+   the second role-specific boundary; timeout is a hard failure with cleanup.
+6. Preserve the existing full-call continuity, H.264 VideoToolbox, geometry,
+   bitrate, queue, conversion, presentation-recovery, and synthetic voice gates.
+7. Apply the restart generation and post-resume recovery gates.
+8. Resume a stopped fixture before normal group termination on every exit path.
 
-## Recovery gate
+Any missing generation transition, duplicate attempt, restart failure, voice
+stall, late or partial video recovery, early process exit, missing counter, or
+insufficient post-window is a hard failure. No-data evidence is never accepted.
 
-For both host and viewer:
+## Verification
 
-- counters must already be ready before the interruption;
-- host `encoded`, `callback`, and `submitted`, and viewer `received`, `decoded`,
-  `callback`, and `submitted`, must each exceed their resume-boundary values no
-  later than five counter samples after resume;
-- all four bidirectional voice packet/byte counters must exceed their
-  pre-interruption values after the probe;
-- at least ten counter samples must remain after resume;
-- the existing no-regression and maximum-five-stall-sample gates remain active
-  over the full call.
-
-A missing boundary, early fixture exit, failed signal, peer exit, missing
-counter, counter regression, late recovery, or absent post-recovery window is a
-hard failure. No-data evidence is never interpreted as recovery.
-
-## Test and verification strategy
-
-- RED/GREEN unit tests cover configuration validation, exact signals,
-  resume-before-cleanup, sanitized phase evidence, recovery success at the
-  five-sample boundary, and failures for late/missing video or voice progress.
-- Existing screen smoke, Windows acceptance, GUI smoke, and process metric
-  suites remain green under system and Homebrew Python where available.
-- Fresh `call-dev` CTest and repeated `signaled_peer` lifecycle remain green.
-- A native macOS standard-profile call runs at least 60 seconds, suspends the
-  owned fixture for three seconds after 15 seconds, and passes every existing
-  and new gate with VideoToolbox active.
-- Go race/vet, workflow tests, skill validation, portable core scan, artifact
-  redaction review, and `git diff --check` pass.
+- RED/GREEN Python tests cover configuration, exact signals, cleanup order,
+  role-aligned phases, counter parsing, exact restart generation, five-sample
+  video recovery, continuous voice, and rejection boundaries.
+- The C++ source test proves one `ScreenVideoSource` instance can stop, start,
+  and deliver frames again without replacing the source object.
+- The complete affected Python suites pass under system and Homebrew Python.
+- Fresh `call-dev` build, 51-test CTest, and 20 repeated `signaled_peer` runs
+  pass against the preserved external libwebrtc archive.
+- A native standard-profile call runs for 60 seconds, restarts ScreenCaptureKit
+  after 15 seconds while the fixture pauses for three seconds, and passes every
+  frozen gate with exactly one successful capture generation.
+- Go race/vet, workflow, skill, portable-core, redaction, Git, and cache hygiene
+  gates pass.
 
 ## Boundaries
 
-This verifies recovery from a deterministic pause in dynamic screen content
-while the native call remains active. It does not prove actual app
-minimize/restore, occlusion semantics, display sleep/wake, screen lock,
-ScreenCaptureKit `didStopWithError` restart, physical scanout, subjective image
-quality, audible voice, thermal behavior, Windows, or 4K. Those remain
-environment-dependent or unimplemented and must be reported separately.
+This proves a controlled native capture stop/start on macOS. It does not yet
+implement automatic retry after an unsolicited `SCStreamDelegate` error and
+does not prove real minimize/restore, occlusion semantics, lock, display
+sleep/wake, permission revocation, physical scanout, subjective image quality,
+audible voice, thermal behavior, Windows, or 4K.
 
-No capture dimensions, cadence, codec, bitrate, queue bound, drop policy, or
-quality threshold is reduced. Generated artifacts and build output remain
-ignored, and the external libwebrtc cache remains read-only.
+No resolution, cadence, codec, bitrate, queue bound, drop policy, or quality
+threshold is reduced. Generated output stays ignored and the external
+libwebrtc cache remains read-only.
