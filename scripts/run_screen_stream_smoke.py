@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
 import uuid
 from pathlib import Path
 from typing import NamedTuple
@@ -129,7 +130,9 @@ def validate_motion_interruption(
         raise SmokeRuntimeError("motion-interruption-requires-motion-fixture")
     if interruption.after_seconds < 5:
         raise SmokeRuntimeError("motion-interruption-needs-warmup")
-    if not 1 <= interruption.duration_seconds <= 5:
+    # PERF_COUNTERS arrive once per second. Keep two full reporting intervals
+    # inside the pause so the restart acknowledgement cannot lose a timer race.
+    if not 3 <= interruption.duration_seconds <= 5:
         raise SmokeRuntimeError("motion-interruption-duration-out-of-range")
     resume_seconds = (
         interruption.after_seconds + interruption.duration_seconds
@@ -181,6 +184,14 @@ def _latest_counter_sample(reader, role: str) -> int:
     return count - 1
 
 
+def _latest_counter(reader, role: str) -> dict | None:
+    for line in reversed(reader.lines):
+        parsed = parse_counter_line(line)
+        if parsed is not None and parsed.get("role") == role:
+            return parsed
+    return None
+
+
 def _motion_phase_record(
     phase: str,
     elapsed_seconds: float,
@@ -205,6 +216,7 @@ def advance_motion_interruption(
     host_reader,
     viewer_reader,
     phase_records: list[dict],
+    restart_trigger: Path,
 ) -> None:
     if not state["suspended"] and state["suspended_samples"] is None:
         if elapsed_seconds >= interruption.after_seconds:
@@ -213,6 +225,7 @@ def advance_motion_interruption(
             )
             suspend_motion_fixture(process)
             state["suspended"] = True
+            restart_trigger.touch(exist_ok=False)
             state["suspended_samples"] = {
                 "host": suspended["host_counter_sample"],
                 "viewer": suspended["viewer_counter_sample"],
@@ -220,6 +233,16 @@ def advance_motion_interruption(
             phase_records.append(suspended)
     resume_at = interruption.after_seconds + interruption.duration_seconds
     if state["suspended"] and elapsed_seconds >= resume_at:
+        host_counter = _latest_counter(host_reader, "host")
+        if host_counter is None or any(
+            host_counter.get(key) != 1
+            for key in (
+                "screen_capture_restart_attempts",
+                "screen_capture_restart_successes",
+                "screen_capture_generation",
+            )
+        ):
+            raise SmokeRuntimeError("screen-capture-restart-ack-timeout")
         resumed = _motion_phase_record(
             "resumed", elapsed_seconds, host_reader, viewer_reader
         )
@@ -1008,6 +1031,8 @@ def run_smoke(
     fixture_started = False
     fixture_alive = False
     fixture_stopped = False
+    restart_trigger_directory = None
+    restart_trigger = None
     motion_state = new_motion_interruption_state()
     motion_phase_records: list[dict] = []
     environment = os.environ.copy()
@@ -1015,9 +1040,15 @@ def run_smoke(
     environment["SHAREME_SCREEN_SMOKE_DIAGNOSTICS"] = "1"
     environment["SHAREME_SCREEN_RECOVERY_PROBE"] = "1"
     if motion_interruption is not None:
-        environment[
-            "SHAREME_SCREEN_CAPTURE_RESTART_PROBE_AFTER_SECONDS"
-        ] = str(motion_interruption.after_seconds)
+        restart_trigger_directory = tempfile.TemporaryDirectory(
+            prefix="shareme-capture-restart-"
+        )
+        restart_trigger = (
+            Path(restart_trigger_directory.name) / "restart.trigger"
+        )
+        environment["SHAREME_SCREEN_CAPTURE_RESTART_TRIGGER_FILE"] = str(
+            restart_trigger
+        )
 
     with artifact.open("x", encoding="utf-8") as output:
         run_record = {
@@ -1121,6 +1152,7 @@ def run_smoke(
                         host_reader=host_reader,
                         viewer_reader=viewer_reader,
                         phase_records=motion_phase_records,
+                        restart_trigger=restart_trigger,
                     )
                 if now < next_sample:
                     time.sleep(min(0.25, next_sample - now))
@@ -1204,6 +1236,8 @@ def run_smoke(
             if fixture_process is not None:
                 cleanup_motion_fixture(fixture_process, motion_state)
                 fixture_stopped = fixture_process.poll() is not None
+            if restart_trigger_directory is not None:
+                restart_trigger_directory.cleanup()
         if summary is not None:
             if motion_fixture is not None:
                 summary.update({

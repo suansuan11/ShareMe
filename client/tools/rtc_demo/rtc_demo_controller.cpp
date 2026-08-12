@@ -2,6 +2,7 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QCoreApplication>
 #include <QVideoSink>
@@ -164,18 +165,6 @@ QString screen_profile_name(shareme::core::ScreenStreamProfile profile) {
   return QStringLiteral("unknown");
 }
 
-std::optional<int> bounded_environment_seconds(const char *name, int minimum,
-                                               int maximum) {
-  const char *value = std::getenv(name);
-  if (value == nullptr || *value == '\0')
-    return std::nullopt;
-  char *end = nullptr;
-  const long parsed = std::strtol(value, &end, 10);
-  if (end == value || *end != '\0' || parsed < minimum || parsed > maximum)
-    return std::nullopt;
-  return static_cast<int>(parsed);
-}
-
 } // namespace
 
 RtcDemoController::RtcDemoController(QUrl server_url,
@@ -209,9 +198,14 @@ RtcDemoController::RtcDemoController(QUrl server_url,
        performance_counters_enabled_(
            std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr),
        screen_recovery_probe_enabled_(
-           std::getenv("SHAREME_SCREEN_RECOVERY_PROBE") != nullptr),
-       screen_capture_restart_probe_after_seconds_(bounded_environment_seconds(
-           "SHAREME_SCREEN_CAPTURE_RESTART_PROBE_AFTER_SECONDS", 5, 3'600)) {
+           std::getenv("SHAREME_SCREEN_RECOVERY_PROBE") != nullptr) {
+#if defined(__APPLE__)
+  if (const char *trigger = std::getenv(
+          "SHAREME_SCREEN_CAPTURE_RESTART_TRIGGER_FILE");
+      trigger != nullptr && *trigger != '\0') {
+    screen_capture_restart_trigger_path_ = QString::fromUtf8(trigger);
+  }
+#endif
   audio_route_monitor_ = std::make_unique<QtAudioRouteMonitor>();
   movie_video_playout_adapter_ =
       std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(
@@ -1044,26 +1038,34 @@ void RtcDemoController::startPeer() {
     playout_report_timer_.start();
   if (screen_source_ && role_ == shareme::rtc::SignaledRole::host)
     screen_capture_error_timer_.start();
+#if defined(__APPLE__)
   if (screen_source_ && role_ == shareme::rtc::SignaledRole::host &&
-      screen_video_source_ && screen_capture_restart_probe_after_seconds_) {
-    QTimer::singleShot(
-        *screen_capture_restart_probe_after_seconds_ * 1'000, this, [this] {
-          if (shutting_down_ || !screen_video_source_)
-            return;
-          screen_capture_restart_attempts_.fetch_add(1,
-                                                     std::memory_order_relaxed);
-          screen_video_source_->stop();
-          if (!screen_video_source_->start()) {
-            setStatus(QStringLiteral("screen-capture-restart-failed:" ) +
-                      QString::fromStdString(screen_video_source_->error()));
-            return;
-          }
-          screen_capture_restart_successes_.fetch_add(
-              1, std::memory_order_relaxed);
-          screen_capture_generation_.fetch_add(1, std::memory_order_relaxed);
-          std::cout << "SMOKE_STATUS screen-capture-restarted" << std::endl;
-        });
+      screen_video_source_ && !screen_capture_restart_trigger_path_.isEmpty()) {
+    screen_capture_restart_probe_timer_.setInterval(25);
+    connect(&screen_capture_restart_probe_timer_, &QTimer::timeout, this,
+            [this] {
+              if (shutting_down_ || !screen_video_source_)
+                return;
+              if (!QFileInfo::exists(screen_capture_restart_trigger_path_))
+                return;
+              screen_capture_restart_probe_timer_.stop();
+              screen_capture_restart_attempts_.fetch_add(
+                  1, std::memory_order_relaxed);
+              screen_video_source_->stop();
+              if (!screen_video_source_->start()) {
+                setStatus(QStringLiteral("screen-capture-restart-failed:") +
+                          QString::fromStdString(screen_video_source_->error()));
+                return;
+              }
+              screen_capture_restart_successes_.fetch_add(
+                  1, std::memory_order_relaxed);
+              screen_capture_generation_.fetch_add(
+                  1, std::memory_order_relaxed);
+              std::cout << "SMOKE_STATUS screen-capture-restarted" << std::endl;
+            });
+    screen_capture_restart_probe_timer_.start();
   }
+#endif
   if (performance_counters_enabled_) {
     performance_stats_worker_ = std::jthread([this](std::stop_token stop_token) {
       while (!stop_token.stop_requested()) {
@@ -1131,6 +1133,7 @@ void RtcDemoController::stopPeer() noexcept {
   drift_scenario_timer_.stop();
   performance_timer_.stop();
   screen_capture_error_timer_.stop();
+  screen_capture_restart_probe_timer_.stop();
   if (performance_stats_worker_.joinable()) {
     performance_stats_worker_.request_stop();
     performance_stats_worker_.join();

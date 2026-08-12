@@ -289,7 +289,8 @@ private:
   bool performance_counters_enabled_{false};
   bool screen_recovery_probe_enabled_{false};
   bool screen_recovery_probe_scheduled_{false};
-  std::optional<int> screen_capture_restart_probe_after_seconds_;
+  QString screen_capture_restart_trigger_path_;
+  QTimer screen_capture_restart_probe_timer_;
   std::atomic<std::uint64_t> screen_capture_restart_attempts_{0};
   std::atomic<std::uint64_t> screen_capture_restart_successes_{0};
   std::atomic<std::uint64_t> screen_capture_generation_{0};

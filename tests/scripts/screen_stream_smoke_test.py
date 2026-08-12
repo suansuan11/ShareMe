@@ -121,6 +121,8 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             (None, 60, fixture, "paired"),
             (self.runner.MotionInterruption(4, 3), 60, fixture, "warmup"),
             (self.runner.MotionInterruption(15, 0), 60, fixture, "duration"),
+            (self.runner.MotionInterruption(15, 1), 60, fixture, "duration"),
+            (self.runner.MotionInterruption(15, 2), 60, fixture, "duration"),
             (self.runner.MotionInterruption(15, 6), 60, fixture, "duration"),
             (self.runner.MotionInterruption(48, 3), 60, fixture, "post-recovery"),
             (accepted, 60, None, "requires-motion-fixture"),
@@ -308,10 +310,15 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "PERF_COUNTERS version=1 role={role} width=1920 height=1080 "
             "encoded=1 callback=1 submitted=1 received=1 decoded=1 "
             "voice_packets_sent=1 voice_packets_received=1 "
-            "voice_bytes_sent=1 voice_bytes_received=1"
+            "voice_bytes_sent=1 voice_bytes_received=1 "
+            "screen_capture_restart_attempts={restart} "
+            "screen_capture_restart_successes={restart} "
+            "screen_capture_generation={restart}"
         )
-        host_reader = mock.Mock(lines=[counter.format(role="host")])
-        viewer_reader = mock.Mock(lines=[counter.format(role="viewer")])
+        host_reader = mock.Mock(lines=[counter.format(role="host", restart=0)])
+        viewer_reader = mock.Mock(
+            lines=[counter.format(role="viewer", restart=0)]
+        )
         process = mock.Mock(pid=4321)
         process.poll.return_value = None
         state = self.runner.new_motion_interruption_state()
@@ -319,9 +326,14 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         config = self.runner.MotionInterruption(15, 3)
 
         with (
-            mock.patch.object(self.runner, "suspend_motion_fixture") as suspend,
+            tempfile.TemporaryDirectory() as temporary,
+            mock.patch.object(
+                self.runner, "suspend_motion_fixture"
+            ) as suspend,
             mock.patch.object(self.runner, "resume_motion_fixture") as resume,
         ):
+            trigger = Path(temporary) / "capture-restart.trigger"
+            suspend.side_effect = lambda target: self.assertFalse(trigger.exists())
             self.runner.advance_motion_interruption(
                 process,
                 config,
@@ -330,8 +342,10 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 host_reader=host_reader,
                 viewer_reader=viewer_reader,
                 phase_records=phases,
+                restart_trigger=trigger,
             )
             suspend.assert_not_called()
+            self.assertFalse(trigger.exists())
 
             self.runner.advance_motion_interruption(
                 process,
@@ -341,20 +355,39 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 host_reader=host_reader,
                 viewer_reader=viewer_reader,
                 phase_records=phases,
+                restart_trigger=trigger,
             )
             suspend.assert_called_once_with(process)
             self.assertTrue(state["suspended"])
+            self.assertTrue(trigger.is_file())
 
-            host_reader.lines.append(counter.format(role="host"))
-            viewer_reader.lines.append(counter.format(role="viewer"))
+            with self.assertRaisesRegex(
+                self.runner.SmokeRuntimeError, "restart-ack-timeout"
+            ):
+                self.runner.advance_motion_interruption(
+                    process,
+                    config,
+                    elapsed_seconds=18.0,
+                    state=state,
+                    host_reader=host_reader,
+                    viewer_reader=viewer_reader,
+                    phase_records=phases,
+                    restart_trigger=trigger,
+                )
+            resume.assert_not_called()
+            self.assertTrue(state["suspended"])
+
+            host_reader.lines.append(counter.format(role="host", restart=1))
+            viewer_reader.lines.append(counter.format(role="viewer", restart=0))
             self.runner.advance_motion_interruption(
                 process,
                 config,
-                elapsed_seconds=18.0,
+                elapsed_seconds=18.1,
                 state=state,
                 host_reader=host_reader,
                 viewer_reader=viewer_reader,
                 phase_records=phases,
+                restart_trigger=trigger,
             )
             resume.assert_called_once_with(process)
 
@@ -378,6 +411,17 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             ],
         )
         self.assertFalse(state["suspended"])
+
+    def test_native_restart_probe_is_apple_only_and_trigger_driven(self):
+        source = (
+            Path(__file__).parents[2]
+            / "client" / "tools" / "rtc_demo" / "rtc_demo_controller.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("#if defined(__APPLE__)", source)
+        self.assertIn("SHAREME_SCREEN_CAPTURE_RESTART_TRIGGER_FILE", source)
+        self.assertNotIn(
+            "SHAREME_SCREEN_CAPTURE_RESTART_PROBE_AFTER_SECONDS", source
+        )
 
     def test_cleanup_resumes_stopped_fixture_before_termination(self):
         process = mock.Mock(pid=4321)
