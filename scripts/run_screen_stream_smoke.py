@@ -313,6 +313,110 @@ VOICE_COUNTER_KEYS = (
     "voice_bytes_received",
 )
 
+MOTION_VIDEO_KEYS = {
+    "host": ("encoded", "callback", "submitted"),
+    "viewer": ("received", "decoded", "callback", "submitted"),
+}
+
+
+def _role_motion_recovery(
+    records: list[dict],
+    role: str,
+    interruption_sample: int,
+    resume_sample: int,
+    deadline_samples: int,
+) -> int:
+    matching = [record for record in records if record.get("role") == role]
+    if len(matching) - 1 - resume_sample < 10:
+        raise SmokeRuntimeError("motion-recovery-needs-post-recovery-window")
+    if interruption_sample < 0 or interruption_sample >= resume_sample:
+        raise SmokeRuntimeError("motion-recovery-window-is-invalid")
+
+    video_keys = MOTION_VIDEO_KEYS[role]
+    required_keys = video_keys + VOICE_COUNTER_KEYS
+    boundary = matching[interruption_sample]
+    if (
+        boundary.get("stats_unavailable") != 0
+        or any(
+            not isinstance(boundary.get(key), int) or boundary[key] <= 0
+            for key in required_keys
+        )
+    ):
+        raise SmokeRuntimeError(f"{role}-motion-counters-not-ready")
+
+    for key in VOICE_COUNTER_KEYS:
+        previous = matching[interruption_sample].get(key)
+        for record in matching[interruption_sample + 1:resume_sample + 1]:
+            current = record.get(key)
+            if (
+                not isinstance(previous, int)
+                or not isinstance(current, int)
+                or current <= previous
+            ):
+                raise SmokeRuntimeError(f"{role}-voice-interrupted")
+            previous = current
+
+    recovery_samples: list[int] = []
+    resume_record = matching[resume_sample]
+    for key in video_keys:
+        baseline = resume_record.get(key)
+        if not isinstance(baseline, int) or baseline <= 0:
+            raise SmokeRuntimeError(f"{role}-motion-counters-not-ready")
+        recovered = next(
+            (
+                offset
+                for offset, record in enumerate(
+                    matching[resume_sample + 1:resume_sample + deadline_samples + 1],
+                    start=1,
+                )
+                if isinstance(record.get(key), int) and record[key] > baseline
+            ),
+            None,
+        )
+        if recovered is None:
+            raise SmokeRuntimeError(f"{role}-video-recovery-timeout")
+        recovery_samples.append(recovered)
+    return max(recovery_samples)
+
+
+def validate_motion_recovery(
+    host_records: list[dict],
+    viewer_records: list[dict],
+    *,
+    interruption_sample: int,
+    resume_sample: int,
+    deadline_samples: int = 5,
+) -> dict:
+    host_recovery = _role_motion_recovery(
+        host_records,
+        "host",
+        interruption_sample,
+        resume_sample,
+        deadline_samples,
+    )
+    viewer_recovery = _role_motion_recovery(
+        viewer_records,
+        "viewer",
+        interruption_sample,
+        resume_sample,
+        deadline_samples,
+    )
+    host_count = len(
+        [record for record in host_records if record.get("role") == "host"]
+    )
+    viewer_count = len(
+        [record for record in viewer_records if record.get("role") == "viewer"]
+    )
+    return {
+        "interruption_sample": interruption_sample,
+        "resume_sample": resume_sample,
+        "deadline_samples": deadline_samples,
+        "host_recovery_samples": host_recovery,
+        "viewer_recovery_samples": viewer_recovery,
+        "post_recovery_samples": min(host_count, viewer_count) - resume_sample - 1,
+        "voice_continuous": True,
+    }
+
 
 def _validate_continuous_progress(
     records: list[dict], role: str, video_keys: tuple[str, ...]
@@ -403,7 +507,11 @@ def validate_records(
     viewer_records: list[dict],
     *,
     require_hardware: bool = True,
+    motion_interruption_sample: int | None = None,
+    motion_resume_sample: int | None = None,
 ) -> dict:
+    if (motion_interruption_sample is None) != (motion_resume_sample is None):
+        raise SmokeRuntimeError("motion-recovery-samples-must-be-paired")
     host = _latest(host_records, "host")
     viewer = _latest(viewer_records, "viewer")
     capture_profile = profile if require_hardware else "standard"
@@ -449,7 +557,7 @@ def validate_records(
             raise SmokeRuntimeError("host did not report negotiated VP8 fallback")
     if host_bitrate <= 0 or viewer_bitrate <= 0:
         raise SmokeRuntimeError("video bitrate was not measured")
-    return {
+    result = {
         "profile": profile,
         "hardware_encoder_status": host["hardware_encoder_status"],
         "webrtc_encoder": host["webrtc_encoder"],
@@ -483,6 +591,14 @@ def validate_records(
             **viewer_recovery,
         },
     }
+    if motion_interruption_sample is not None and motion_resume_sample is not None:
+        result["motion_recovery"] = validate_motion_recovery(
+            host_records,
+            viewer_records,
+            interruption_sample=motion_interruption_sample,
+            resume_sample=motion_resume_sample,
+        )
+    return result
 
 
 class OutputReader:

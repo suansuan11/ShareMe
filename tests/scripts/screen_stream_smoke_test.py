@@ -421,6 +421,35 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertEqual(result["viewer"]["voice_packets_received"], 43)
         self.assertEqual(result["viewer"]["presentation_recovery_count"], 1)
 
+        recovery_result = {
+            "interruption_sample": 0,
+            "resume_sample": 1,
+            "deadline_samples": 5,
+            "host_recovery_samples": 1,
+            "viewer_recovery_samples": 1,
+            "post_recovery_samples": 10,
+            "voice_continuous": True,
+        }
+        with mock.patch.object(
+            self.runner,
+            "validate_motion_recovery",
+            return_value=recovery_result,
+        ) as recovery:
+            motion_result = self.runner.validate_records(
+                "standard",
+                [host, terminal_host],
+                [viewer, terminal_viewer],
+                motion_interruption_sample=0,
+                motion_resume_sample=1,
+            )
+        recovery.assert_called_once_with(
+            [host, terminal_host],
+            [viewer, terminal_viewer],
+            interruption_sample=0,
+            resume_sample=1,
+        )
+        self.assertEqual(motion_result["motion_recovery"], recovery_result)
+
         host["hardware_encoder_status"] = "fallback:probe-rejected"
         with self.assertRaises(self.runner.SmokeRuntimeError):
             self.runner.validate_records("standard", [host], [viewer])
@@ -617,6 +646,111 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 [record, regressed],
                 "host",
                 ("encoded", "callback", "submitted"),
+            )
+
+    def test_motion_recovery_accepts_five_sample_video_boundary(self):
+        def records(role, video_keys, recovery_sample=13):
+            values = []
+            for sample in range(20):
+                record = {
+                    "role": role,
+                    "stats_unavailable": 0,
+                    "voice_packets_sent": 100 + sample,
+                    "voice_packets_received": 200 + sample,
+                    "voice_bytes_sent": 1000 + sample,
+                    "voice_bytes_received": 2000 + sample,
+                }
+                for key in video_keys:
+                    record[key] = 100 + max(0, sample - recovery_sample + 1)
+                values.append(record)
+            return values
+
+        result = self.runner.validate_motion_recovery(
+            records("host", ("encoded", "callback", "submitted")),
+            records(
+                "viewer", ("received", "decoded", "callback", "submitted")
+            ),
+            interruption_sample=5,
+            resume_sample=8,
+        )
+        self.assertEqual(result["host_recovery_samples"], 5)
+        self.assertEqual(result["viewer_recovery_samples"], 5)
+        self.assertEqual(result["post_recovery_samples"], 11)
+        self.assertTrue(result["voice_continuous"])
+
+    def test_motion_recovery_rejects_late_video_and_voice_stall(self):
+        def records(role, video_keys, recovery_sample=14, voice_stall=None):
+            values = []
+            for sample in range(20):
+                voice_sample = sample - 1 if sample == voice_stall else sample
+                record = {
+                    "role": role,
+                    "stats_unavailable": 0,
+                    "voice_packets_sent": 100 + voice_sample,
+                    "voice_packets_received": 200 + voice_sample,
+                    "voice_bytes_sent": 1000 + voice_sample,
+                    "voice_bytes_received": 2000 + voice_sample,
+                }
+                for key in video_keys:
+                    record[key] = 100 + max(0, sample - recovery_sample + 1)
+                values.append(record)
+            return values
+
+        host_keys = ("encoded", "callback", "submitted")
+        viewer_keys = ("received", "decoded", "callback", "submitted")
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError, "video-recovery-timeout"
+        ):
+            self.runner.validate_motion_recovery(
+                records("host", host_keys),
+                records("viewer", viewer_keys),
+                interruption_sample=5,
+                resume_sample=8,
+            )
+
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError, "voice-interrupted"
+        ):
+            self.runner.validate_motion_recovery(
+                records("host", host_keys, recovery_sample=13, voice_stall=7),
+                records("viewer", viewer_keys, recovery_sample=13),
+                interruption_sample=5,
+                resume_sample=8,
+            )
+
+    def test_motion_recovery_requires_ready_and_long_post_window(self):
+        record = {
+            "role": "host",
+            "stats_unavailable": 0,
+            "encoded": 1,
+            "callback": 1,
+            "submitted": 1,
+            "voice_packets_sent": 1,
+            "voice_packets_received": 1,
+            "voice_bytes_sent": 1,
+            "voice_bytes_received": 1,
+        }
+        viewer = dict(record, role="viewer", received=1, decoded=1)
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError, "post-recovery-window"
+        ):
+            self.runner.validate_motion_recovery(
+                [dict(record) for _ in range(12)],
+                [dict(viewer) for _ in range(12)],
+                interruption_sample=5,
+                resume_sample=8,
+            )
+
+        not_ready = [dict(record) for _ in range(20)]
+        not_ready[5]["stats_unavailable"] = 1
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError, "counters-not-ready"
+        ):
+            self.runner.validate_motion_recovery(
+                not_ready,
+                [dict(viewer) for _ in range(20)],
+                interruption_sample=5,
+                resume_sample=8,
             )
 
 
