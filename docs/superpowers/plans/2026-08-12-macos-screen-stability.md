@@ -30,7 +30,7 @@
 - Produces: `start_motion_fixture(...) -> subprocess.Popen` using the existing process-group and Windows job safeguards.
 - Produces: sanitized fixture request/start/alive/stopped evidence.
 
-- [ ] **Step 1: Write RED lifecycle tests**
+- [x] **Step 1: Write RED lifecycle tests**
 
 Add focused tests that assert:
 
@@ -47,7 +47,7 @@ Patch process creation and assert output is suppressed, `QT_QPA_PLATFORM` is
 removed from the fixture environment, the process-group options are used, and
 Windows job attachment remains delegated through `_start_measured_demo`.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -58,18 +58,18 @@ PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -m unittest \
 
 Expected: FAIL because the fixture helpers do not exist.
 
-- [ ] **Step 3: Implement fixture helpers**
+- [x] **Step 3: Implement fixture helpers**
 
 The command duration is `duration_seconds + 30`, capped at 3600. Reject a
 missing/non-file fixture before creating the JSONL artifact. Start with
 `stdout=DEVNULL`, `stderr=DEVNULL`, the visible desktop environment, and
 `popen_group_options()`.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run the complete `screen_stream_smoke_test.py` suite under system Python.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/run_screen_stream_smoke.py tests/scripts/screen_stream_smoke_test.py
@@ -88,10 +88,11 @@ git commit -m "test: define owned screen motion fixture"
 **Interfaces:**
 - Extends: `run_smoke(..., motion_fixture: Path | None = None) -> dict`.
 - Extends: CLI with `--motion-fixture PATH`.
-- Produces: run fields `motion_fixture_requested` and `motion_fixture_started`.
-- Produces: summary fields `motion_fixture_alive` and `motion_fixture_stopped`.
+- Produces: run field `motion_fixture_requested`.
+- Produces: summary fields `motion_fixture_started`,
+  `motion_fixture_alive`, and `motion_fixture_stopped`.
 
-- [ ] **Step 1: Write RED orchestration tests**
+- [x] **Step 1: Write RED orchestration tests**
 
 Use fake processes and patched signaling startup to prove:
 
@@ -102,12 +103,12 @@ Use fake processes and patched signaling startup to prove:
 - JSONL contains only booleans and never the fixture path, PID, or child output;
 - no-fixture calls preserve the existing schema and behavior.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run the new focused tests and expect `run_smoke` to reject the unknown
 `motion_fixture` argument or omit the expected lifecycle evidence.
 
-- [ ] **Step 3: Implement the minimal orchestration**
+- [x] **Step 3: Implement the minimal orchestration**
 
 Start the fixture inside the existing artifact-owned lifecycle, add it to the
 effective guard tuple, and refactor the success return so cleanup completes
@@ -115,7 +116,7 @@ before the final summary is written. On cleanup, call
 `terminate_process_group(fixture, grace_seconds=1)` only if it is still alive.
 Never add raw fixture diagnostics to success or failure records.
 
-- [ ] **Step 4: Expose the CLI**
+- [x] **Step 4: Expose the CLI**
 
 Add:
 
@@ -126,7 +127,7 @@ parser.add_argument("--motion-fixture", type=Path)
 Resolve the supplied path and forward it to `run_smoke`. Preserve all existing
 callers when the option is absent.
 
-- [ ] **Step 5: Verify affected Python contracts**
+- [x] **Step 5: Verify affected Python contracts**
 
 Run the five affected suites under `/usr/bin/python3` and Homebrew Python:
 
@@ -142,7 +143,7 @@ python3 -m unittest \
 Expected: all executable tests pass; only the configured Windows fixture test
 may remain skipped on macOS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/run_screen_stream_smoke.py tests/scripts/screen_stream_smoke_test.py
@@ -162,17 +163,17 @@ git commit -m "test: own motion during screen stability smoke"
 - Consumes: the locked repository-external WebRTC archive read-only.
 - Produces: 30-second and 120-second fixture-owned native JSONL evidence.
 
-- [ ] **Step 1: Fresh configure and build**
+- [x] **Step 1: Fresh configure and build**
 
 Configure `call-dev` with the existing external `WEBRTC_ROOT` and installed Qt
 prefix, then build `shareme_rtc_demo` and `shareme_screen_motion_fixture`.
 
-- [ ] **Step 2: Run full CTest and repeated lifecycle**
+- [x] **Step 2: Run full CTest and repeated lifecycle**
 
 Run the complete `call-dev` CTest suite and `signaled_peer` 20 consecutive
 times. Record exact counts from current output.
 
-- [ ] **Step 3: Run 30-second native gate**
+- [x] **Step 3: Run 30-second native gate**
 
 ```bash
 /usr/bin/python3 scripts/run_screen_stream_smoke.py \
@@ -185,12 +186,12 @@ times. Record exact counts from current output.
 Require H.264, VideoToolbox active, matching geometry, video/voice progress,
 nonzero bitrate, bounded queues, zero continuity stalls, and one recovery.
 
-- [ ] **Step 4: Run 120-second native gate**
+- [x] **Step 4: Run 120-second native gate**
 
 Repeat with a distinct port and artifact for 120 seconds. Apply the same gates;
 missing or stalled evidence is failure.
 
-- [ ] **Step 5: Run repository gates**
+- [x] **Step 5: Run repository gates**
 
 Run Go race/vet, workflow 8/8, skill validation, portable-core forbidden-header
 scan, and `git diff --check`.
@@ -207,26 +208,26 @@ scan, and `git diff --check`.
 **Interfaces:**
 - Produces: one exact stage outcome and separates Mac evidence from the pending Windows rerun.
 
-- [ ] **Step 1: Write exact verification evidence**
+- [x] **Step 1: Write exact verification evidence**
 
 Record platform, Git SHA, executable and artifact SHA-256 values, test counts,
 durations, counters, geometry, codec implementation/status, the initial stale
 binary diagnostic, the static-desktop false-positive diagnosis, and every
 environment-dependent boundary.
 
-- [ ] **Step 2: Review the complete branch**
+- [x] **Step 2: Review the complete branch**
 
 Inspect `origin/main...HEAD` for lifecycle leaks, callback/process cleanup,
 Windows compatibility, redaction, artifact finalization, threshold changes,
 generated files, secrets, and unrelated edits. Fix every Critical or Important
 finding and rerun affected evidence.
 
-- [ ] **Step 3: Update the canonical handoff**
+- [x] **Step 3: Update the canonical handoff**
 
 State that long-run macOS cadence evidence now requires owned dynamic content.
 Keep the hardened Windows six-run rerun as the next Windows-only evidence task.
 
-- [ ] **Step 4: Commit documentation**
+- [x] **Step 4: Commit documentation**
 
 ```bash
 git add docs/verification/macos-screen-stability.md \
@@ -236,7 +237,7 @@ git diff --cached --check
 git commit -m "docs: record macOS screen stability"
 ```
 
-- [ ] **Step 5: Verify, deliver, and clean**
+- [x] **Step 5: Verify, deliver, and clean**
 
 Run fresh affected tests after the final commit. If all frozen gates pass,
 push the feature branch, verify the remote SHA, fast-forward `main`, rerun the

@@ -33,6 +33,11 @@ terminates it deterministically after the call. The JSONL summary records only
 sanitized fixture lifecycle state, not absolute paths, process IDs, window
 titles, usernames, room IDs, or child output.
 
+The fixture window must also raise itself and request activation when its QML
+root is completed, while retaining `WindowStaysOnTopHint`. A live fixture
+process is insufficient evidence if its moving window is occluded and therefore
+does not produce changing screen content.
+
 Long-run macOS stability evidence must use the fixture option. A run without a
 fixture remains supported for short functional diagnosis, but it cannot be
 described as proving sustained encode cadence on an unchanged desktop.
@@ -66,8 +71,9 @@ frame interval, or capture lifecycle is defective.
 - `run_smoke(..., motion_fixture: Path | None = None)` or an equivalent narrow
   orchestration seam that starts the fixture before the host, adds it to
   `guard_processes`, and owns teardown;
-- run/summary evidence fields that state whether the fixture was requested,
-  started, stayed alive for the measurement, and stopped during cleanup.
+- a run field stating that the fixture was requested and summary fields stating
+  whether it started, stayed alive for the measurement, and stopped during
+  cleanup.
 
 Existing Windows acceptance may continue launching its own fixture and passing
 it through `guard_processes`; no Windows behavior or artifact schema consumer

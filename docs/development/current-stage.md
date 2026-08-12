@@ -140,6 +140,25 @@ presentation recovery. GUI lifecycle passed all six probes. A separate
 explicit partial result rather than a successful stability claim. See
 [macOS Evidence Hardening Verification](../verification/macos-evidence-hardening.md).
 
+### macOS Screen Stability Evidence
+
+The macOS stability stage is delivered on `codex/macos-screen-stability`.
+Long-run screen smoke can now own the deterministic motion fixture, guard it
+for the complete measurement, clean it on every exit path, and record only
+sanitized lifecycle booleans. The fixture explicitly raises and requests
+activation at QML completion because a live but occluded process does not prove
+changing screen content. ScreenCaptureKit, VideoToolbox, WebRTC, resolution,
+cadence, bitrate, and queue policies were not changed.
+
+On macOS 26.6.1 arm64, fixture-owned standard 30-second and 120-second runs
+negotiated H.264, kept VideoToolbox active, matched 1470x956 geometry, advanced
+video and bidirectional synthetic voice, and completed one bounded viewer
+recovery. The 120-second run encoded 6810 host frames and decoded 6804 viewer
+frames; host continuity had zero stalled observations and viewer continuity had
+at most one. `call-dev` passed 51/51, `signaled_peer` repeated 20/20, and all
+repository gates passed. See
+[macOS Screen Stability Verification](../verification/macos-screen-stability.md).
+
 The next evidence task is a **hardened Windows performance rerun**: collect
 three independent software-baseline and three independent Media Foundation
 candidate artifacts, then require the strict identities and continuous sample
