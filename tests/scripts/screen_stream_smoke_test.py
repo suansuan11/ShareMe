@@ -303,6 +303,134 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 run.call_args.kwargs["motion_fixture"], fixture.resolve()
             )
 
+    def test_motion_interruption_records_role_aligned_phases(self):
+        counter = (
+            "PERF_COUNTERS version=1 role={role} width=1920 height=1080 "
+            "encoded=1 callback=1 submitted=1 received=1 decoded=1 "
+            "voice_packets_sent=1 voice_packets_received=1 "
+            "voice_bytes_sent=1 voice_bytes_received=1"
+        )
+        host_reader = mock.Mock(lines=[counter.format(role="host")])
+        viewer_reader = mock.Mock(lines=[counter.format(role="viewer")])
+        process = mock.Mock(pid=4321)
+        process.poll.return_value = None
+        state = self.runner.new_motion_interruption_state()
+        phases = []
+        config = self.runner.MotionInterruption(15, 3)
+
+        with (
+            mock.patch.object(self.runner, "suspend_motion_fixture") as suspend,
+            mock.patch.object(self.runner, "resume_motion_fixture") as resume,
+        ):
+            self.runner.advance_motion_interruption(
+                process,
+                config,
+                elapsed_seconds=14.9,
+                state=state,
+                host_reader=host_reader,
+                viewer_reader=viewer_reader,
+                phase_records=phases,
+            )
+            suspend.assert_not_called()
+
+            self.runner.advance_motion_interruption(
+                process,
+                config,
+                elapsed_seconds=15.0,
+                state=state,
+                host_reader=host_reader,
+                viewer_reader=viewer_reader,
+                phase_records=phases,
+            )
+            suspend.assert_called_once_with(process)
+            self.assertTrue(state["suspended"])
+
+            host_reader.lines.append(counter.format(role="host"))
+            viewer_reader.lines.append(counter.format(role="viewer"))
+            self.runner.advance_motion_interruption(
+                process,
+                config,
+                elapsed_seconds=18.0,
+                state=state,
+                host_reader=host_reader,
+                viewer_reader=viewer_reader,
+                phase_records=phases,
+            )
+            resume.assert_called_once_with(process)
+
+        self.assertEqual(
+            phases,
+            [
+                {
+                    "kind": "motion-interruption",
+                    "phase": "suspended",
+                    "elapsed_seconds": 15,
+                    "host_counter_sample": 0,
+                    "viewer_counter_sample": 0,
+                },
+                {
+                    "kind": "motion-interruption",
+                    "phase": "resumed",
+                    "elapsed_seconds": 18,
+                    "host_counter_sample": 1,
+                    "viewer_counter_sample": 1,
+                },
+            ],
+        )
+        self.assertFalse(state["suspended"])
+
+    def test_cleanup_resumes_stopped_fixture_before_termination(self):
+        process = mock.Mock(pid=4321)
+        process.poll.return_value = None
+        state = self.runner.new_motion_interruption_state()
+        state["suspended"] = True
+        order = []
+        with (
+            mock.patch.object(
+                self.runner,
+                "resume_motion_fixture",
+                side_effect=lambda target: order.append("resume"),
+            ),
+            mock.patch.object(
+                self.runner,
+                "terminate_process_group",
+                side_effect=lambda target, grace_seconds: order.append("terminate"),
+            ),
+        ):
+            self.runner.cleanup_motion_fixture(process, state)
+        self.assertEqual(order, ["resume", "terminate"])
+        self.assertFalse(state["suspended"])
+
+    def test_cli_forwards_paired_motion_interruption(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = root / "demo"
+            fixture = root / "fixture"
+            demo.write_bytes(b"demo")
+            fixture.write_bytes(b"fixture")
+            arguments = [
+                "run_screen_stream_smoke.py",
+                "--demo", str(demo),
+                "--server-root", str(root),
+                "--profile", "standard",
+                "--duration-seconds", "60",
+                "--motion-fixture", str(fixture),
+                "--motion-interruption-after-seconds", "15",
+                "--motion-interruption-duration-seconds", "3",
+            ]
+            with (
+                mock.patch.object(self.runner.sys, "argv", arguments),
+                mock.patch.object(
+                    self.runner, "run_smoke", return_value={"complete": True}
+                ) as run,
+                mock.patch("builtins.print"),
+            ):
+                self.assertEqual(self.runner.main(), 0)
+        self.assertEqual(
+            run.call_args.kwargs["motion_interruption"],
+            self.runner.MotionInterruption(15, 3),
+        )
+
     def test_parses_sanitized_counter_lines(self):
         parsed = self.runner.parse_counter_line(
             "PERF_COUNTERS version=1 role=host cpu_percent=0 rss_bytes=0 "

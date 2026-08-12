@@ -158,6 +158,87 @@ def resume_motion_fixture(process) -> None:
     )
 
 
+def new_motion_interruption_state() -> dict:
+    return {
+        "suspended": False,
+        "suspended_samples": None,
+        "resumed_samples": None,
+    }
+
+
+def _latest_counter_sample(reader, role: str) -> int:
+    count = sum(
+        1
+        for line in reader.lines
+        if (parsed := parse_counter_line(line)) is not None
+        and parsed.get("role") == role
+    )
+    if count == 0:
+        raise SmokeRuntimeError(f"{role}-motion-counters-not-ready")
+    return count - 1
+
+
+def _motion_phase_record(
+    phase: str,
+    elapsed_seconds: float,
+    host_reader,
+    viewer_reader,
+) -> dict:
+    return {
+        "kind": "motion-interruption",
+        "phase": phase,
+        "elapsed_seconds": int(elapsed_seconds),
+        "host_counter_sample": _latest_counter_sample(host_reader, "host"),
+        "viewer_counter_sample": _latest_counter_sample(viewer_reader, "viewer"),
+    }
+
+
+def advance_motion_interruption(
+    process,
+    interruption: MotionInterruption,
+    *,
+    elapsed_seconds: float,
+    state: dict,
+    host_reader,
+    viewer_reader,
+    phase_records: list[dict],
+) -> None:
+    if not state["suspended"] and state["suspended_samples"] is None:
+        if elapsed_seconds >= interruption.after_seconds:
+            suspended = _motion_phase_record(
+                "suspended", elapsed_seconds, host_reader, viewer_reader
+            )
+            suspend_motion_fixture(process)
+            state["suspended"] = True
+            state["suspended_samples"] = {
+                "host": suspended["host_counter_sample"],
+                "viewer": suspended["viewer_counter_sample"],
+            }
+            phase_records.append(suspended)
+    resume_at = interruption.after_seconds + interruption.duration_seconds
+    if state["suspended"] and elapsed_seconds >= resume_at:
+        resumed = _motion_phase_record(
+            "resumed", elapsed_seconds, host_reader, viewer_reader
+        )
+        resume_motion_fixture(process)
+        state["suspended"] = False
+        state["resumed_samples"] = {
+            "host": resumed["host_counter_sample"],
+            "viewer": resumed["viewer_counter_sample"],
+        }
+        phase_records.append(resumed)
+
+
+def cleanup_motion_fixture(process, state: dict) -> None:
+    try:
+        if state["suspended"] and process.poll() is None:
+            resume_motion_fixture(process)
+            state["suspended"] = False
+    finally:
+        if process.poll() is None:
+            terminate_process_group(process, grace_seconds=1)
+
+
 def redact_diagnostic(message: str) -> str:
     redacted = re.sub(r"/(?:[^\s/]+/)+[^\s]+", "[path-redacted]", message)
     redacted = re.sub(
@@ -383,22 +464,32 @@ def validate_motion_recovery(
     host_records: list[dict],
     viewer_records: list[dict],
     *,
-    interruption_sample: int,
-    resume_sample: int,
+    interruption_sample: int | None = None,
+    resume_sample: int | None = None,
+    interruption_samples: dict[str, int] | None = None,
+    resume_samples: dict[str, int] | None = None,
     deadline_samples: int = 5,
 ) -> dict:
+    if interruption_samples is None:
+        if interruption_sample is None:
+            raise SmokeRuntimeError("motion-recovery-window-is-invalid")
+        interruption_samples = {"host": interruption_sample, "viewer": interruption_sample}
+    if resume_samples is None:
+        if resume_sample is None:
+            raise SmokeRuntimeError("motion-recovery-window-is-invalid")
+        resume_samples = {"host": resume_sample, "viewer": resume_sample}
     host_recovery = _role_motion_recovery(
         host_records,
         "host",
-        interruption_sample,
-        resume_sample,
+        interruption_samples["host"],
+        resume_samples["host"],
         deadline_samples,
     )
     viewer_recovery = _role_motion_recovery(
         viewer_records,
         "viewer",
-        interruption_sample,
-        resume_sample,
+        interruption_samples["viewer"],
+        resume_samples["viewer"],
         deadline_samples,
     )
     host_count = len(
@@ -408,12 +499,17 @@ def validate_motion_recovery(
         [record for record in viewer_records if record.get("role") == "viewer"]
     )
     return {
-        "interruption_sample": interruption_sample,
-        "resume_sample": resume_sample,
+        "host_interruption_sample": interruption_samples["host"],
+        "host_resume_sample": resume_samples["host"],
+        "viewer_interruption_sample": interruption_samples["viewer"],
+        "viewer_resume_sample": resume_samples["viewer"],
         "deadline_samples": deadline_samples,
         "host_recovery_samples": host_recovery,
         "viewer_recovery_samples": viewer_recovery,
-        "post_recovery_samples": min(host_count, viewer_count) - resume_sample - 1,
+        "post_recovery_samples": min(
+            host_count - resume_samples["host"] - 1,
+            viewer_count - resume_samples["viewer"] - 1,
+        ),
         "voice_continuous": True,
     }
 
@@ -509,9 +605,15 @@ def validate_records(
     require_hardware: bool = True,
     motion_interruption_sample: int | None = None,
     motion_resume_sample: int | None = None,
+    motion_interruption_samples: dict[str, int] | None = None,
+    motion_resume_samples: dict[str, int] | None = None,
 ) -> dict:
     if (motion_interruption_sample is None) != (motion_resume_sample is None):
         raise SmokeRuntimeError("motion-recovery-samples-must-be-paired")
+    if (motion_interruption_samples is None) != (motion_resume_samples is None):
+        raise SmokeRuntimeError("motion-recovery-samples-must-be-paired")
+    if motion_interruption_sample is not None and motion_interruption_samples is not None:
+        raise SmokeRuntimeError("motion-recovery-samples-are-ambiguous")
     host = _latest(host_records, "host")
     viewer = _latest(viewer_records, "viewer")
     capture_profile = profile if require_hardware else "standard"
@@ -597,6 +699,13 @@ def validate_records(
             viewer_records,
             interruption_sample=motion_interruption_sample,
             resume_sample=motion_resume_sample,
+        )
+    elif motion_interruption_samples is not None and motion_resume_samples is not None:
+        result["motion_recovery"] = validate_motion_recovery(
+            host_records,
+            viewer_records,
+            interruption_samples=motion_interruption_samples,
+            resume_samples=motion_resume_samples,
         )
     return result
 
@@ -788,6 +897,7 @@ def run_smoke(
     screen_encoder: str = "auto",
     guard_processes=(),
     motion_fixture: Path | None = None,
+    motion_interruption: MotionInterruption | None = None,
 ) -> dict:
     if sys.platform not in ("darwin", "win32"):
         raise SmokeRuntimeError("screen smoke requires macOS or Windows")
@@ -802,6 +912,11 @@ def run_smoke(
         raise SmokeRuntimeError("refusing to overwrite smoke artifact")
     if motion_fixture is not None and not motion_fixture.is_file():
         raise SmokeRuntimeError("motion-fixture-unavailable")
+    validate_motion_interruption(
+        motion_interruption,
+        duration_seconds=duration_seconds,
+        motion_fixture=motion_fixture,
+    )
     max_width, max_height, max_frames_per_second = profile_bounds(profile)
     artifact.parent.mkdir(parents=True, exist_ok=True)
     address = f"127.0.0.1:{port}"
@@ -819,6 +934,8 @@ def run_smoke(
     fixture_started = False
     fixture_alive = False
     fixture_stopped = False
+    motion_state = new_motion_interruption_state()
+    motion_phase_records: list[dict] = []
     environment = os.environ.copy()
     environment["SHAREME_PERFORMANCE_COUNTERS"] = "1"
     environment["SHAREME_SCREEN_SMOKE_DIAGNOSTICS"] = "1"
@@ -843,6 +960,15 @@ def run_smoke(
         }
         if motion_fixture is not None:
             run_record["motion_fixture_requested"] = True
+        if motion_interruption is not None:
+            run_record.update({
+                "motion_interruption_after_seconds": (
+                    motion_interruption.after_seconds
+                ),
+                "motion_interruption_duration_seconds": (
+                    motion_interruption.duration_seconds
+                ),
+            })
         _write_jsonl(output, run_record)
         try:
             effective_guard_processes = tuple(guard_processes)
@@ -908,6 +1034,16 @@ def run_smoke(
                         + (f": {diagnostic}" if diagnostic else "")
                     )
                 now = time.monotonic()
+                if motion_interruption is not None:
+                    advance_motion_interruption(
+                        fixture_process,
+                        motion_interruption,
+                        elapsed_seconds=now - scenario_started,
+                        state=motion_state,
+                        host_reader=host_reader,
+                        viewer_reader=viewer_reader,
+                        phase_records=motion_phase_records,
+                    )
                 if now < next_sample:
                     time.sleep(min(0.25, next_sample - now))
                     continue
@@ -941,6 +1077,8 @@ def run_smoke(
                         records.append(parsed)
             for record in process_records:
                 _write_jsonl(output, record)
+            for record in motion_phase_records:
+                _write_jsonl(output, record)
             for role, records in (("host", host_records), ("viewer", viewer_records)):
                 for index, record in enumerate(records):
                     _write_jsonl(output, {
@@ -955,6 +1093,16 @@ def run_smoke(
                 host_records,
                 viewer_records,
                 require_hardware=not allow_software_fallback,
+                motion_interruption_samples=(
+                    motion_state["suspended_samples"]
+                    if motion_interruption is not None
+                    else None
+                ),
+                motion_resume_samples=(
+                    motion_state["resumed_samples"]
+                    if motion_interruption is not None
+                    else None
+                ),
             )
         except (OSError, ValueError, subprocess.TimeoutExpired,
                 ProcessMetricsError) as error:
@@ -976,8 +1124,7 @@ def run_smoke(
             if server_directory is not None:
                 cleanup_temporary_directory(server_directory)
             if fixture_process is not None:
-                if fixture_process.poll() is None:
-                    terminate_process_group(fixture_process, grace_seconds=1)
+                cleanup_motion_fixture(fixture_process, motion_state)
                 fixture_stopped = fixture_process.poll() is not None
         if summary is not None:
             if motion_fixture is not None:
@@ -1014,6 +1161,8 @@ def run_smoke(
                             records.append(parsed)
                 for record in process_records:
                     _write_jsonl(output, record)
+                for record in motion_phase_records:
+                    _write_jsonl(output, record)
                 for role, records in (("host", host_records), ("viewer", viewer_records)):
                     for index, record in enumerate(records):
                         _write_jsonl(output, {
@@ -1048,6 +1197,8 @@ def main() -> int:
     parser.add_argument("--duration-seconds", type=int, required=True)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--motion-fixture", type=Path)
+    parser.add_argument("--motion-interruption-after-seconds", type=int)
+    parser.add_argument("--motion-interruption-duration-seconds", type=int)
     parser.add_argument("--allow-software-fallback", action="store_true")
     parser.add_argument("--screen-encoder", choices=("auto", "software"),
                         default="auto")
@@ -1058,6 +1209,19 @@ def main() -> int:
         f"{args.profile}-{args.duration_seconds}s.jsonl"
     )
     try:
+        interruption_options = (
+            args.motion_interruption_after_seconds,
+            args.motion_interruption_duration_seconds,
+        )
+        if (interruption_options[0] is None) != (interruption_options[1] is None):
+            raise SmokeRuntimeError(
+                "motion-interruption-options-must-be-paired"
+            )
+        motion_interruption = (
+            MotionInterruption(*interruption_options)
+            if interruption_options[0] is not None
+            else None
+        )
         print(json.dumps(run_smoke(
             demo=demo.resolve(),
             server_root=args.server_root.resolve(),
@@ -1074,6 +1238,7 @@ def main() -> int:
                 if args.motion_fixture is not None
                 else None
             ),
+            motion_interruption=motion_interruption,
         ), sort_keys=True))
         return 0
     except (SmokeRuntimeError, OSError, ValueError) as error:
