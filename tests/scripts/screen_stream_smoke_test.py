@@ -784,13 +784,14 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         def records(role, video_keys, recovery_sample=13):
             values = []
             for sample in range(20):
+                voice_sample = 6 if role == "host" and sample == 7 else sample
                 record = {
                     "role": role,
                     "stats_unavailable": 0,
-                    "voice_packets_sent": 100 + sample,
-                    "voice_packets_received": 200 + sample,
-                    "voice_bytes_sent": 1000 + sample,
-                    "voice_bytes_received": 2000 + sample,
+                    "voice_packets_sent": 100 + 50 * voice_sample,
+                    "voice_packets_received": 200 + 50 * voice_sample,
+                    "voice_bytes_sent": 1000 + 4050 * voice_sample,
+                    "voice_bytes_received": 2000 + 4050 * voice_sample,
                 }
                 if role == "host":
                     restarted = int(sample > 5)
@@ -823,14 +824,19 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         def records(role, video_keys, recovery_sample=14, voice_stall=None):
             values = []
             for sample in range(20):
-                voice_sample = sample - 1 if sample == voice_stall else sample
+                voice_sample = (
+                    voice_stall - 1
+                    if voice_stall is not None
+                    and sample in (voice_stall, voice_stall + 1)
+                    else sample
+                )
                 record = {
                     "role": role,
                     "stats_unavailable": 0,
-                    "voice_packets_sent": 100 + voice_sample,
-                    "voice_packets_received": 200 + voice_sample,
-                    "voice_bytes_sent": 1000 + voice_sample,
-                    "voice_bytes_received": 2000 + voice_sample,
+                    "voice_packets_sent": 100 + 50 * voice_sample,
+                    "voice_packets_received": 200 + 50 * voice_sample,
+                    "voice_bytes_sent": 1000 + 4050 * voice_sample,
+                    "voice_bytes_received": 2000 + 4050 * voice_sample,
                 }
                 if role == "host":
                     restarted = int(sample > 5)
@@ -910,6 +916,16 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 [dict(viewer) for _ in range(20)],
                 interruption_sample=5,
                 resume_sample=8,
+            )
+
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError, "window-is-invalid"
+        ):
+            self.runner.validate_motion_recovery(
+                not_ready,
+                [dict(viewer) for _ in range(20)],
+                interruption_sample=100,
+                resume_sample=103,
             )
 
 

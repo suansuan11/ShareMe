@@ -429,16 +429,33 @@ def _role_motion_recovery(
         raise SmokeRuntimeError(f"{role}-motion-counters-not-ready")
 
     for key in VOICE_COUNTER_KEYS:
-        previous = matching[interruption_sample].get(key)
+        start_value = matching[interruption_sample].get(key)
+        previous = start_value
+        current_stall = 0
+        maximum_stall = 0
         for record in matching[interruption_sample + 1:resume_sample + 1]:
             current = record.get(key)
             if (
                 not isinstance(previous, int)
                 or not isinstance(current, int)
-                or current <= previous
+                or current < previous
             ):
                 raise SmokeRuntimeError(f"{role}-voice-interrupted")
+            if current == previous:
+                current_stall += 1
+                maximum_stall = max(maximum_stall, current_stall)
+            else:
+                current_stall = 0
             previous = current
+        intervals = resume_sample - interruption_sample
+        minimum_delta = intervals * (2_000 if "bytes" in key else 25)
+        if (
+            maximum_stall > 1
+            or not isinstance(start_value, int)
+            or not isinstance(previous, int)
+            or previous - start_value < minimum_delta
+        ):
+            raise SmokeRuntimeError(f"{role}-voice-interrupted")
 
     recovery_samples: list[int] = []
     resume_record = matching[resume_sample]
@@ -501,9 +518,22 @@ def validate_motion_recovery(
     matching_viewers = [
         record for record in viewer_records if record.get("role") == "viewer"
     ]
+    viewer_interruption_sample = interruption_samples["viewer"]
+    viewer_resume_sample = resume_samples["viewer"]
+    valid_host_window = (
+        0 <= host_interruption_sample < host_resume_sample < len(matching_hosts)
+    )
+    valid_viewer_window = (
+        0
+        <= viewer_interruption_sample
+        < viewer_resume_sample
+        < len(matching_viewers)
+    )
+    if not valid_host_window or not valid_viewer_window:
+        raise SmokeRuntimeError("motion-recovery-window-is-invalid")
     if (
         len(matching_hosts) - 1 - host_resume_sample < 10
-        or len(matching_viewers) - 1 - resume_samples["viewer"] < 10
+        or len(matching_viewers) - 1 - viewer_resume_sample < 10
     ):
         raise SmokeRuntimeError("motion-recovery-needs-post-recovery-window")
     restart_boundary = matching_hosts[host_interruption_sample]
