@@ -588,6 +588,16 @@ def start_motion_fixture(
     )
 
 
+def wait_for_motion_fixture_ready(process, readiness_seconds: float = 1.0) -> None:
+    deadline = time.monotonic() + readiness_seconds
+    while True:
+        require_guard_processes_alive((("motion-fixture", process),))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.05, remaining))
+
+
 def require_guard_processes_alive(guard_processes) -> None:
     for name, process in guard_processes:
         if process.poll() is not None:
@@ -605,6 +615,7 @@ def run_smoke(
     allow_software_fallback: bool = False,
     screen_encoder: str = "auto",
     guard_processes=(),
+    motion_fixture: Path | None = None,
 ) -> dict:
     if sys.platform not in ("darwin", "win32"):
         raise SmokeRuntimeError("screen smoke requires macOS or Windows")
@@ -617,25 +628,32 @@ def run_smoke(
         raise SmokeRuntimeError("duration must be positive")
     if artifact.exists():
         raise SmokeRuntimeError("refusing to overwrite smoke artifact")
+    if motion_fixture is not None and not motion_fixture.is_file():
+        raise SmokeRuntimeError("motion-fixture-unavailable")
     max_width, max_height, max_frames_per_second = profile_bounds(profile)
     artifact.parent.mkdir(parents=True, exist_ok=True)
     address = f"127.0.0.1:{port}"
     server = server_log = server_directory = None
     host = viewer = None
+    fixture_process = None
     host_reader = viewer_reader = None
     host_records: list[dict] = []
     viewer_records: list[dict] = []
     process_records: list[dict] = []
     process_samplers: dict[str, ProcessSampler] = {}
     failure: str | None = None
+    summary: dict | None = None
     records_written = False
+    fixture_started = False
+    fixture_alive = False
+    fixture_stopped = False
     environment = os.environ.copy()
     environment["SHAREME_PERFORMANCE_COUNTERS"] = "1"
     environment["SHAREME_SCREEN_SMOKE_DIAGNOSTICS"] = "1"
     environment["SHAREME_SCREEN_RECOVERY_PROBE"] = "1"
 
     with artifact.open("x", encoding="utf-8") as output:
-        _write_jsonl(output, {
+        run_record = {
             "kind": "run",
             "version": 1,
             "run_id": uuid.uuid4().hex,
@@ -650,8 +668,21 @@ def run_smoke(
             ),
             "screen_encoder": screen_encoder,
             "demo_sha256": hashlib.sha256(demo.read_bytes()).hexdigest(),
-        })
+        }
+        if motion_fixture is not None:
+            run_record["motion_fixture_requested"] = True
+        _write_jsonl(output, run_record)
         try:
+            effective_guard_processes = tuple(guard_processes)
+            if motion_fixture is not None:
+                fixture_process = start_motion_fixture(
+                    motion_fixture, profile, duration_seconds, environment
+                )
+                fixture_started = True
+                wait_for_motion_fixture_ready(fixture_process)
+                effective_guard_processes += (
+                    ("motion-fixture", fixture_process),
+                )
             server, server_log, server_directory = start_signaling_server(
                 server_root, "127.0.0.1", port
             )
@@ -695,7 +726,7 @@ def run_smoke(
             next_sample = scenario_started + 1.0
             sample = 0
             while time.monotonic() < deadline:
-                require_guard_processes_alive(guard_processes)
+                require_guard_processes_alive(effective_guard_processes)
                 if host.poll() is not None or viewer.poll() is not None:
                     diagnostic = _process_exit_diagnostic(
                         host, viewer, host_reader, viewer_reader
@@ -722,6 +753,8 @@ def run_smoke(
                     })
                 sample += 1
                 next_sample += 1.0
+            if fixture_process is not None:
+                fixture_alive = fixture_process.poll() is None
             terminate_process_group(viewer, grace_seconds=1)
             terminate_process_group(host, grace_seconds=1)
             host_reader.join()
@@ -751,8 +784,6 @@ def run_smoke(
                 viewer_records,
                 require_hardware=not allow_software_fallback,
             )
-            _write_jsonl(output, {"kind": "summary", "complete": True, **summary})
-            return summary
         except (OSError, ValueError, subprocess.TimeoutExpired,
                 ProcessMetricsError) as error:
             failure = redact_diagnostic(str(error))
@@ -772,6 +803,19 @@ def run_smoke(
                 server_log.close()
             if server_directory is not None:
                 cleanup_temporary_directory(server_directory)
+            if fixture_process is not None:
+                if fixture_process.poll() is None:
+                    terminate_process_group(fixture_process, grace_seconds=1)
+                fixture_stopped = fixture_process.poll() is not None
+        if summary is not None:
+            if motion_fixture is not None:
+                summary.update({
+                    "motion_fixture_started": fixture_started,
+                    "motion_fixture_alive": fixture_alive,
+                    "motion_fixture_stopped": fixture_stopped,
+                })
+            _write_jsonl(output, {"kind": "summary", "complete": True, **summary})
+            return summary
         if failure is not None:
             failure += (
                 f" [host: {_status_diagnostic(host_reader)};"
@@ -806,11 +850,18 @@ def run_smoke(
                             "sample": index,
                             **record,
                         })
-            _write_jsonl(output, {
+            failure_record = {
                 "kind": "summary",
                 "complete": False,
                 "failure": failure,
-            })
+            }
+            if motion_fixture is not None:
+                failure_record.update({
+                    "motion_fixture_started": fixture_started,
+                    "motion_fixture_alive": fixture_alive,
+                    "motion_fixture_stopped": fixture_stopped,
+                })
+            _write_jsonl(output, failure_record)
             raise SmokeRuntimeError(failure)
     raise SmokeRuntimeError("screen smoke did not produce a result")
 
@@ -824,6 +875,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=tuple(PROFILE_BOUNDS), required=True)
     parser.add_argument("--duration-seconds", type=int, required=True)
     parser.add_argument("--artifact", type=Path)
+    parser.add_argument("--motion-fixture", type=Path)
     parser.add_argument("--allow-software-fallback", action="store_true")
     parser.add_argument("--screen-encoder", choices=("auto", "software"),
                         default="auto")
@@ -845,6 +897,11 @@ def main() -> int:
                 args.allow_software_fallback or args.screen_encoder == "software"
             ),
             screen_encoder=args.screen_encoder,
+            motion_fixture=(
+                args.motion_fixture.resolve()
+                if args.motion_fixture is not None
+                else None
+            ),
         ), sort_keys=True))
         return 0
     except (SmokeRuntimeError, OSError, ValueError) as error:

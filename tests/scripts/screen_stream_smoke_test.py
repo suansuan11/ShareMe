@@ -120,6 +120,113 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             first = json.loads(artifact.read_text(encoding="utf-8").splitlines()[0])
             self.assertRegex(first["run_id"], r"^[0-9a-f]{32}$")
 
+    def test_owned_motion_fixture_is_cleaned_and_redacted_on_failure(self):
+        class FixtureProcess:
+            def __init__(self):
+                self.returncode = None
+
+            def poll(self):
+                return self.returncode
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = root / "demo"
+            demo.write_bytes(b"demo")
+            fixture = root / "secret-motion-fixture"
+            fixture.write_bytes(b"fixture")
+            artifact = root / "run.jsonl"
+            process = FixtureProcess()
+
+            def terminate(target, grace_seconds):
+                self.assertIs(target, process)
+                self.assertEqual(grace_seconds, 1)
+                target.returncode = 0
+
+            with (
+                mock.patch.object(
+                    self.runner, "start_motion_fixture", return_value=process
+                ) as start,
+                mock.patch.object(self.runner, "wait_for_motion_fixture_ready"),
+                mock.patch.object(
+                    self.runner, "start_signaling_server",
+                    side_effect=OSError("injected"),
+                ),
+                mock.patch.object(
+                    self.runner, "terminate_process_group",
+                    side_effect=terminate,
+                ) as stop,
+            ):
+                with self.assertRaises(self.runner.SmokeRuntimeError):
+                    self.runner.run_smoke(
+                        demo=demo,
+                        server_root=root,
+                        profile="standard",
+                        duration_seconds=1,
+                        port=18080,
+                        artifact=artifact,
+                        motion_fixture=fixture,
+                    )
+
+            start.assert_called_once()
+            stop.assert_called_once()
+            records = [
+                json.loads(line)
+                for line in artifact.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(records[0]["motion_fixture_requested"])
+            self.assertTrue(records[-1]["motion_fixture_started"])
+            self.assertTrue(records[-1]["motion_fixture_stopped"])
+            self.assertNotIn(str(fixture), artifact.read_text(encoding="utf-8"))
+
+    def test_missing_owned_motion_fixture_is_rejected_before_artifact_creation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = root / "demo"
+            demo.write_bytes(b"demo")
+            artifact = root / "run.jsonl"
+            with self.assertRaisesRegex(
+                    self.runner.SmokeRuntimeError, "motion-fixture-unavailable"
+            ):
+                self.runner.run_smoke(
+                    demo=demo,
+                    server_root=root,
+                    profile="standard",
+                    duration_seconds=1,
+                    port=18080,
+                    artifact=artifact,
+                    motion_fixture=root / "missing",
+                )
+            self.assertFalse(artifact.exists())
+
+    def test_cli_forwards_the_owned_motion_fixture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = root / "demo"
+            demo.write_bytes(b"demo")
+            fixture = root / "fixture"
+            fixture.write_bytes(b"fixture")
+            artifact = root / "run.jsonl"
+            arguments = [
+                "run_screen_stream_smoke.py",
+                "--demo", str(demo),
+                "--server-root", str(root),
+                "--profile", "standard",
+                "--duration-seconds", "30",
+                "--artifact", str(artifact),
+                "--motion-fixture", str(fixture),
+            ]
+            with (
+                mock.patch.object(self.runner.sys, "argv", arguments),
+                mock.patch.object(
+                    self.runner, "run_smoke", return_value={"complete": True}
+                ) as run,
+                mock.patch("builtins.print"),
+            ):
+                self.assertEqual(self.runner.main(), 0)
+            self.assertEqual(
+                run.call_args.kwargs["motion_fixture"], fixture.resolve()
+            )
+
     def test_parses_sanitized_counter_lines(self):
         parsed = self.runner.parse_counter_line(
             "PERF_COUNTERS version=1 role=host cpu_percent=0 rss_bytes=0 "
