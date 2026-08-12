@@ -164,6 +164,18 @@ QString screen_profile_name(shareme::core::ScreenStreamProfile profile) {
   return QStringLiteral("unknown");
 }
 
+std::optional<int> bounded_environment_seconds(const char *name, int minimum,
+                                               int maximum) {
+  const char *value = std::getenv(name);
+  if (value == nullptr || *value == '\0')
+    return std::nullopt;
+  char *end = nullptr;
+  const long parsed = std::strtol(value, &end, 10);
+  if (end == value || *end != '\0' || parsed < minimum || parsed > maximum)
+    return std::nullopt;
+  return static_cast<int>(parsed);
+}
+
 } // namespace
 
 RtcDemoController::RtcDemoController(QUrl server_url,
@@ -197,7 +209,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
        performance_counters_enabled_(
            std::getenv("SHAREME_PERFORMANCE_COUNTERS") != nullptr),
        screen_recovery_probe_enabled_(
-           std::getenv("SHAREME_SCREEN_RECOVERY_PROBE") != nullptr) {
+           std::getenv("SHAREME_SCREEN_RECOVERY_PROBE") != nullptr),
+       screen_capture_restart_probe_after_seconds_(bounded_environment_seconds(
+           "SHAREME_SCREEN_CAPTURE_RESTART_PROBE_AFTER_SECONDS", 5, 3'600)) {
   audio_route_monitor_ = std::make_unique<QtAudioRouteMonitor>();
   movie_video_playout_adapter_ =
       std::make_unique<shareme::tools::MovieVideoPlayoutAdapter>(
@@ -866,10 +880,12 @@ bool RtcDemoController::createPeer() {
     emit videoDiagnosticsChanged();
     config.video_encoder_factory = std::move(selection.factory);
     config.video_mode = shareme::rtc::SignaledVideoMode::injected;
-    config.video_source_factory = [profile = selection.capture_profile](
+    screen_video_source_ = shareme::rtc::ScreenVideoSource::create(
+        {.profile = selection.capture_profile});
+    config.video_source_factory = [source = screen_video_source_](
                                       webrtc::TaskQueueFactory &)
         -> webrtc::scoped_refptr<shareme::rtc::LocalVideoSource> {
-      return shareme::rtc::ScreenVideoSource::create({.profile = profile});
+      return source;
     };
   }
 #if defined(SHAREME_HAS_MOVIE_RTC)
@@ -1028,6 +1044,26 @@ void RtcDemoController::startPeer() {
     playout_report_timer_.start();
   if (screen_source_ && role_ == shareme::rtc::SignaledRole::host)
     screen_capture_error_timer_.start();
+  if (screen_source_ && role_ == shareme::rtc::SignaledRole::host &&
+      screen_video_source_ && screen_capture_restart_probe_after_seconds_) {
+    QTimer::singleShot(
+        *screen_capture_restart_probe_after_seconds_ * 1'000, this, [this] {
+          if (shutting_down_ || !screen_video_source_)
+            return;
+          screen_capture_restart_attempts_.fetch_add(1,
+                                                     std::memory_order_relaxed);
+          screen_video_source_->stop();
+          if (!screen_video_source_->start()) {
+            setStatus(QStringLiteral("screen-capture-restart-failed:" ) +
+                      QString::fromStdString(screen_video_source_->error()));
+            return;
+          }
+          screen_capture_restart_successes_.fetch_add(
+              1, std::memory_order_relaxed);
+          screen_capture_generation_.fetch_add(1, std::memory_order_relaxed);
+          std::cout << "SMOKE_STATUS screen-capture-restarted" << std::endl;
+        });
+  }
   if (performance_counters_enabled_) {
     performance_stats_worker_ = std::jthread([this](std::stop_token stop_token) {
       while (!stop_token.stop_requested()) {
@@ -1366,6 +1402,14 @@ void RtcDemoController::emitPerformanceCounters() {
              << " presentation_epoch=" << preview.presentation_epoch
              << " presentation_recovery_count="
              << preview.presentation_recovery_count
+             << " screen_capture_restart_attempts="
+             << screen_capture_restart_attempts_.load(
+                    std::memory_order_relaxed)
+             << " screen_capture_restart_successes="
+             << screen_capture_restart_successes_.load(
+                    std::memory_order_relaxed)
+             << " screen_capture_generation="
+             << screen_capture_generation_.load(std::memory_order_relaxed)
              << " stats_unavailable=" << stats_unavailable
              << " width=" << width << " height=" << height
              << " cadence_num=" << cadence_num

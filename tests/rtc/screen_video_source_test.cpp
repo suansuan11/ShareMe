@@ -72,10 +72,14 @@ public:
   bool start(FrameCallback callback) override {
     callback_ = std::move(callback);
     started = true;
+    ++start_count;
     return true;
   }
 
-  void stop() noexcept override { stopped = true; }
+  void stop() noexcept override {
+    stopped = true;
+    ++stop_count;
+  }
 
   std::string error() const override { return error_value; }
 
@@ -94,6 +98,8 @@ public:
 
   bool started{false};
   bool stopped{false};
+  int start_count{0};
+  int stop_count{0};
   std::string error_value;
   std::uint64_t pending_count{0};
   std::uint64_t dropped_count{0};
@@ -204,6 +210,33 @@ void reports_a_runtime_backend_error() {
   source->stop();
 }
 
+void restarts_capture_without_replacing_the_video_source() {
+  using shareme::rtc::ScreenFrame;
+  using shareme::rtc::ScreenFrameBacking;
+
+  FakeScreenCaptureBackend *backend = nullptr;
+  auto source = make_source(&backend);
+  RecordingSink sink;
+  auto *video_source =
+      static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame> *>(
+          source.get());
+  video_source->AddOrUpdateSink(&sink, webrtc::VideoSinkWants{});
+
+  REQUIRE(source->start());
+  source->stop();
+  REQUIRE(source->start());
+  auto buffer = webrtc::I420Buffer::Create(320, 180);
+  backend->emit(
+      ScreenFrame{buffer, 320, 180, 900'000, ScreenFrameBacking::i420});
+  source->stop();
+  video_source->RemoveSink(&sink);
+
+  REQUIRE(backend->start_count == 2);
+  REQUIRE(backend->stop_count == 2);
+  REQUIRE(sink.frame_count == 1);
+  REQUIRE(source->generated_count() == 1);
+}
+
 void honors_sink_adaptation_for_i420_frames() {
   using shareme::rtc::ScreenFrame;
 
@@ -300,6 +333,7 @@ int main() {
   rejects_frames_after_stop_and_rejects_mismatched_dimensions();
   forwards_i420_frames_as_the_software_fallback();
   reports_a_runtime_backend_error();
+  restarts_capture_without_replacing_the_video_source();
   honors_sink_adaptation_for_i420_frames();
   reports_backend_queue_metrics();
   platform_factory_constructs_without_starting_capture();

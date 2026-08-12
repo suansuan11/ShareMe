@@ -82,6 +82,9 @@ INTEGER_KEYS = {
     "pixel_aspect_den",
     "presentation_epoch",
     "presentation_recovery_count",
+    "screen_capture_restart_attempts",
+    "screen_capture_restart_successes",
+    "screen_capture_generation",
 }
 ALLOWED_KEYS = INTEGER_KEYS | {
     "role",
@@ -470,6 +473,21 @@ def validate_motion_recovery(
     resume_samples: dict[str, int] | None = None,
     deadline_samples: int = 5,
 ) -> dict:
+    matching_hosts = [
+        record for record in host_records if record.get("role") == "host"
+    ]
+    host_final = matching_hosts[-1] if matching_hosts else {}
+    if (
+        host_final.get("screen_capture_restart_attempts") != 1
+        or host_final.get("screen_capture_restart_successes") != 1
+        or host_final.get("screen_capture_generation") != 1
+    ):
+        raise SmokeRuntimeError("screen-capture-restart-not-verified")
+    restart_fields = (
+        "screen_capture_restart_attempts",
+        "screen_capture_restart_successes",
+        "screen_capture_generation",
+    )
     if interruption_samples is None:
         if interruption_sample is None:
             raise SmokeRuntimeError("motion-recovery-window-is-invalid")
@@ -478,6 +496,30 @@ def validate_motion_recovery(
         if resume_sample is None:
             raise SmokeRuntimeError("motion-recovery-window-is-invalid")
         resume_samples = {"host": resume_sample, "viewer": resume_sample}
+    host_interruption_sample = interruption_samples["host"]
+    host_resume_sample = resume_samples["host"]
+    matching_viewers = [
+        record for record in viewer_records if record.get("role") == "viewer"
+    ]
+    if (
+        len(matching_hosts) - 1 - host_resume_sample < 10
+        or len(matching_viewers) - 1 - resume_samples["viewer"] < 10
+    ):
+        raise SmokeRuntimeError("motion-recovery-needs-post-recovery-window")
+    restart_boundary = matching_hosts[host_interruption_sample]
+    if any(restart_boundary.get(key) != 0 for key in restart_fields):
+        raise SmokeRuntimeError("screen-capture-restart-boundary-invalid")
+    restart_sample = next(
+        (
+            index
+            for index in range(host_interruption_sample + 1,
+                               host_resume_sample + 1)
+            if all(matching_hosts[index].get(key) == 1 for key in restart_fields)
+        ),
+        None,
+    )
+    if restart_sample is None:
+        raise SmokeRuntimeError("screen-capture-restart-not-observed-in-window")
     host_recovery = _role_motion_recovery(
         host_records,
         "host",
@@ -511,6 +553,8 @@ def validate_motion_recovery(
             viewer_count - resume_samples["viewer"] - 1,
         ),
         "voice_continuous": True,
+        "capture_restart_verified": True,
+        "capture_restart_samples": restart_sample - host_interruption_sample,
     }
 
 
@@ -940,6 +984,10 @@ def run_smoke(
     environment["SHAREME_PERFORMANCE_COUNTERS"] = "1"
     environment["SHAREME_SCREEN_SMOKE_DIAGNOSTICS"] = "1"
     environment["SHAREME_SCREEN_RECOVERY_PROBE"] = "1"
+    if motion_interruption is not None:
+        environment[
+            "SHAREME_SCREEN_CAPTURE_RESTART_PROBE_AFTER_SECONDS"
+        ] = str(motion_interruption.after_seconds)
 
     with artifact.open("x", encoding="utf-8") as output:
         run_record = {

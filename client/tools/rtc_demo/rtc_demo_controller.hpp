@@ -46,6 +46,10 @@ class MovieVideoSource;
 }
 #endif
 
+namespace shareme::rtc {
+class ScreenVideoSource;
+}
+
 class RtcDemoController final : public shareme::tools::CallSession {
   Q_OBJECT
   Q_PROPERTY(QString status READ status NOTIFY statusChanged)
@@ -231,6 +235,7 @@ private:
   QPointer<QVideoSink> video_sink_;
   QtSignalingClient signaling_;
   std::unique_ptr<shareme::rtc::SignaledPeer> peer_;
+  webrtc::scoped_refptr<shareme::rtc::ScreenVideoSource> screen_video_source_;
   std::unique_ptr<shareme::rtc::MovieAudioPeer> movie_peer_;
   std::unique_ptr<shareme::core::MovieAudioRenderer> movie_audio_renderer_;
   std::unique_ptr<QtAudioRouteMonitor> audio_route_monitor_;
@@ -284,6 +289,10 @@ private:
   bool performance_counters_enabled_{false};
   bool screen_recovery_probe_enabled_{false};
   bool screen_recovery_probe_scheduled_{false};
+  std::optional<int> screen_capture_restart_probe_after_seconds_;
+  std::atomic<std::uint64_t> screen_capture_restart_attempts_{0};
+  std::atomic<std::uint64_t> screen_capture_restart_successes_{0};
+  std::atomic<std::uint64_t> screen_capture_generation_{0};
   std::atomic<std::uint64_t> performance_callback_count_{0};
   std::atomic<std::uint64_t> performance_coalesced_count_{0};
   std::atomic<std::uint64_t> performance_sink_submissions_{0};

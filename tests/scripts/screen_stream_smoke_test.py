@@ -444,10 +444,14 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "requested_mode=software decoder_path=software codec=unknown "
             "webrtc_encoder=H264 hardware_encoder_status=active "
             "encoder_implementation=VideoToolbox"
+            " screen_capture_restart_attempts=1"
+            " screen_capture_restart_successes=1"
+            " screen_capture_generation=1"
         )
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed["hardware_encoder_status"], "active")
         self.assertEqual(parsed["bitrate_bps"], 8000)
+        self.assertEqual(parsed["screen_capture_restart_successes"], 1)
         self.assertIsNone(
             self.runner.parse_counter_line(
                 "PERF_COUNTERS version=1 role=host path=/private/secret"
@@ -788,6 +792,13 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                     "voice_bytes_sent": 1000 + sample,
                     "voice_bytes_received": 2000 + sample,
                 }
+                if role == "host":
+                    restarted = int(sample > 5)
+                    record.update({
+                        "screen_capture_restart_attempts": restarted,
+                        "screen_capture_restart_successes": restarted,
+                        "screen_capture_generation": restarted,
+                    })
                 for key in video_keys:
                     record[key] = 100 + max(0, sample - recovery_sample + 1)
                 values.append(record)
@@ -805,6 +816,8 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertEqual(result["viewer_recovery_samples"], 5)
         self.assertEqual(result["post_recovery_samples"], 11)
         self.assertTrue(result["voice_continuous"])
+        self.assertTrue(result["capture_restart_verified"])
+        self.assertEqual(result["capture_restart_samples"], 1)
 
     def test_motion_recovery_rejects_late_video_and_voice_stall(self):
         def records(role, video_keys, recovery_sample=14, voice_stall=None):
@@ -819,6 +832,13 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                     "voice_bytes_sent": 1000 + voice_sample,
                     "voice_bytes_received": 2000 + voice_sample,
                 }
+                if role == "host":
+                    restarted = int(sample > 5)
+                    record.update({
+                        "screen_capture_restart_attempts": restarted,
+                        "screen_capture_restart_successes": restarted,
+                        "screen_capture_generation": restarted,
+                    })
                 for key in video_keys:
                     record[key] = 100 + max(0, sample - recovery_sample + 1)
                 values.append(record)
@@ -857,6 +877,9 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "voice_packets_received": 1,
             "voice_bytes_sent": 1,
             "voice_bytes_received": 1,
+            "screen_capture_restart_attempts": 1,
+            "screen_capture_restart_successes": 1,
+            "screen_capture_generation": 1,
         }
         viewer = dict(record, role="viewer", received=1, decoded=1)
         with self.assertRaisesRegex(
@@ -869,7 +892,15 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 resume_sample=8,
             )
 
-        not_ready = [dict(record) for _ in range(20)]
+        not_ready = [
+            dict(
+                record,
+                screen_capture_restart_attempts=int(sample > 5),
+                screen_capture_restart_successes=int(sample > 5),
+                screen_capture_generation=int(sample > 5),
+            )
+            for sample in range(20)
+        ]
         not_ready[5]["stats_unavailable"] = 1
         with self.assertRaisesRegex(
             self.runner.SmokeRuntimeError, "counters-not-ready"
