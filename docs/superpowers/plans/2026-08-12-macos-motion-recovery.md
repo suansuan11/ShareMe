@@ -64,4 +64,4 @@
 - [x] Review the complete branch and fix all Critical or Important findings.
 - [x] Record exact hashes/counters/results and explicit environment boundaries.
 - [x] Commit the verification documentation and canonical handoff.
-- [ ] Push, fast-forward `main`, rerun merged gates, push `main`, verify remote SHA, and clean only the merged worktree/local branch.
+- [x] Push, fast-forward `main`, rerun merged gates, push `main`, verify remote SHA, and clean only the merged worktree/local branch.

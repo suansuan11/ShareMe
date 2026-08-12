@@ -174,7 +174,7 @@ File sharing, Movie Stage 2B, system-audio capture, HDR, remote input, TURN, and
 
 ### macOS Native Capture Restart Recovery
 
-The macOS restart stage is delivered on `codex/macos-motion-recovery`. The host
+The macOS restart stage is merged on `main`. The host
 now retains the same ref-counted screen source used by its WebRTC track, and a
 bounded test probe can stop/start that source once without rebuilding signaling,
 the peer connection, VideoToolbox selection, or voice tracks. Sanitized counters
