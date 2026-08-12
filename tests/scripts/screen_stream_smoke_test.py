@@ -99,6 +99,16 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertNotIn("QT_QPA_PLATFORM", options["env"])
         self.assertEqual(options["env"]["KEEP"], "value")
 
+    def test_motion_fixture_requests_foreground_visibility(self):
+        qml = (
+            Path(__file__).parents[2]
+            / "client" / "tools" / "screen_motion_fixture" / "qml" / "Main.qml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("WindowStaysOnTopHint", qml)
+        self.assertIn("Component.onCompleted", qml)
+        self.assertIn("root.raise()", qml)
+        self.assertIn("root.requestActivate()", qml)
+
     def test_failed_run_still_records_an_independent_run_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

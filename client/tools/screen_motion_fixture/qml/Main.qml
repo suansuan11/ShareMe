@@ -15,6 +15,11 @@ Window {
     property int renderedFrames: 0
     property real phase: 0
 
+    Component.onCompleted: {
+        root.raise()
+        root.requestActivate()
+    }
+
     Row {
         anchors.left: parent.left
         anchors.right: parent.right
