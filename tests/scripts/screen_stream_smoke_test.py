@@ -109,6 +109,72 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertIn("root.raise()", qml)
         self.assertIn("root.requestActivate()", qml)
 
+    def test_motion_interruption_requires_safe_macos_window(self):
+        fixture = Path("fixture")
+        accepted = self.runner.MotionInterruption(15, 3)
+        with mock.patch.object(self.runner.sys, "platform", "darwin"):
+            self.runner.validate_motion_interruption(
+                accepted, duration_seconds=60, motion_fixture=fixture
+            )
+
+        rejected = (
+            (None, 60, fixture, "paired"),
+            (self.runner.MotionInterruption(4, 3), 60, fixture, "warmup"),
+            (self.runner.MotionInterruption(15, 0), 60, fixture, "duration"),
+            (self.runner.MotionInterruption(15, 6), 60, fixture, "duration"),
+            (self.runner.MotionInterruption(48, 3), 60, fixture, "post-recovery"),
+            (accepted, 60, None, "requires-motion-fixture"),
+        )
+        with mock.patch.object(self.runner.sys, "platform", "darwin"):
+            for config, duration, owned_fixture, category in rejected:
+                with self.subTest(category=category):
+                    with self.assertRaisesRegex(
+                        self.runner.SmokeRuntimeError, category
+                    ):
+                        self.runner.validate_motion_interruption(
+                            config,
+                            duration_seconds=duration,
+                            motion_fixture=owned_fixture,
+                            requested=config is None,
+                        )
+
+        with mock.patch.object(self.runner.sys, "platform", "win32"):
+            with self.assertRaisesRegex(
+                self.runner.SmokeRuntimeError, "macos-only"
+            ):
+                self.runner.validate_motion_interruption(
+                    accepted, duration_seconds=60, motion_fixture=fixture
+                )
+
+    def test_motion_fixture_control_uses_exact_stop_and_continue_signals(self):
+        process = mock.Mock(pid=4321)
+        process.poll.return_value = None
+        with (
+            mock.patch.object(self.runner.sys, "platform", "darwin"),
+            mock.patch.object(self.runner.os, "kill") as kill,
+        ):
+            self.runner.suspend_motion_fixture(process)
+            self.runner.resume_motion_fixture(process)
+        self.assertEqual(
+            kill.call_args_list,
+            [
+                mock.call(4321, self.runner.signal.SIGSTOP),
+                mock.call(4321, self.runner.signal.SIGCONT),
+            ],
+        )
+
+        with (
+            mock.patch.object(self.runner.sys, "platform", "darwin"),
+            mock.patch.object(
+                self.runner.os, "kill", side_effect=OSError("/private/secret")
+            ),
+        ):
+            with self.assertRaisesRegex(
+                self.runner.SmokeRuntimeError, "motion-fixture-suspend-failed"
+            ) as raised:
+                self.runner.suspend_motion_fixture(process)
+        self.assertNotIn("/private/secret", str(raised.exception))
+
     def test_failed_run_still_records_an_independent_run_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

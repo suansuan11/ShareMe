@@ -10,12 +10,14 @@ import json
 import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
 import time
 import uuid
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from process_metrics import ProcessMetricsError, ProcessSampler  # noqa: E402
@@ -100,6 +102,60 @@ SENSITIVE_WORD_PATTERN = re.compile(r"\b(?:ROOM|TOKEN|SDP|ICE)\b", re.IGNORECASE
 
 class SmokeRuntimeError(RuntimeError):
     pass
+
+
+class MotionInterruption(NamedTuple):
+    after_seconds: int
+    duration_seconds: int
+
+
+def validate_motion_interruption(
+    interruption: MotionInterruption | None,
+    *,
+    duration_seconds: int,
+    motion_fixture: Path | None,
+    requested: bool = False,
+) -> None:
+    if interruption is None:
+        if requested:
+            raise SmokeRuntimeError("motion-interruption-options-must-be-paired")
+        return
+    if sys.platform != "darwin":
+        raise SmokeRuntimeError("motion-interruption-is-macos-only")
+    if motion_fixture is None:
+        raise SmokeRuntimeError("motion-interruption-requires-motion-fixture")
+    if interruption.after_seconds < 5:
+        raise SmokeRuntimeError("motion-interruption-needs-warmup")
+    if not 1 <= interruption.duration_seconds <= 5:
+        raise SmokeRuntimeError("motion-interruption-duration-out-of-range")
+    resume_seconds = (
+        interruption.after_seconds + interruption.duration_seconds
+    )
+    if duration_seconds - resume_seconds < 10:
+        raise SmokeRuntimeError("motion-interruption-needs-post-recovery-window")
+
+
+def _signal_motion_fixture(process, fixture_signal: int, failure: str) -> None:
+    if sys.platform != "darwin":
+        raise SmokeRuntimeError("motion-interruption-is-macos-only")
+    if process.poll() is not None:
+        raise SmokeRuntimeError("motion-fixture-early-exit")
+    try:
+        os.kill(process.pid, fixture_signal)
+    except OSError as error:
+        raise SmokeRuntimeError(failure) from error
+
+
+def suspend_motion_fixture(process) -> None:
+    _signal_motion_fixture(
+        process, signal.SIGSTOP, "motion-fixture-suspend-failed"
+    )
+
+
+def resume_motion_fixture(process) -> None:
+    _signal_motion_fixture(
+        process, signal.SIGCONT, "motion-fixture-resume-failed"
+    )
 
 
 def redact_diagnostic(message: str) -> str:
