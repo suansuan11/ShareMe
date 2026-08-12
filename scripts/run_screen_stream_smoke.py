@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -611,6 +612,7 @@ def run_smoke(
         _write_jsonl(output, {
             "kind": "run",
             "version": 1,
+            "run_id": uuid.uuid4().hex,
             "profile": profile,
             "duration_seconds": duration_seconds,
             "max_width": max_width,

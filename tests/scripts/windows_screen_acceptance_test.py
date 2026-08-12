@@ -96,6 +96,7 @@ class WindowsScreenAcceptanceTest(unittest.TestCase):
             records = [{
                 "kind": "run", "version": 1, "profile": "standard",
                 "screen_encoder": "software", "demo_sha256": "a" * 64,
+                "run_id": "1" * 32,
             }]
             for role in ("host", "viewer"):
                 records.extend({
@@ -131,6 +132,17 @@ class WindowsScreenAcceptanceTest(unittest.TestCase):
             self.assertEqual(summary["host"]["rssP95"], 1000)
             self.assertGreaterEqual(summary["cadenceRatio"], 0.95)
             self.assertEqual(summary["demoSha256"], "a" * 64)
+            self.assertEqual(summary["runId"], "1" * 32)
+
+            records[0]["demo_sha256"] = "G" * 64
+            artifact.write_text("".join(
+                json.dumps(record, separators=(",", ":")) + "\n"
+                for record in records
+            ), encoding="utf-8")
+            with self.assertRaisesRegex(self.runner.AcceptanceError,
+                                        "binary-identity-missing"):
+                self.runner.summarize_run(artifact, "software-baseline")
+            records[0]["demo_sha256"] = "a" * 64
 
             artifact.write_text("".join(
                 json.dumps(record, separators=(",", ":")) + "\n"
@@ -141,9 +153,14 @@ class WindowsScreenAcceptanceTest(unittest.TestCase):
                 self.runner.summarize_run(artifact, "software-baseline")
 
     def test_comparison_requires_matching_binary_and_all_frozen_gates(self):
+        next_run = 0
+
         def run(cpu, cpu_p95, rss, cadence=1.0, digest="a" * 64):
+            nonlocal next_run
+            next_run += 1
             return {
                 "demoSha256": digest,
+                "runId": f"{next_run:032x}",
                 "profile": "standard",
                 "host": {"cpuMean": cpu, "cpuP95": cpu_p95, "rssP95": rss},
                 "cadenceRatio": cadence,
@@ -159,6 +176,28 @@ class WindowsScreenAcceptanceTest(unittest.TestCase):
         with self.assertRaisesRegex(self.runner.AcceptanceError,
                                     "binary-identity-mismatch"):
             self.runner.compare_standard(baseline, hardware)
+
+        hardware[2] = run(12.0, 24.0, 1100)
+        hardware[2]["runId"] = hardware[1]["runId"]
+        with self.assertRaisesRegex(self.runner.AcceptanceError,
+                                    "run-identity-reused"):
+            self.runner.compare_standard(baseline, hardware)
+
+        hardware[2]["runId"] = "invalid"
+        with self.assertRaisesRegex(self.runner.AcceptanceError,
+                                    "run-identity-missing"):
+            self.runner.compare_standard(baseline, hardware)
+
+    def test_comparison_rejects_reused_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            first = Path(temporary) / "first.jsonl"
+            second = Path(temporary) / "second.jsonl"
+            with self.assertRaisesRegex(self.runner.AcceptanceError,
+                                        "artifact-reused"):
+                self.runner.validate_distinct_artifacts(
+                    [first, second, first, Path(temporary) / "3.jsonl",
+                     Path(temporary) / "4.jsonl", Path(temporary) / "5.jsonl"]
+                )
 
     def test_artifact_path_is_bounded_and_existing_files_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

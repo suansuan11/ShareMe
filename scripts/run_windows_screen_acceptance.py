@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -75,6 +76,12 @@ def validate_comparison_path(comparison: Path, output_root: Path) -> None:
         raise AcceptanceError("comparison-must-be-json")
     if target.exists():
         raise AcceptanceError("comparison-exists")
+
+
+def validate_distinct_artifacts(artifacts: list[Path]) -> None:
+    resolved = [artifact.resolve() for artifact in artifacts]
+    if len(resolved) != len(set(resolved)):
+        raise AcceptanceError("artifact-reused")
 
 
 def atomic_append_jsonl(artifact: Path, record: dict) -> None:
@@ -228,13 +235,20 @@ def summarize_run(path: Path, expected_mode: str) -> dict:
     if end_s < 30:
         raise AcceptanceError("measurement-window-incomplete")
     digest = run.get("demo_sha256")
-    if not isinstance(digest, str) or len(digest) != 64:
+    if (not isinstance(digest, str) or
+            re.fullmatch(r"[0-9a-f]{64}", digest) is None):
         raise AcceptanceError("binary-identity-missing")
+    run_id = run.get("run_id")
+    if (run_id is not None and
+            (not isinstance(run_id, str) or
+             re.fullmatch(r"[0-9a-f]{32}", run_id) is None)):
+        raise AcceptanceError("run-identity-missing")
     return {
         "artifact": path.name,
         "mode": expected_mode,
         "profile": profile,
         "demoSha256": digest,
+        "runId": run_id,
         "host": _role_metrics(records, "host", end_s),
         "viewer": _role_metrics(records, "viewer", end_s),
         "cadenceRatio": round(cadence, 6),
@@ -249,6 +263,13 @@ def compare_standard(baseline_runs: list[dict],
     if len(baseline_runs) != 3 or len(hardware_runs) != 3:
         raise AcceptanceError("three-runs-required")
     all_runs = [*baseline_runs, *hardware_runs]
+    run_ids = [run.get("runId") for run in all_runs]
+    if any(not isinstance(run_id, str) or
+           re.fullmatch(r"[0-9a-f]{32}", run_id) is None
+           for run_id in run_ids):
+        raise AcceptanceError("run-identity-missing")
+    if len(set(run_ids)) != 6:
+        raise AcceptanceError("run-identity-reused")
     identities = {run.get("demoSha256") for run in all_runs}
     if len(identities) != 1:
         raise AcceptanceError("binary-identity-mismatch")
@@ -400,6 +421,9 @@ def main() -> int:
                     args.comparison):
                 raise AcceptanceError("comparison-arguments-incomplete")
             validate_comparison_path(args.comparison, args.output_root)
+            validate_distinct_artifacts([
+                *args.compare_baseline, *args.compare_hardware
+            ])
             baseline = [summarize_run(path, "software-baseline")
                         for path in args.compare_baseline]
             hardware = [summarize_run(path, "hardware")

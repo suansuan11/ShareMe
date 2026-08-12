@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def load_runner():
@@ -59,6 +62,27 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             self.runner.require_guard_processes_alive(
                 (("fixture", ExitedProcess()),)
             )
+
+    def test_failed_run_still_records_an_independent_run_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = root / "demo"
+            demo.write_bytes(b"demo")
+            artifact = root / "run.jsonl"
+            with mock.patch.object(
+                    self.runner, "start_signaling_server",
+                    side_effect=OSError("injected")):
+                with self.assertRaises(self.runner.SmokeRuntimeError):
+                    self.runner.run_smoke(
+                        demo=demo,
+                        server_root=root,
+                        profile="standard",
+                        duration_seconds=1,
+                        port=18080,
+                        artifact=artifact,
+                    )
+            first = json.loads(artifact.read_text(encoding="utf-8").splitlines()[0])
+            self.assertRegex(first["run_id"], r"^[0-9a-f]{32}$")
 
     def test_parses_sanitized_counter_lines(self):
         parsed = self.runner.parse_counter_line(
