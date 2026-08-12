@@ -98,6 +98,10 @@ def atomic_append_jsonl(artifact: Path, record: dict) -> None:
 
 def measurement_window(samples: list[dict], start_s: int = 30,
                        end_s: int = 150) -> list[dict]:
+    for sample in samples:
+        elapsed = sample.get("elapsed_seconds")
+        if type(elapsed) is not int:
+            raise AcceptanceError("measurement-samples-invalid")
     selected = [
         sample for sample in samples
         if start_s <= sample["elapsed_seconds"] <= end_s
@@ -105,6 +109,16 @@ def measurement_window(samples: list[dict], start_s: int = 30,
     if (not selected or selected[0]["elapsed_seconds"] > start_s or
             selected[-1]["elapsed_seconds"] < end_s):
         raise AcceptanceError("measurement-window-incomplete")
+    for sample in selected:
+        cpu = sample.get("cpu_percent")
+        rss = sample.get("rss_bytes")
+        if (isinstance(cpu, bool) or not isinstance(cpu, (int, float)) or
+                not math.isfinite(cpu) or cpu < 0 or
+                type(rss) is not int or rss <= 0):
+            raise AcceptanceError("measurement-samples-invalid")
+    if ([sample["elapsed_seconds"] for sample in selected] !=
+            list(range(start_s, end_s + 1))):
+        raise AcceptanceError("measurement-samples-discontinuous")
     return selected
 
 

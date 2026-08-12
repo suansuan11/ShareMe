@@ -53,6 +53,43 @@ class WindowsScreenAcceptanceTest(unittest.TestCase):
                                     "three-runs-required"):
             self.runner.median_of_three([1.0, 2.0])
 
+    def test_measurement_window_rejects_discontinuous_samples(self):
+        def samples():
+            return [
+                {"elapsed_seconds": second, "cpu_percent": 1.0,
+                 "rss_bytes": 1024}
+                for second in range(30, 151)
+            ]
+
+        missing = samples()
+        del missing[40]
+        with self.assertRaisesRegex(
+                self.runner.AcceptanceError,
+                "measurement-samples-discontinuous"):
+            self.runner.measurement_window(missing)
+
+        duplicated = samples()
+        duplicated[41]["elapsed_seconds"] = duplicated[40]["elapsed_seconds"]
+        with self.assertRaisesRegex(
+                self.runner.AcceptanceError,
+                "measurement-samples-discontinuous"):
+            self.runner.measurement_window(duplicated)
+
+        invalid_cases = (
+            ("elapsed_seconds", 30.5),
+            ("cpu_percent", -0.1),
+            ("cpu_percent", float("nan")),
+            ("rss_bytes", 0),
+        )
+        for key, value in invalid_cases:
+            with self.subTest(key=key, value=value):
+                invalid = samples()
+                invalid[0][key] = value
+                with self.assertRaisesRegex(
+                        self.runner.AcceptanceError,
+                        "measurement-samples-invalid"):
+                    self.runner.measurement_window(invalid)
+
     def test_summarizes_complete_mode_truthful_run(self):
         with tempfile.TemporaryDirectory() as temporary:
             artifact = Path(temporary) / "run.jsonl"
