@@ -63,6 +63,42 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 (("fixture", ExitedProcess()),)
             )
 
+    def test_motion_fixture_command_and_process_are_bounded(self):
+        command = self.runner.build_motion_fixture_command(
+            Path("fixture"), "standard", 30
+        )
+        self.assertEqual(
+            command,
+            ["fixture", "--profile", "standard", "--duration-seconds", "60"],
+        )
+        self.assertEqual(
+            self.runner.build_motion_fixture_command(
+                Path("fixture"), "cinema", 3590
+            )[-1],
+            "3600",
+        )
+
+        environment = {"QT_QPA_PLATFORM": "offscreen", "KEEP": "value"}
+        process = object()
+        with mock.patch.object(
+                self.runner, "_start_measured_demo", return_value=process
+        ) as start:
+            self.assertIs(
+                self.runner.start_motion_fixture(
+                    Path("fixture"), "quality", 120, environment
+                ),
+                process,
+            )
+        options = start.call_args.kwargs
+        self.assertEqual(
+            start.call_args.args[0],
+            ["fixture", "--profile", "quality", "--duration-seconds", "150"],
+        )
+        self.assertEqual(options["stdout"], self.runner.subprocess.DEVNULL)
+        self.assertEqual(options["stderr"], self.runner.subprocess.DEVNULL)
+        self.assertNotIn("QT_QPA_PLATFORM", options["env"])
+        self.assertEqual(options["env"]["KEEP"], "value")
+
     def test_failed_run_still_records_an_independent_run_identity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

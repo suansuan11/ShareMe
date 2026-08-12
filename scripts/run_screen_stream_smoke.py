@@ -165,6 +165,18 @@ def build_viewer_command(
     ]
 
 
+def build_motion_fixture_command(
+    fixture: Path, profile: str, duration_seconds: int
+) -> list[str]:
+    return [
+        str(fixture),
+        "--profile",
+        profile,
+        "--duration-seconds",
+        str(min(3600, duration_seconds + 30)),
+    ]
+
+
 def parse_counter_line(line: str) -> dict | None:
     fields = line.strip().split()
     if not fields or fields[0] != "PERF_COUNTERS":
@@ -560,6 +572,20 @@ def _start_measured_demo(command: list[str], **options):
             process.wait()
             raise
     return process
+
+
+def start_motion_fixture(
+    fixture: Path, profile: str, duration_seconds: int, environment: dict[str, str]
+):
+    fixture_environment = environment.copy()
+    fixture_environment.pop("QT_QPA_PLATFORM", None)
+    return _start_measured_demo(
+        build_motion_fixture_command(fixture, profile, duration_seconds),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=fixture_environment,
+        **popen_group_options(),
+    )
 
 
 def require_guard_processes_alive(guard_processes) -> None:
