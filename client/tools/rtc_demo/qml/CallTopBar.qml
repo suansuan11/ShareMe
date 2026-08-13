@@ -5,7 +5,11 @@ import QtQuick.Layouts
 Rectangle {
     id: bar
     required property var controller
-    property string connectionLabel: controller.status.startsWith("screen-capture-recovering:")
+    property bool sessionSuspended: controller.status.startsWith("session-suspended:")
+    property bool sessionResuming: controller.status === "session-resuming"
+    property string connectionLabel: sessionSuspended ? "系统暂停，等待恢复"
+                                     : sessionResuming ? "正在恢复通话"
+                                     : controller.status.startsWith("screen-capture-recovering:")
                                      ? "正在恢复屏幕共享"
                                      : controller.status === "connected" ? "连接稳定"
                                      : controller.status === "negotiating" ? "正在建立媒体连接"
@@ -45,13 +49,20 @@ Rectangle {
             implicitWidth: connectionRow.implicitWidth + 20
             implicitHeight: 30
             radius: 15
-            color: "#10251F"
+            color: bar.sessionSuspended || bar.sessionResuming ? "#2D2512" : "#10251F"
             RowLayout {
                 id: connectionRow
                 anchors.centerIn: parent
                 spacing: 7
-                Rectangle { width: 7; height: 7; radius: 4; color: theme.healthy }
-                Text { text: bar.connectionLabel; color: theme.healthy; font.pixelSize: 11 }
+                Rectangle {
+                    width: 7; height: 7; radius: 4
+                    color: bar.sessionSuspended || bar.sessionResuming ? "#F2C94C" : theme.healthy
+                }
+                Text {
+                    text: bar.connectionLabel
+                    color: bar.sessionSuspended || bar.sessionResuming ? "#F2C94C" : theme.healthy
+                    font.pixelSize: 11
+                }
             }
         }
         Button {

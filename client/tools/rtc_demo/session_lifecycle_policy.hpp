@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string_view>
 
 namespace shareme::tools {
 
@@ -18,6 +19,17 @@ enum class SessionLifecycleState {
   recovered,
   failed,
 };
+
+enum class SessionResumeDecision {
+  healthy,
+  recover_capture,
+  connection_lost,
+};
+
+[[nodiscard]] SessionResumeDecision decide_session_resume(
+    bool signaling_connected, bool peer_started, bool media_unavailable,
+    bool capture_recovery_was_active,
+    std::string_view capture_error) noexcept;
 
 class SessionLifecyclePolicy {
 public:

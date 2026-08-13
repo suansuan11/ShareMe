@@ -100,13 +100,21 @@ int main(int argc, char **argv) {
           QStringLiteral("screen-capture-recovery-exhausted"));
   REQUIRE(controller.errorMessage().contains(QStringLiteral("屏幕")));
 
+  REQUIRE(controller.retryCall());
+  REQUIRE(counters.last != nullptr);
+  counters.last->fail(QStringLiteral("session-resume-connection-lost"));
+  REQUIRE(controller.pageState() == shareme::tools::AppPage::result);
+  REQUIRE(controller.errorCategory() ==
+          QStringLiteral("session-resume-connection-lost"));
+  REQUIRE(controller.errorMessage().contains(QStringLiteral("唤醒")));
+
   controller.leaveCall();
   REQUIRE(controller.pageState() == shareme::tools::AppPage::home);
   REQUIRE(controller.activeController() == nullptr);
-  REQUIRE(counters.stopped == 2);
+  REQUIRE(counters.stopped == 3);
   REQUIRE(counters.live == 0);
   controller.leaveCall();
-  REQUIRE(counters.stopped == 2);
+  REQUIRE(counters.stopped == 3);
 
   controller.showJoinRoom();
   controller.setRoomCode(QStringLiteral("bad"));
@@ -120,7 +128,7 @@ int main(int argc, char **argv) {
   configured.video_source = shareme::tools::SessionVideoSource::screen;
   REQUIRE(controller.startConfiguredCall(configured));
   REQUIRE(controller.pageState() == shareme::tools::AppPage::calling);
-  REQUIRE(counters.started == 3);
+  REQUIRE(counters.started == 4);
   controller.leaveCall();
   QTemporaryDir directory;
   REQUIRE(directory.isValid());

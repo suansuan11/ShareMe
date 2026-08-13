@@ -693,6 +693,18 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("remoteVideoAvailable", overlay)
         self.assertIn("stage.controller.viewer", overlay)
 
+    def test_session_lifecycle_ui_preserves_the_last_video_frame(self):
+        top_bar = self.qml_file("CallTopBar.qml")
+        stage = self.qml_file("VideoStage.qml")
+        self.assertIn('controller.status.startsWith("session-suspended:")', top_bar)
+        self.assertIn('controller.status === "session-resuming"', top_bar)
+        self.assertIn("系统暂停，等待恢复", top_bar)
+        self.assertIn("正在恢复通话", top_bar)
+        self.assertIn("property bool sessionTransition", stage)
+        waiting_overlay = stage[stage.index("Column {") :]
+        self.assertIn("!stage.sessionTransition", waiting_overlay)
+        self.assertIn("语音与画面连接会在系统恢复后检查", stage)
+
     def test_controller_records_remote_dimensions_for_performance_counters(self):
         source = self.controller_source.read_text(encoding="utf-8")
         self.assertIn("performance_frame_width_.store", source)

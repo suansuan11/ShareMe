@@ -268,6 +268,7 @@ if(TARGET ShareMe::QtSignaling)
     shareme_session_lifecycle_policy_test
     session_lifecycle_policy_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/session_lifecycle_policy.cpp"
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/screen_capture_recovery_policy.cpp"
   )
   target_include_directories(
     shareme_session_lifecycle_policy_test
@@ -297,6 +298,26 @@ if(TARGET ShareMe::QtSignaling)
   target_link_libraries(
     shareme_session_lifecycle_monitor_test PRIVATE Qt6::Core
   )
+  if(APPLE)
+    enable_language(OBJCXX)
+    target_sources(
+      shareme_session_lifecycle_monitor_test
+      PRIVATE
+        "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/session_lifecycle_monitor_mac.mm"
+    )
+    set_source_files_properties(
+      "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/session_lifecycle_monitor_mac.mm"
+      PROPERTIES COMPILE_OPTIONS "-fblocks;-fobjc-arc"
+    )
+    target_compile_definitions(
+      shareme_session_lifecycle_monitor_test
+      PRIVATE SHAREME_HAS_NATIVE_SESSION_LIFECYCLE=1
+    )
+    target_link_libraries(
+      shareme_session_lifecycle_monitor_test
+      PRIVATE "-framework AppKit" "-framework Foundation"
+    )
+  endif()
   shareme_set_project_warnings(shareme_session_lifecycle_monitor_test)
   add_test(
     NAME session_lifecycle_monitor

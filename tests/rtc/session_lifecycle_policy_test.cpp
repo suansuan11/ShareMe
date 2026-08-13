@@ -17,7 +17,9 @@ void require(bool condition, const char *expression, int line) {
 
 using shareme::tools::SessionLifecycleEvent;
 using shareme::tools::SessionLifecyclePolicy;
+using shareme::tools::SessionResumeDecision;
 using shareme::tools::SessionLifecycleState;
+using shareme::tools::decide_session_resume;
 
 void folds_nested_sleep_and_lock_into_one_generation() {
   SessionLifecyclePolicy policy;
@@ -90,6 +92,25 @@ void starts_a_new_generation_after_a_terminal_episode_and_resets() {
   REQUIRE(!policy.locked());
 }
 
+void classifies_resume_without_rebuilding_a_healthy_call() {
+  REQUIRE(decide_session_resume(true, true, false, false, "") ==
+          SessionResumeDecision::healthy);
+  REQUIRE(decide_session_resume(false, true, false, false, "") ==
+          SessionResumeDecision::connection_lost);
+  REQUIRE(decide_session_resume(true, false, false, false, "") ==
+          SessionResumeDecision::connection_lost);
+  REQUIRE(decide_session_resume(true, true, true, false, "") ==
+          SessionResumeDecision::connection_lost);
+  REQUIRE(decide_session_resume(true, true, false, true, "") ==
+          SessionResumeDecision::recover_capture);
+  REQUIRE(decide_session_resume(
+              true, true, false, false, "screen-capture-stopped-native") ==
+          SessionResumeDecision::recover_capture);
+  REQUIRE(decide_session_resume(true, true, false, false,
+                                "screen-capture-start-failed") ==
+          SessionResumeDecision::healthy);
+}
+
 } // namespace
 
 int main() {
@@ -97,5 +118,6 @@ int main() {
   evaluates_only_after_every_nested_cause_clears();
   rejects_stale_resume_and_records_one_terminal_result();
   starts_a_new_generation_after_a_terminal_episode_and_resets();
+  classifies_resume_without_rebuilding_a_healthy_call();
   return EXIT_SUCCESS;
 }

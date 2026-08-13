@@ -2,6 +2,8 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QCoreApplication>
@@ -165,6 +167,36 @@ QString screen_profile_name(shareme::core::ScreenStreamProfile profile) {
   return QStringLiteral("unknown");
 }
 
+#if defined(__APPLE__)
+QString session_lifecycle_event_name(
+    shareme::tools::SessionLifecycleEvent event) {
+  switch (event) {
+  case shareme::tools::SessionLifecycleEvent::will_sleep:
+    return QStringLiteral("will-sleep");
+  case shareme::tools::SessionLifecycleEvent::did_wake:
+    return QStringLiteral("did-wake");
+  case shareme::tools::SessionLifecycleEvent::screen_locked:
+    return QStringLiteral("screen-locked");
+  case shareme::tools::SessionLifecycleEvent::screen_unlocked:
+    return QStringLiteral("screen-unlocked");
+  }
+  return QStringLiteral("unknown");
+}
+
+std::optional<shareme::tools::SessionLifecycleEvent>
+session_lifecycle_event_for_trigger(QString name) {
+  if (name == QStringLiteral("will-sleep"))
+    return shareme::tools::SessionLifecycleEvent::will_sleep;
+  if (name == QStringLiteral("did-wake"))
+    return shareme::tools::SessionLifecycleEvent::did_wake;
+  if (name == QStringLiteral("screen-locked"))
+    return shareme::tools::SessionLifecycleEvent::screen_locked;
+  if (name == QStringLiteral("screen-unlocked"))
+    return shareme::tools::SessionLifecycleEvent::screen_unlocked;
+  return std::nullopt;
+}
+#endif
+
 } // namespace
 
 RtcDemoController::RtcDemoController(QUrl server_url,
@@ -209,6 +241,11 @@ RtcDemoController::RtcDemoController(QUrl server_url,
           "SHAREME_SCREEN_CAPTURE_RETIRED_FAULT_TRIGGER_FILE");
       trigger != nullptr && *trigger != '\0') {
     screen_capture_retired_fault_trigger_path_ = QString::fromUtf8(trigger);
+  }
+  if (const char *trigger = std::getenv(
+          "SHAREME_SESSION_LIFECYCLE_TRIGGER_DIRECTORY");
+      trigger != nullptr && *trigger != '\0') {
+    session_lifecycle_trigger_directory_ = QString::fromUtf8(trigger);
   }
 #endif
   audio_route_monitor_ = std::make_unique<QtAudioRouteMonitor>();
@@ -277,6 +314,13 @@ RtcDemoController::RtcDemoController(QUrl server_url,
   screen_capture_recovery_timer_.setSingleShot(true);
   connect(&screen_capture_recovery_timer_, &QTimer::timeout, this,
           &RtcDemoController::runScreenCaptureRecoveryAttempt);
+  session_resume_timer_.setSingleShot(true);
+  session_resume_timer_.setInterval(750);
+  connect(&session_resume_timer_, &QTimer::timeout, this,
+          &RtcDemoController::evaluateSessionResume);
+  session_lifecycle_trigger_timer_.setInterval(25);
+  connect(&session_lifecycle_trigger_timer_, &QTimer::timeout, this,
+          &RtcDemoController::pollSessionLifecycleTrigger);
   connect(&signaling_, &QtSignalingClient::roomReady, this,
           [this](const QString &room) {
             setRoomId(room);
@@ -595,6 +639,11 @@ void RtcDemoController::checkScreenCaptureError() {
 }
 
 void RtcDemoController::beginScreenCaptureRecovery(QString category) {
+  if (session_lifecycle_policy_.state() ==
+      shareme::tools::SessionLifecycleState::suspended) {
+    capture_recovery_was_active_before_session_suspend_ = true;
+    return;
+  }
   if (shutting_down_ || !screen_video_source_ ||
       !shareme::tools::is_recoverable_screen_capture_error(
           category.toStdString()) ||
@@ -629,6 +678,14 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
                                                 std::memory_order_relaxed);
     screen_capture_generation_.fetch_add(1, std::memory_order_relaxed);
     screen_capture_recovery_policy_.reset();
+    capture_recovery_was_active_before_session_suspend_ = false;
+    if (session_lifecycle_policy_.state() ==
+        shareme::tools::SessionLifecycleState::evaluating) {
+      static_cast<void>(session_lifecycle_policy_.record_recovered());
+      std::cout << "SMOKE_STATUS session-lifecycle-recovered generation="
+                << session_lifecycle_policy_.generation()
+                << " decision=capture-restarted" << std::endl;
+    }
     setStatus(QStringLiteral("connected"));
     screen_capture_error_timer_.start();
     if (require_native_stop_ack) {
@@ -641,6 +698,10 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
   static_cast<void>(screen_capture_recovery_policy_.record_failure());
   if (screen_capture_recovery_policy_.state() ==
       shareme::tools::ScreenCaptureRecoveryState::exhausted) {
+    if (session_lifecycle_policy_.state() ==
+        shareme::tools::SessionLifecycleState::evaluating) {
+      static_cast<void>(session_lifecycle_policy_.record_failed());
+    }
     setStatus(QStringLiteral(
         "call-error: screen-capture-recovery-exhausted"));
     return;
@@ -648,6 +709,10 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
 
   const auto next_delay = screen_capture_recovery_policy_.delay_ms();
   if (!next_delay) {
+    if (session_lifecycle_policy_.state() ==
+        shareme::tools::SessionLifecycleState::evaluating) {
+      static_cast<void>(session_lifecycle_policy_.record_failed());
+    }
     setStatus(QStringLiteral(
         "call-error: screen-capture-recovery-exhausted"));
     return;
@@ -655,6 +720,172 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
   setStatus(QStringLiteral("screen-capture-recovering:") +
             QString::number(screen_capture_recovery_policy_.attempt() + 1));
   screen_capture_recovery_timer_.start(*next_delay);
+}
+
+void RtcDemoController::startSessionLifecycleMonitor() {
+#if defined(__APPLE__)
+  if (shutting_down_ || session_lifecycle_monitor_started_)
+    return;
+  session_lifecycle_monitor_started_ = session_lifecycle_monitor_.start(
+      [this](shareme::tools::SessionLifecycleEvent event) {
+        handleSessionLifecycleEvent(event);
+      });
+  if (session_lifecycle_monitor_started_ &&
+      !session_lifecycle_trigger_directory_.isEmpty()) {
+    session_lifecycle_trigger_timer_.start();
+  }
+#endif
+}
+
+void RtcDemoController::pollSessionLifecycleTrigger() {
+#if defined(__APPLE__)
+  if (shutting_down_ || !session_lifecycle_monitor_started_ ||
+      session_lifecycle_trigger_directory_.isEmpty()) {
+    return;
+  }
+
+  QDir directory{session_lifecycle_trigger_directory_};
+  const auto triggers = directory.entryList(
+      QStringList{QStringLiteral("*.trigger")}, QDir::Files, QDir::Name);
+  if (triggers.isEmpty())
+    return;
+
+  const auto file_name = triggers.front();
+  const auto separator = file_name.indexOf(QLatin1Char('-'));
+  const auto suffix = separator >= 0
+                          ? file_name.mid(separator + 1).chopped(8)
+                          : QString{};
+  const auto event = session_lifecycle_event_for_trigger(suffix);
+  if (!event)
+    return;
+  if (!session_lifecycle_monitor_.notify_for_test(*event))
+    return;
+  static_cast<void>(QFile::remove(directory.filePath(file_name)));
+#endif
+}
+
+void RtcDemoController::handleSessionLifecycleEvent(
+    shareme::tools::SessionLifecycleEvent event) {
+#if defined(__APPLE__)
+  if (shutting_down_)
+    return;
+  const auto previous_generation = session_lifecycle_policy_.generation();
+  if (!session_lifecycle_policy_.observe(event))
+    return;
+
+  const auto generation = session_lifecycle_policy_.generation();
+  if (generation != previous_generation) {
+    capture_recovery_was_active_before_session_suspend_ =
+        screen_capture_recovery_policy_.state() !=
+        shareme::tools::ScreenCaptureRecoveryState::inactive;
+    session_resume_timer_.stop();
+    screen_capture_error_timer_.stop();
+    screen_capture_recovery_timer_.stop();
+    screen_capture_recovery_policy_.reset();
+  }
+
+  std::cout << "SMOKE_STATUS session-lifecycle-event event="
+            << session_lifecycle_event_name(event).toStdString()
+            << " generation=" << generation << std::endl;
+
+  if (session_lifecycle_policy_.sleeping() ||
+      session_lifecycle_policy_.locked()) {
+    setStatus(session_lifecycle_policy_.sleeping()
+                  ? QStringLiteral("session-suspended:sleep")
+                  : QStringLiteral("session-suspended:locked"));
+    return;
+  }
+
+  if (session_lifecycle_policy_.begin_evaluation()) {
+    setStatus(QStringLiteral("session-resuming"));
+    session_resume_timer_.start();
+  }
+#else
+  static_cast<void>(event);
+#endif
+}
+
+void RtcDemoController::evaluateSessionResume() {
+#if defined(__APPLE__)
+  if (shutting_down_ || session_lifecycle_policy_.state() !=
+                            shareme::tools::SessionLifecycleState::evaluating)
+    return;
+  const auto generation = session_lifecycle_policy_.generation();
+  const bool signaling_connected = signaling_.connected();
+  const bool peer_started = peer_started_ && peer_ != nullptr;
+  const bool prior_capture_recovery =
+      capture_recovery_was_active_before_session_suspend_;
+  const auto capture_error = peer_ ? peer_->video_source_error() : std::string{};
+
+  if (!signaling_connected || !peer_started) {
+    applySessionResumeDecision(
+        generation, shareme::tools::SessionResumeDecision::connection_lost);
+    return;
+  }
+
+  if (session_resume_worker_.joinable())
+    session_resume_worker_.join();
+  const QPointer<RtcDemoController> owner{this};
+  auto *const peer = peer_.get();
+  session_resume_worker_ = std::jthread(
+      [owner, peer, generation, signaling_connected, peer_started,
+       prior_capture_recovery, capture_error](std::stop_token stop_token) {
+        const auto media = peer->media_stats();
+        if (stop_token.stop_requested() || !owner)
+          return;
+        const auto decision = shareme::tools::decide_session_resume(
+            signaling_connected, peer_started, media.unavailable,
+            prior_capture_recovery, capture_error);
+        QMetaObject::invokeMethod(
+            owner, [owner, generation, decision] {
+              if (owner)
+                owner->applySessionResumeDecision(generation, decision);
+            },
+            Qt::QueuedConnection);
+      });
+#endif
+}
+
+void RtcDemoController::applySessionResumeDecision(
+    std::size_t generation,
+    shareme::tools::SessionResumeDecision decision) {
+#if defined(__APPLE__)
+  if (shutting_down_ || generation != session_lifecycle_policy_.generation() ||
+      session_lifecycle_policy_.state() !=
+          shareme::tools::SessionLifecycleState::evaluating) {
+    return;
+  }
+
+  if (decision == shareme::tools::SessionResumeDecision::connection_lost) {
+    static_cast<void>(session_lifecycle_policy_.record_failed());
+    setStatus(QStringLiteral("call-error: session-resume-connection-lost"));
+    std::cout << "SMOKE_STATUS session-lifecycle-failed generation="
+              << generation << " decision=connection-lost" << std::endl;
+    return;
+  }
+
+  if (decision == shareme::tools::SessionResumeDecision::recover_capture) {
+    if (!screen_video_source_) {
+      static_cast<void>(session_lifecycle_policy_.record_failed());
+      setStatus(QStringLiteral("call-error: session-resume-connection-lost"));
+      return;
+    }
+    beginScreenCaptureRecovery(
+        QStringLiteral("screen-capture-stopped-session-resume"));
+    return;
+  }
+
+  static_cast<void>(session_lifecycle_policy_.record_recovered());
+  capture_recovery_was_active_before_session_suspend_ = false;
+  setStatus(QStringLiteral("connected"));
+  if (screen_source_ && role_ == shareme::rtc::SignaledRole::host)
+    screen_capture_error_timer_.start();
+  std::cout << "SMOKE_STATUS session-lifecycle-recovered generation="
+            << generation << " decision=healthy" << std::endl;
+#else
+  static_cast<void>(generation);
+  static_cast<void>(decision);
+#endif
 }
 
 void RtcDemoController::startAudioRouteMonitor() {
@@ -1090,6 +1321,7 @@ void RtcDemoController::startPeer() {
       failDriftScenario(QStringLiteral("peer-start-failure"));
     return;
   }
+  startSessionLifecycleMonitor();
   movie_audio_output_ready_ = movie_audio_renderer_ == nullptr;
   if (movie_audio_renderer_) {
     movie_audio_output_ready_ = true;
@@ -1216,7 +1448,12 @@ void RtcDemoController::startPeer() {
             setStatus(QStringLiteral("call-error: ") +
                       QString::fromStdString(result.error));
           } else if (movie_audio_output_ready_) {
-            setStatus(QStringLiteral("connected"));
+            if (session_lifecycle_policy_.state() !=
+                    shareme::tools::SessionLifecycleState::suspended &&
+                session_lifecycle_policy_.state() !=
+                    shareme::tools::SessionLifecycleState::evaluating) {
+              setStatus(QStringLiteral("connected"));
+            }
           }
         },
         Qt::QueuedConnection);
@@ -1227,6 +1464,8 @@ void RtcDemoController::stopPeer() noexcept {
   if (shutting_down_)
     return;
   shutting_down_ = true;
+  session_lifecycle_monitor_.stop();
+  session_lifecycle_monitor_started_ = false;
   if (audio_route_monitor_)
     audio_route_monitor_->stop();
   audio_route_controller_.shutdown();
@@ -1245,14 +1484,21 @@ void RtcDemoController::stopPeer() noexcept {
   performance_timer_.stop();
   screen_capture_error_timer_.stop();
   screen_capture_recovery_timer_.stop();
+  session_resume_timer_.stop();
+  session_lifecycle_trigger_timer_.stop();
   screen_capture_restart_probe_timer_.stop();
   screen_capture_retired_fault_probe_timer_.stop();
   screen_capture_recovery_policy_.reset();
+  session_lifecycle_policy_.reset();
   if (screen_video_source_)
     screen_video_source_->clear_capture_fault_diagnostics();
   if (performance_stats_worker_.joinable()) {
     performance_stats_worker_.request_stop();
     performance_stats_worker_.join();
+  }
+  if (session_resume_worker_.joinable()) {
+    session_resume_worker_.request_stop();
+    session_resume_worker_.join();
   }
   stopDriftMetrics();
   if (movie_audio_renderer_) {

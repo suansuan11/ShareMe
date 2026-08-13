@@ -15,6 +15,8 @@
 #include "call_session.hpp"
 #include "rtc_control_state.hpp"
 #include "screen_capture_recovery_policy.hpp"
+#include "session_lifecycle_monitor.hpp"
+#include "session_lifecycle_policy.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -200,6 +202,14 @@ private:
   void checkScreenCaptureError();
   void beginScreenCaptureRecovery(QString category);
   void runScreenCaptureRecoveryAttempt();
+  void startSessionLifecycleMonitor();
+  void pollSessionLifecycleTrigger();
+  void handleSessionLifecycleEvent(
+      shareme::tools::SessionLifecycleEvent event);
+  void evaluateSessionResume();
+  void applySessionResumeDecision(
+      std::size_t generation,
+      shareme::tools::SessionResumeDecision decision);
   void startAudioRouteMonitor();
   void startMovieAudioPeer();
   void startMovieAudioViewerPath();
@@ -255,6 +265,14 @@ private:
   QTimer performance_timer_;
   QTimer screen_capture_error_timer_;
   QTimer screen_capture_recovery_timer_;
+  shareme::tools::SessionLifecycleMonitor session_lifecycle_monitor_;
+  shareme::tools::SessionLifecyclePolicy session_lifecycle_policy_;
+  QTimer session_resume_timer_;
+  QTimer session_lifecycle_trigger_timer_;
+  std::jthread session_resume_worker_;
+  QString session_lifecycle_trigger_directory_;
+  bool session_lifecycle_monitor_started_{false};
+  bool capture_recovery_was_active_before_session_suspend_{false};
   std::uint64_t playback_sequence_{1};
   std::uint64_t scheduler_observation_sequence_{1};
   std::chrono::steady_clock::time_point scheduler_started_at_{};

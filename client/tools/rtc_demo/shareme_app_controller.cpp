@@ -4,6 +4,8 @@ namespace shareme::tools {
 namespace {
 
 [[nodiscard]] QString friendly_error_message(const QString &category) {
+  if (category == QStringLiteral("session-resume-connection-lost"))
+    return QStringLiteral("电脑唤醒后通话连接已中断，请重新加入房间");
   if (category == QStringLiteral("permission-denied"))
     return QStringLiteral("ShareMe 没有麦克风或屏幕权限，请在系统设置中授权后重试");
   if (category.contains(QStringLiteral("room")))

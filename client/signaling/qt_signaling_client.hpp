@@ -16,6 +16,7 @@ public:
   void joinRoom(const QString& roomId);
   void relay(const QString& type, const QByteArray& payload);
   [[nodiscard]] QString roomId() const;
+  [[nodiscard]] bool connected() const noexcept;
 signals:
   void statusChanged(const QString& status);
   void roomReady(const QString& roomId);

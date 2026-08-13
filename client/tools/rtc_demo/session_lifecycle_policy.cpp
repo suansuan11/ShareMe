@@ -1,6 +1,21 @@
 #include "session_lifecycle_policy.hpp"
 
+#include "screen_capture_recovery_policy.hpp"
+
 namespace shareme::tools {
+
+SessionResumeDecision decide_session_resume(
+    bool signaling_connected, bool peer_started, bool media_unavailable,
+    bool capture_recovery_was_active,
+    std::string_view capture_error) noexcept {
+  if (!signaling_connected || !peer_started || media_unavailable)
+    return SessionResumeDecision::connection_lost;
+  if (capture_recovery_was_active ||
+      is_recoverable_screen_capture_error(capture_error)) {
+    return SessionResumeDecision::recover_capture;
+  }
+  return SessionResumeDecision::healthy;
+}
 
 bool SessionLifecyclePolicy::observe(SessionLifecycleEvent event) noexcept {
   switch (event) {
