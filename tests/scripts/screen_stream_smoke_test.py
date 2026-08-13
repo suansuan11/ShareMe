@@ -944,6 +944,55 @@ class ScreenStreamSmokeTest(unittest.TestCase):
                 ("encoded", "callback", "submitted"),
             )
 
+    def test_continuity_excludes_only_explicit_lifecycle_range(self):
+        records = []
+        for sample in range(18):
+            video_value = sample + 20
+            if 2 <= sample <= 9:
+                video_value = 21
+            records.append({
+                "role": "host",
+                "encoded": video_value,
+                "callback": video_value,
+                "submitted": video_value,
+                "voice_packets_sent": 100 + sample * 50,
+                "voice_packets_received": 200 + sample * 50,
+                "voice_bytes_sent": 10_000 + sample * 4_000,
+                "voice_bytes_received": 20_000 + sample * 4_000,
+                "stats_unavailable": 0,
+            })
+
+        accepted = self.runner._validate_continuous_progress(
+            records,
+            "host",
+            ("encoded", "callback", "submitted"),
+            excluded_ranges=((2, 9),),
+        )
+        self.assertEqual(accepted["excluded_samples"], 8)
+        self.assertLessEqual(accepted["max_stall_samples"], 5)
+
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError, "encoded stalled for too long"
+        ):
+            self.runner._validate_continuous_progress(
+                records, "host", ("encoded", "callback", "submitted")
+            )
+
+        post_resume_stall = [dict(record) for record in records]
+        for sample in range(11, 18):
+            post_resume_stall[sample]["encoded"] = post_resume_stall[10][
+                "encoded"
+            ]
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError, "encoded stalled for too long"
+        ):
+            self.runner._validate_continuous_progress(
+                post_resume_stall,
+                "host",
+                ("encoded", "callback", "submitted"),
+                excluded_ranges=((2, 9),),
+            )
+
     def test_motion_recovery_accepts_five_sample_video_boundary(self):
         def records(role, video_keys, recovery_sample=13):
             values = []

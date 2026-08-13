@@ -237,6 +237,42 @@ class LifecycleScenario:
         self._write_trigger(self._next_trigger + 1, event)
         self._next_trigger += 1
 
+    def continuity_exclusions(self, host_reader, viewer_reader) -> dict:
+        exclusions: dict[str, list[tuple[int, int]]] = {}
+        first_required_event = self.required_events[0]
+        for role, reader in (("host", host_reader), ("viewer", viewer_reader)):
+            events = _event_lines(reader)
+            if any(generation != 1 for _, generation in events):
+                raise LifecycleSmokeError(
+                    f"{role}-lifecycle-generation-mismatch"
+                )
+            observed = [event for event, generation in events if generation == 1]
+            if not _is_subsequence(self.required_events, observed):
+                raise LifecycleSmokeError(f"{role}-lifecycle-events-missing")
+
+            counter_count = 0
+            suspension_sample: int | None = None
+            for raw in reader.lines:
+                line = raw.strip()
+                if line.startswith("PERF_COUNTERS ") and f"role={role}" in line.split():
+                    counter_count += 1
+                    continue
+                match = EVENT_PATTERN.fullmatch(line)
+                if (
+                    suspension_sample is None
+                    and match is not None
+                    and match.group(1) == first_required_event
+                    and int(match.group(2)) == 1
+                ):
+                    suspension_sample = counter_count
+            recovery_sample = _recovery_sample(reader, role, 1)
+            if recovery_sample is None:
+                raise LifecycleSmokeError(f"{role}-recovery-marker-missing")
+            if suspension_sample is None or recovery_sample < suspension_sample:
+                raise LifecycleSmokeError(f"{role}-lifecycle-boundary-invalid")
+            exclusions[role] = [(suspension_sample, recovery_sample)]
+        return exclusions
+
     def validate(
         self,
         host_reader,

@@ -646,15 +646,37 @@ def validate_motion_recovery(
 
 
 def _validate_continuous_progress(
-    records: list[dict], role: str, video_keys: tuple[str, ...]
+    records: list[dict],
+    role: str,
+    video_keys: tuple[str, ...],
+    *,
+    excluded_ranges: tuple[tuple[int, int], ...] = (),
 ) -> dict:
     matching = [record for record in records if record.get("role") == role]
+    excluded_indices: set[int] = set()
+    previous_end = -1
+    for sample_range in excluded_ranges:
+        if (
+            not isinstance(sample_range, tuple)
+            or len(sample_range) != 2
+            or any(
+                not isinstance(value, int) or isinstance(value, bool)
+                for value in sample_range
+            )
+        ):
+            raise SmokeRuntimeError(f"{role} continuity exclusion is malformed")
+        start, end = sample_range
+        if start < 0 or end < start or end >= len(matching) or start <= previous_end:
+            raise SmokeRuntimeError(f"{role} continuity exclusion is invalid")
+        excluded_indices.update(range(start, end + 1))
+        previous_end = end
     required_keys = video_keys + VOICE_COUNTER_KEYS
     ready_index = next(
         (
             index
             for index, record in enumerate(matching)
-            if record.get("stats_unavailable") == 0
+            if index not in excluded_indices
+            and record.get("stats_unavailable") == 0
             and all(isinstance(record.get(key), int) and record[key] > 0
                     for key in required_keys)
         ),
@@ -662,7 +684,11 @@ def _validate_continuous_progress(
     )
     if ready_index is None:
         raise SmokeRuntimeError(f"{role} continuity counters never became ready")
-    observed = matching[ready_index:]
+    observed = [
+        record
+        for index, record in enumerate(matching)
+        if index >= ready_index and index not in excluded_indices
+    ]
     if any(record.get("stats_unavailable") != 0 for record in observed):
         raise SmokeRuntimeError(f"{role} media stats became unavailable after warmup")
 
@@ -671,7 +697,13 @@ def _validate_continuous_progress(
         previous: int | None = None
         current_stall = 0
         maximum_stall = 0
-        for record in observed:
+        for index, record in enumerate(matching):
+            if index < ready_index:
+                continue
+            if index in excluded_indices:
+                previous = None
+                current_stall = 0
+                continue
             value = record.get(key)
             if not isinstance(value, int) or value <= 0:
                 raise SmokeRuntimeError(f"{role} {key} continuity is incomplete")
@@ -691,6 +723,7 @@ def _validate_continuous_progress(
         "warmup_samples": ready_index,
         "observed_samples": len(observed),
         "max_stall_samples": max(max_stalls.values(), default=0),
+        "excluded_samples": len(excluded_indices),
     }
 
 
@@ -738,6 +771,7 @@ def validate_records(
     motion_resume_sample: int | None = None,
     motion_interruption_samples: dict[str, int] | None = None,
     motion_resume_samples: dict[str, int] | None = None,
+    continuity_exclusions: dict[str, list[tuple[int, int]]] | None = None,
 ) -> dict:
     if (motion_interruption_sample is None) != (motion_resume_sample is None):
         raise SmokeRuntimeError("motion-recovery-samples-must-be-paired")
@@ -756,11 +790,18 @@ def validate_records(
     _require_positive(viewer, ("received", "decoded", "callback", "submitted"), "viewer")
     _validate_queue_and_conversion(host, "host")
     _validate_queue_and_conversion(viewer, "viewer")
+    continuity_exclusions = continuity_exclusions or {}
     host_continuity = _validate_continuous_progress(
-        host_records, "host", ("encoded", "callback", "submitted")
+        host_records,
+        "host",
+        ("encoded", "callback", "submitted"),
+        excluded_ranges=tuple(continuity_exclusions.get("host", ())),
     )
     viewer_continuity = _validate_continuous_progress(
-        viewer_records, "viewer", ("received", "decoded", "callback", "submitted")
+        viewer_records,
+        "viewer",
+        ("received", "decoded", "callback", "submitted"),
+        excluded_ranges=tuple(continuity_exclusions.get("viewer", ())),
     )
     viewer_recovery = _validate_presentation_recovery(viewer_records)
     host_bitrate = _last_positive(host_records, "bitrate_bps")
@@ -1316,6 +1357,15 @@ def run_smoke(
                 validate_native_delegate_fault_status(host_reader)
                 if motion_state["retired_fault_samples"] is None:
                     raise SmokeRuntimeError("retired-delegate-fault-not-observed")
+            continuity_exclusions = None
+            if scenario_observer is not None:
+                exclusion_provider = getattr(
+                    scenario_observer, "continuity_exclusions", None
+                )
+                if exclusion_provider is not None:
+                    continuity_exclusions = exclusion_provider(
+                        host_reader, viewer_reader
+                    )
             summary = validate_records(
                 profile,
                 host_records,
@@ -1331,6 +1381,7 @@ def run_smoke(
                     if motion_interruption is not None
                     else None
                 ),
+                continuity_exclusions=continuity_exclusions,
             )
             if scenario_observer is not None:
                 summary.update(

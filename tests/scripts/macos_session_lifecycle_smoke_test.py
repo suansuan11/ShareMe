@@ -192,6 +192,65 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
             scenario.validate(Reader(*host_events), Reader(*viewer_events[:-1]), records,
                               viewer_records)
 
+    def test_continuity_exclusions_require_complete_same_generation_causality(self):
+        def causal_lines(generation=1, include_sleep=True, duplicate=False):
+            lines = [
+                "PERF_COUNTERS role=host",
+                "PERF_COUNTERS role=host",
+                "SMOKE_STATUS session-lifecycle-event "
+                f"event=screen-locked generation={generation}",
+                "PERF_COUNTERS role=host",
+            ]
+            if include_sleep:
+                lines.extend([
+                    "SMOKE_STATUS session-lifecycle-event "
+                    f"event=will-sleep generation={generation}",
+                    "PERF_COUNTERS role=host",
+                ])
+            lines.extend([
+                "SMOKE_STATUS session-lifecycle-event "
+                f"event=did-wake generation={generation}",
+                "PERF_COUNTERS role=host",
+                "SMOKE_STATUS session-lifecycle-event "
+                f"event=screen-unlocked generation={generation}",
+                "PERF_COUNTERS role=host",
+                "SMOKE_STATUS session-lifecycle-recovered "
+                f"generation={generation} decision=healthy",
+            ])
+            if duplicate:
+                lines.append(
+                    "SMOKE_STATUS session-lifecycle-recovered "
+                    f"generation={generation} decision=healthy"
+                )
+            return lines
+
+        def for_role(lines, role):
+            return [line.replace("role=host", f"role={role}") for line in lines]
+
+        scenario = self.runner.LifecycleScenario(
+            scenario="nested", mode="physical-wait", trigger_after_seconds=10
+        )
+        host = causal_lines()
+        viewer = for_role(causal_lines(), "viewer")
+        self.assertEqual(
+            scenario.continuity_exclusions(Reader(*host), Reader(*viewer)),
+            {"host": [(2, 6)], "viewer": [(2, 6)]},
+        )
+
+        invalid = (
+            (causal_lines(include_sleep=False), viewer, "host-lifecycle-events-missing"),
+            (causal_lines(duplicate=True), viewer, "host-recovery-marker-missing"),
+            (causal_lines(generation=2), viewer, "host-lifecycle-generation-mismatch"),
+        )
+        for host_lines, viewer_lines, failure in invalid:
+            with self.subTest(failure=failure):
+                with self.assertRaisesRegex(
+                    self.runner.LifecycleSmokeError, failure
+                ):
+                    scenario.continuity_exclusions(
+                        Reader(*host_lines), Reader(*viewer_lines)
+                    )
+
     def test_failure_text_is_redacted_before_artifact_use(self):
         secret = "/Users/private/person/room ABC234 token=secret"
         redacted = self.runner.redact_lifecycle_failure(secret)
