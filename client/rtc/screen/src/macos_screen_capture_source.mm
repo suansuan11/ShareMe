@@ -47,8 +47,10 @@ private:
   [[nodiscard]] bool select_display(SCShareableContent *content,
                                     SCDisplay **display);
   [[nodiscard]] bool start_with_display(SCDisplay *display);
-  void handle_sample_buffer(CMSampleBufferRef sample_buffer);
-  void handle_stream_error(NSError *error);
+  void handle_sample_buffer(CMSampleBufferRef sample_buffer,
+                            MacScreenCaptureEventGate::Generation generation);
+  void handle_stream_error(NSError *error,
+                           MacScreenCaptureEventGate::Generation generation);
   void set_error(std::string value);
 
   const MacScreenCaptureConfig config_;
@@ -58,6 +60,8 @@ private:
   SCStream *__strong stream_{nil};
   ShareMeScreenCaptureDelegate *__strong delegate_{nil};
   bool stopped_with_error_{false};
+  MacScreenCaptureEventGate event_gate_;
+  MacScreenCaptureEventGate::Generation active_generation_{0};
 };
 
 } // namespace shareme::rtc
@@ -152,6 +156,7 @@ void ScreenCaptureKitStream::stop() noexcept {
     stream = stream_;
     delegate = delegate_;
     stopped_with_error = stopped_with_error_;
+    event_gate_.end(active_generation_);
   }
   if (stream == nil)
     return;
@@ -172,6 +177,7 @@ void ScreenCaptureKitStream::stop() noexcept {
   delegate_ = nil;
   callback_ = {};
   stopped_with_error_ = false;
+  active_generation_ = 0;
 }
 
 std::string ScreenCaptureKitStream::error() const {
@@ -225,13 +231,14 @@ bool ScreenCaptureKitStream::start_with_display(SCDisplay *display) {
   if (@available(macOS 13.0, *))
     configuration.capturesAudio = NO;
 
+  const auto generation = event_gate_.begin();
   auto *delegate = [[ShareMeScreenCaptureDelegate alloc]
       initWithFrameHandler:^(CMSampleBufferRef sample_buffer) {
-        handle_sample_buffer(sample_buffer);
+        handle_sample_buffer(sample_buffer, generation);
       }
                  errorHandler:^(NSError *error) {
                    if (error != nil)
-                     handle_stream_error(error);
+                     handle_stream_error(error, generation);
                  }];
   auto *filter = [[SCContentFilter alloc] initWithDisplay:display
                                           excludingWindows:@[]];
@@ -247,6 +254,7 @@ bool ScreenCaptureKitStream::start_with_display(SCDisplay *display) {
                          error:&add_output_error]) {
     set_error(sanitized_error("screen-capture-output-unavailable",
                               add_output_error));
+    event_gate_.end(generation);
     return false;
   }
 
@@ -260,6 +268,7 @@ bool ScreenCaptureKitStream::start_with_display(SCDisplay *display) {
   if (start_error != nil) {
     set_error(sanitized_error("screen-capture-start-failed", start_error));
     [stream removeStreamOutput:delegate type:SCStreamOutputTypeScreen error:nil];
+    event_gate_.end(generation);
     return false;
   }
 
@@ -268,12 +277,16 @@ bool ScreenCaptureKitStream::start_with_display(SCDisplay *display) {
     stream_ = stream;
     delegate_ = delegate;
     stopped_with_error_ = false;
+    active_generation_ = generation;
   }
   return true;
 }
 
 void ScreenCaptureKitStream::handle_sample_buffer(
-    CMSampleBufferRef sample_buffer) {
+    CMSampleBufferRef sample_buffer,
+    MacScreenCaptureEventGate::Generation generation) {
+  if (!event_gate_.accepts(generation))
+    return;
   if (!CMSampleBufferDataIsReady(sample_buffer))
     return;
 
@@ -331,8 +344,13 @@ void ScreenCaptureKitStream::set_error(std::string value) {
   error_ = std::move(value);
 }
 
-void ScreenCaptureKitStream::handle_stream_error(NSError *error) {
+void ScreenCaptureKitStream::handle_stream_error(
+    NSError *error, MacScreenCaptureEventGate::Generation generation) {
+  if (!event_gate_.accepts(generation))
+    return;
   std::lock_guard lock(mutex_);
+  if (!event_gate_.accepts(generation))
+    return;
   error_ = sanitized_error("screen-capture-stopped", error);
   stopped_with_error_ = true;
 }

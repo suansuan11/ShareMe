@@ -24,6 +24,23 @@ void require(bool condition, const char *expression, int line) {
 
 #define REQUIRE(expression) require((expression), #expression, __LINE__)
 
+void rejects_late_events_from_a_replaced_native_stream() {
+  shareme::rtc::MacScreenCaptureEventGate gate;
+  const auto first = gate.begin();
+  REQUIRE(gate.accepts(first));
+
+  gate.end(first);
+  const auto second = gate.begin();
+  REQUIRE(second != first);
+  REQUIRE(!gate.accepts(first));
+  REQUIRE(gate.accepts(second));
+
+  gate.end(first);
+  REQUIRE(gate.accepts(second));
+  gate.end(second);
+  REQUIRE(!gate.accepts(second));
+}
+
 shareme::rtc::ScreenFrame make_frame(std::int64_t timestamp_us) {
   return {.buffer = webrtc::I420Buffer::Create(320, 180),
           .width = 320,
@@ -127,6 +144,7 @@ void reports_a_runtime_stream_error() {
 } // namespace
 
 int main() {
+  rejects_late_events_from_a_replaced_native_stream();
   replaces_a_pending_frame_and_keeps_one_slot();
   delivers_on_worker_thread_and_rejects_late_callbacks();
   reports_a_runtime_stream_error();

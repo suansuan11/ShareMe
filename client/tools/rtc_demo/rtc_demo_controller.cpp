@@ -902,6 +902,13 @@ bool RtcDemoController::createPeer() {
     QMetaObject::invokeMethod(
         this,
         [this, category = std::move(category)] {
+#if defined(__APPLE__)
+          if (screen_source_ &&
+              shareme::tools::is_recoverable_screen_capture_error(category)) {
+            beginScreenCaptureRecovery(QString::fromStdString(category));
+            return;
+          }
+#endif
           recordDriftError("peer-failure");
           setStatus(QStringLiteral("peer-error: ") +
                     QString::fromStdString(category));
@@ -1154,6 +1161,15 @@ void RtcDemoController::startPeer() {
         [this, result] {
           selected_candidate_type_ = result.selected_candidate_type;
           if (!result.error.empty()) {
+#if defined(__APPLE__)
+            if (screen_source_ &&
+                shareme::tools::is_recoverable_screen_capture_error(
+                    result.error)) {
+              beginScreenCaptureRecovery(
+                  QString::fromStdString(result.error));
+              return;
+            }
+#endif
             recordDriftError("peer-wait-failure");
             setStatus(QStringLiteral("call-error: ") +
                       QString::fromStdString(result.error));

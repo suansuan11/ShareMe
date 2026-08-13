@@ -719,6 +719,19 @@ class RtcDemoCliTest(unittest.TestCase):
             "call-error: screen-capture-recovery-exhausted", source
         )
         self.assertIn("screen_capture_recovery_timer_.stop()", source)
+        self.assertGreaterEqual(
+            source.count("is_recoverable_screen_capture_error"), 3
+        )
+        peer_failure = source[
+            source.index("callbacks.failure ="):
+            source.index("shareme::rtc::SignaledPeerConfig config")
+        ]
+        self.assertIn("beginScreenCaptureRecovery", peer_failure)
+        waiter = source[
+            source.index("waiter_ = std::jthread"):
+            source.index("void RtcDemoController::stopPeer")
+        ]
+        self.assertIn("beginScreenCaptureRecovery", waiter)
         error_check = source[
             source.index("void RtcDemoController::checkScreenCaptureError"):
             source.index("void RtcDemoController::beginScreenCaptureRecovery")

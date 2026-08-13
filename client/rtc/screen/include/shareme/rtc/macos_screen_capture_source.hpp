@@ -21,6 +21,20 @@ struct MacScreenCaptureConfig {
   bool show_cursor{true};
 };
 
+class MacScreenCaptureEventGate final {
+public:
+  using Generation = std::uint64_t;
+
+  [[nodiscard]] Generation begin() noexcept;
+  void end(Generation generation) noexcept;
+  [[nodiscard]] bool accepts(Generation generation) const noexcept;
+
+private:
+  mutable std::mutex mutex_;
+  Generation next_generation_{1};
+  std::optional<Generation> active_generation_;
+};
+
 class MacScreenCaptureStream {
 public:
   using FrameCallback = std::function<void(ScreenFrame)>;

@@ -4,6 +4,24 @@
 
 namespace shareme::rtc {
 
+MacScreenCaptureEventGate::Generation MacScreenCaptureEventGate::begin() noexcept {
+  std::lock_guard lock(mutex_);
+  const auto generation = next_generation_++;
+  active_generation_ = generation;
+  return generation;
+}
+
+void MacScreenCaptureEventGate::end(Generation generation) noexcept {
+  std::lock_guard lock(mutex_);
+  if (active_generation_ == generation)
+    active_generation_.reset();
+}
+
+bool MacScreenCaptureEventGate::accepts(Generation generation) const noexcept {
+  std::lock_guard lock(mutex_);
+  return active_generation_ == generation;
+}
+
 bool MacScreenCaptureFrameQueue::submit(ScreenFrame frame) {
   if (!frame.valid()) {
     std::lock_guard lock(mutex_);
