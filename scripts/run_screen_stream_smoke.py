@@ -902,6 +902,36 @@ def _status_diagnostic(reader: OutputReader | None) -> str:
     return f"statuses={statuses[-8:]}"
 
 
+def validate_automatic_recovery_status(reader: OutputReader) -> None:
+    statuses = [
+        line.strip().removeprefix("SMOKE_STATUS ")
+        for line in reader.lines
+        if line.strip().startswith("SMOKE_STATUS ")
+    ]
+    recovering = next(
+        (
+            index
+            for index, status in enumerate(statuses)
+            if status.startswith("screen-capture-recovering:")
+        ),
+        None,
+    )
+    restarted = next(
+        (
+            index
+            for index, status in enumerate(statuses)
+            if status == "screen-capture-restarted"
+        ),
+        None,
+    )
+    if recovering is None:
+        raise SmokeRuntimeError("screen-capture-recovery-policy-entry-missing")
+    if restarted is None:
+        raise SmokeRuntimeError("screen-capture-recovery-restart-missing")
+    if recovering >= restarted:
+        raise SmokeRuntimeError("screen-capture-recovery-status-order-invalid")
+
+
 def _codec_diagnostic(reader: OutputReader | None) -> str:
     if reader is None:
         return "sdp=[]"
@@ -1198,6 +1228,8 @@ def run_smoke(
                         **record,
                     })
             records_written = True
+            if motion_interruption is not None:
+                validate_automatic_recovery_status(host_reader)
             summary = validate_records(
                 profile,
                 host_records,

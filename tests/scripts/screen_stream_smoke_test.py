@@ -512,6 +512,37 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         self.assertNotIn("Alice", windows_diagnostic)
         self.assertNotIn("capture.dll", windows_diagnostic)
 
+    def test_requires_automatic_recovery_status_before_restart(self):
+        accepted = mock.Mock(
+            lines=[
+                "SMOKE_STATUS connected",
+                "SMOKE_STATUS screen-capture-recovering:1",
+                "SMOKE_STATUS connected",
+                "SMOKE_STATUS screen-capture-restarted",
+            ]
+        )
+        self.runner.validate_automatic_recovery_status(accepted)
+
+        rejected = (
+            (["SMOKE_STATUS screen-capture-restarted"], "policy-entry-missing"),
+            (["SMOKE_STATUS screen-capture-recovering:1"], "restart-missing"),
+            (
+                [
+                    "SMOKE_STATUS screen-capture-restarted",
+                    "SMOKE_STATUS screen-capture-recovering:1",
+                ],
+                "status-order-invalid",
+            ),
+        )
+        for lines, category in rejected:
+            with self.subTest(category=category):
+                with self.assertRaisesRegex(
+                    self.runner.SmokeRuntimeError, category
+                ):
+                    self.runner.validate_automatic_recovery_status(
+                        mock.Mock(lines=lines)
+                    )
+
     def test_profile_validation_requires_hardware_and_bounded_media(self):
         host = {
             "role": "host",

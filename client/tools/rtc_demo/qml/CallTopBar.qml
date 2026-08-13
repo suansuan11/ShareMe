@@ -5,7 +5,9 @@ import QtQuick.Layouts
 Rectangle {
     id: bar
     required property var controller
-    property string connectionLabel: controller.status === "connected" ? "连接稳定"
+    property string connectionLabel: controller.status.startsWith("screen-capture-recovering:")
+                                     ? "正在恢复屏幕共享"
+                                     : controller.status === "connected" ? "连接稳定"
                                      : controller.status === "negotiating" ? "正在建立媒体连接"
                                      : controller.status === "signaling" ? "正在连接房间"
                                      : controller.status === "ended" ? "通话已结束"

@@ -5,6 +5,7 @@ import QtMultimedia
 Rectangle {
     id: stage
     required property var controller
+    property bool captureRecovering: controller.status.startsWith("screen-capture-recovering:")
     radius: 14
     color: "#03060A"
     border.width: 1
@@ -29,6 +30,7 @@ Rectangle {
         radius: 8
         color: "#132A23"
         visible: stage.controller.status === "connected"
+                 || stage.captureRecovering
                  || stage.controller.remoteVideoAvailable
         Row {
             id: liveRow
@@ -36,7 +38,8 @@ Rectangle {
             spacing: 7
             Rectangle { width: 7; height: 7; radius: 4; color: theme.healthy }
             Text {
-                text: stage.controller.viewer ? "正在接收屏幕" : "正在共享屏幕"
+                text: stage.captureRecovering ? "正在恢复屏幕共享"
+                                              : stage.controller.viewer ? "正在接收屏幕" : "正在共享屏幕"
                 color: theme.healthy
                 font.pixelSize: 11
                 font.weight: Font.DemiBold
@@ -66,14 +69,16 @@ Rectangle {
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: stage.controller.viewer ? "等待主持人共享屏幕" : "正在准备屏幕共享"
+            text: stage.captureRecovering ? "正在恢复屏幕共享"
+                                          : stage.controller.viewer ? "等待主持人共享屏幕" : "正在准备屏幕共享"
             color: theme.textPrimary
             font.pixelSize: 16
             font.weight: Font.DemiBold
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: stage.controller.viewer ? "语音连接会保持独立工作" : "房间创建后即可邀请另一位参与者"
+            text: stage.captureRecovering ? "语音连接保持工作，画面会自动恢复"
+                                          : stage.controller.viewer ? "语音连接会保持独立工作" : "房间创建后即可邀请另一位参与者"
             color: theme.textMuted
             font.pixelSize: 11
         }

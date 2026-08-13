@@ -754,6 +754,15 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn('return QStringLiteral("receive-only")', source)
         self.assertIn('return QStringLiteral("remote-unreported")', source)
 
+    def test_call_ui_keeps_video_visible_while_screen_capture_recovers(self):
+        top_bar = self.qml_file("CallTopBar.qml")
+        stage = self.qml_file("VideoStage.qml")
+        self.assertIn('startsWith("screen-capture-recovering:")', top_bar)
+        self.assertIn("正在恢复屏幕共享", top_bar)
+        self.assertIn('startsWith("screen-capture-recovering:")', stage)
+        self.assertIn("正在恢复屏幕共享", stage)
+        self.assertIn("VideoOutput", stage)
+
     def test_performance_stats_do_not_block_counter_timer(self):
         source = self.controller_source.read_text(encoding="utf-8")
         self.assertIn("performance_stats_worker_", source)
