@@ -283,6 +283,27 @@ if(TARGET ShareMe::QtSignaling)
   )
 
   add_executable(
+    shareme_session_lifecycle_monitor_test
+    session_lifecycle_monitor_test.cpp
+    "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/session_lifecycle_monitor.cpp"
+  )
+  target_include_directories(
+    shareme_session_lifecycle_monitor_test
+    PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+  )
+  target_compile_features(
+    shareme_session_lifecycle_monitor_test PRIVATE cxx_std_20
+  )
+  target_link_libraries(
+    shareme_session_lifecycle_monitor_test PRIVATE Qt6::Core
+  )
+  shareme_set_project_warnings(shareme_session_lifecycle_monitor_test)
+  add_test(
+    NAME session_lifecycle_monitor
+    COMMAND shareme_session_lifecycle_monitor_test
+  )
+
+  add_executable(
     shareme_screen_capture_recovery_policy_test
     screen_capture_recovery_policy_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/screen_capture_recovery_policy.cpp"

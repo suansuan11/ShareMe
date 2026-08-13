@@ -8,10 +8,15 @@ if(WIN32)
 elseif(APPLE)
   enable_language(OBJCXX)
   list(APPEND shareme_rtc_demo_native_route_sources
-       macos_audio_route_monitor.mm)
+       macos_audio_route_monitor.mm
+       session_lifecycle_monitor_mac.mm)
   set_source_files_properties(
     macos_audio_route_monitor.mm
     PROPERTIES COMPILE_OPTIONS "-fblocks"
+  )
+  set_source_files_properties(
+    session_lifecycle_monitor_mac.mm
+    PROPERTIES COMPILE_OPTIONS "-fblocks;-fobjc-arc"
   )
   set(shareme_rtc_demo_has_native_route_supplement ON)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -46,6 +51,7 @@ set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
                               shareme_app_controller.cpp shareme_app_controller.hpp
                               rtc_control_state.cpp rtc_control_state.hpp
                               session_lifecycle_policy.cpp session_lifecycle_policy.hpp
+                              session_lifecycle_monitor.cpp session_lifecycle_monitor.hpp
                               screen_capture_recovery_policy.cpp screen_capture_recovery_policy.hpp
                               playout_report.cpp playout_report.hpp
                               movie_audio_clock_message.cpp movie_audio_clock_message.hpp
@@ -145,6 +151,15 @@ if(shareme_rtc_demo_has_native_route_supplement)
       shareme_rtc_demo PRIVATE PkgConfig::SHAREME_PULSEAUDIO
     )
   endif()
+endif()
+
+if(APPLE)
+  target_compile_definitions(
+    shareme_rtc_demo PRIVATE SHAREME_HAS_NATIVE_SESSION_LIFECYCLE=1
+  )
+  target_link_libraries(
+    shareme_rtc_demo PRIVATE "-framework AppKit" "-framework Foundation"
+  )
 endif()
 
 shareme_set_project_warnings(shareme_rtc_demo)
