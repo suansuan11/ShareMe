@@ -259,19 +259,23 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
             "SMOKE_STATUS session-lifecycle-event event=screen-unlocked generation=1",
         ]
         host_lines = [
+            "PERF_COUNTERS role=host",
+            "PERF_COUNTERS role=host",
             *lifecycle_events,
             *("PERF_COUNTERS role=host" for _ in range(4)),
             "SMOKE_STATUS session-lifecycle-recovered "
             "generation=1 decision=capture-restarted",
         ]
         viewer_lines = [
+            "PERF_COUNTERS role=viewer",
+            "PERF_COUNTERS role=viewer",
             *lifecycle_events,
             *("PERF_COUNTERS role=viewer" for _ in range(4)),
             "SMOKE_STATUS session-lifecycle-recovered "
             "generation=1 decision=healthy",
         ]
         host_records = []
-        for sample in range(15):
+        for sample in range(18):
             host_records.append({
                 "role": "host",
                 "submitted": 100 + sample,
@@ -310,6 +314,55 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
         )
         self.assertTrue(summary["capture_recovery_verified"])
         self.assertFalse(summary["healthy_call_preserved"])
+
+        old_restart = [dict(record) for record in host_records]
+        for record in old_restart[1:]:
+            record["screen_capture_restart_attempts"] = 1
+            record["screen_capture_restart_successes"] = 1
+            record["screen_capture_generation"] = 1
+        with self.assertRaisesRegex(
+            self.runner.LifecycleSmokeError,
+            "session-capture-restart-boundary-invalid",
+        ):
+            scenario.validate(
+                Reader(*host_lines),
+                Reader(*viewer_lines),
+                old_restart,
+                viewer_records,
+            )
+
+        split_restart = [dict(record) for record in host_records]
+        split_restart[4]["screen_capture_restart_successes"] = 0
+        split_restart[4]["screen_capture_generation"] = 0
+        with self.assertRaisesRegex(
+            self.runner.LifecycleSmokeError,
+            "session-capture-restart-boundary-invalid",
+        ):
+            scenario.validate(
+                Reader(*host_lines),
+                Reader(*viewer_lines),
+                split_restart,
+                viewer_records,
+            )
+
+        healthy_host_lines = [
+            "PERF_COUNTERS role=host",
+            "PERF_COUNTERS role=host",
+            *lifecycle_events,
+            *("PERF_COUNTERS role=host" for _ in range(4)),
+            "SMOKE_STATUS session-lifecycle-recovered "
+            "generation=1 decision=healthy",
+        ]
+        with self.assertRaisesRegex(
+            self.runner.LifecycleSmokeError,
+            "session-capture-restart-boundary-invalid",
+        ):
+            scenario.validate(
+                Reader(*healthy_host_lines),
+                Reader(*viewer_lines),
+                old_restart,
+                viewer_records,
+            )
 
     def test_failure_text_is_redacted_before_artifact_use(self):
         secret = "/Users/private/person/room ABC234 token=secret"

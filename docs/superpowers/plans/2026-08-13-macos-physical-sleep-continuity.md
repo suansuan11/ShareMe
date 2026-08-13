@@ -115,6 +115,14 @@ both script modules under both Python interpreters and commit:
 git commit -m "fix: accept physical capture recovery decision"
 ```
 
+- [x] **Step 10: Bind restart counters to the causal lifecycle boundary**
+
+Independent review found that a final `1/1/1` plus marker could still describe
+a pre-sleep restart. Add RED cases for a restart before the suspension boundary,
+a split counter transition, and a healthy marker with nonzero counters. Require
+`0/0/0` through suspension, one synchronous `1/1/1` transition inside the
+exclusion and no later than recovery, then stable `1/1/1` to the end.
+
 ---
 
 ### Task 2: Physical evidence and handoff

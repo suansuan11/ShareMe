@@ -53,6 +53,10 @@ Sleep/Wake interval.
 - In physical mode, the unique host recovery marker authorizes exactly zero or
   one matching capture restart. Controlled mode retains its fixed injected-fault
   expectation, and the viewer must remain healthy in both modes.
+- The restart gate also requires `0/0/0` through the suspension boundary, one
+  synchronous `1/1/1` transition no later than the same-role recovery marker,
+  and stable `1/1/1` afterward. A pre-sleep restart, split counter transition,
+  regression, or nonzero healthy-call counter fails closed.
 
 ## Native controlled evidence
 
@@ -148,6 +152,10 @@ SHA-256:
   ScreenCaptureKit generation advanced exactly `0/0/0 -> 1/1/1`. The viewer
   returned healthy and the existing PeerConnection, signaling, and voice tracks
   remained in place.
+- The final artifact was manually checked at this boundary: all three host
+  restart counters were `0/0/0` through sample 81, changed together to `1/1/1`
+  at sample 82, and stayed there. The post-review runner now enforces this
+  causal transition for future artifacts rather than checking only final values.
 - H.264 VideoToolbox remained active with matching `1470x956` geometry. Host
   encoded 6815 and submitted 6953 frames; viewer decoded 6801, received 6803,
   and submitted 6813 frames, including 6703 post-recovery submissions.

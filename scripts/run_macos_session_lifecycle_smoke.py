@@ -370,15 +370,71 @@ class LifecycleScenario:
                     raise LifecycleSmokeError(f"{role}-resume-decision-invalid")
             resume_decisions[role] = decision
 
-        final_host = host_records[-1]
         restart_keys = (
             "screen_capture_restart_attempts",
             "screen_capture_restart_successes",
             "screen_capture_generation",
         )
         expected_restarts = int(resume_decisions["host"] == "capture-restarted")
-        if any(final_host.get(key) != expected_restarts for key in restart_keys):
-            raise LifecycleSmokeError("session-capture-restart-count-invalid")
+        lifecycle_ranges = self.continuity_exclusions(host_reader, viewer_reader)
+        for role, records in (
+            ("host", host_records),
+            ("viewer", viewer_records),
+        ):
+            restart_values: list[tuple[int, int, int]] = []
+            for record in records:
+                values = tuple(record.get(key) for key in restart_keys)
+                if any(
+                    not isinstance(value, int)
+                    or isinstance(value, bool)
+                    or value < 0
+                    for value in values
+                ):
+                    raise LifecycleSmokeError(
+                        "session-capture-restart-boundary-invalid"
+                    )
+                restart_values.append(values)
+            role_expected = expected_restarts if role == "host" else 0
+            if role_expected == 0:
+                if any(values != (0, 0, 0) for values in restart_values):
+                    raise LifecycleSmokeError(
+                        "session-capture-restart-boundary-invalid"
+                    )
+                continue
+
+            suspension_sample, recovery_sample = lifecycle_ranges[role][0]
+            if any(
+                values != (0, 0, 0)
+                for values in restart_values[:suspension_sample + 1]
+            ):
+                raise LifecycleSmokeError(
+                    "session-capture-restart-boundary-invalid"
+                )
+            transition_sample = next(
+                (
+                    index
+                    for index in range(suspension_sample + 1, recovery_sample + 1)
+                    if restart_values[index] != (0, 0, 0)
+                ),
+                None,
+            )
+            if (
+                transition_sample is None
+                or restart_values[transition_sample] != (1, 1, 1)
+                or any(
+                    values != (0, 0, 0)
+                    for values in restart_values[
+                        suspension_sample + 1:transition_sample
+                    ]
+                )
+                or any(
+                    values != (1, 1, 1)
+                    for values in restart_values[transition_sample:]
+                )
+            ):
+                raise LifecycleSmokeError(
+                    "session-capture-restart-boundary-invalid"
+                )
         return {
             "lifecycle_verified": True,
             "lifecycle_mode": self.mode,
