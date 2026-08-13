@@ -33,7 +33,7 @@
 - Produces: `LifecycleScenario.continuity_exclusions(host_reader, viewer_reader) -> dict[str, list[tuple[int, int]]]`.
 - Consumes: existing `PERF_COUNTERS`, generation-1 lifecycle event lines, and the unique same-generation `session-lifecycle-recovered` marker.
 
-- [ ] **Step 1: Write the failing base-validator tests**
+- [x] **Step 1: Write the failing base-validator tests**
 
 Add literal records where `encoded`, `callback`, and `submitted` are unchanged
 for samples 2 through 9, recover at sample 10, and continue advancing. Assert
@@ -41,7 +41,7 @@ that `excluded_ranges=((2, 9),)` is accepted with eight excluded samples, while
 the same stall without an exclusion and a six-sample stall after the exclusion
 both raise `stalled for too long`.
 
-- [ ] **Step 2: Run RED for the base-validator tests**
+- [x] **Step 2: Run RED for the base-validator tests**
 
 Run:
 
@@ -53,7 +53,7 @@ python3 -m unittest \
 Expected: failure because `_validate_continuous_progress` does not accept
 `excluded_ranges`.
 
-- [ ] **Step 3: Implement minimal range validation and segmented continuity**
+- [x] **Step 3: Implement minimal range validation and segmented continuity**
 
 Normalize inclusive integer ranges, reject negative/reversed/overlapping ranges
 and endpoints outside the role record list, filter excluded indices, and set the
@@ -61,12 +61,12 @@ previous counter to `None` after every excluded segment. Return the total
 `excluded_samples`; keep all existing readiness, availability, monotonicity, and
 five-stall checks for included records.
 
-- [ ] **Step 4: Run GREEN for base-validator tests**
+- [x] **Step 4: Run GREEN for base-validator tests**
 
 Run the focused test from Step 2 and the full
 `tests.scripts.screen_stream_smoke_test` module. Expected: all pass.
 
-- [ ] **Step 5: Write failing lifecycle-causality tests**
+- [x] **Step 5: Write failing lifecycle-causality tests**
 
 Build readers with literal interleaved counter/event lines. Assert the returned
 host/viewer range starts at the counter count before `screen-locked` and ends at
@@ -74,18 +74,18 @@ the count before each role's generation-1 recovery marker. Assert missing
 `will-sleep`, duplicate recovery markers, and generation 2 return no accepted
 range by raising a lifecycle smoke error.
 
-- [ ] **Step 6: Run RED for lifecycle-causality tests**
+- [x] **Step 6: Run RED for lifecycle-causality tests**
 
 Run:
 
 ```sh
 python3 -m unittest \
-  tests.scripts.macos_session_lifecycle_smoke_test.MacOSSessionLifecycleSmokeTest.test_continuity_exclusions_require_complete_same_generation_causality
+  tests.scripts.macos_session_lifecycle_smoke_test.MacosSessionLifecycleSmokeTest.test_continuity_exclusions_require_complete_same_generation_causality
 ```
 
 Expected: failure because `LifecycleScenario.continuity_exclusions` is absent.
 
-- [ ] **Step 7: Implement lifecycle range derivation and runner wiring**
+- [x] **Step 7: Implement lifecycle range derivation and runner wiring**
 
 Count role-aligned `PERF_COUNTERS` preceding the first required event and the
 unique recovery marker. Validate the complete generation-1 sequence before
@@ -93,13 +93,26 @@ returning ranges. In `run_smoke`, request ranges from the scenario observer only
 after readers are joined, then pass them to `validate_records`; ordinary screen
 smokes continue with no exclusions.
 
-- [ ] **Step 8: Run GREEN and commit Task 1**
+- [x] **Step 8: Run GREEN and commit Task 1**
 
 Run both script test modules with Homebrew and system Python, then commit only
 the four Task 1 files with:
 
 ```sh
 git commit -m "fix: exclude causal session suspension samples"
+```
+
+- [x] **Step 9: Close the physical restart-decision false rejection**
+
+The first post-continuity physical rerun exposed that physical mode still
+expected zero capture restarts when no controlled fault option was set. Write a
+RED test with a unique generation-1 host `capture-restarted` marker and exact
+`1/1/1` counters, then derive the physical zero/one expectation from that
+marker. Keep controlled host decisions fixed and viewer decisions healthy. Run
+both script modules under both Python interpreters and commit:
+
+```sh
+git commit -m "fix: accept physical capture recovery decision"
 ```
 
 ---
@@ -110,19 +123,19 @@ git commit -m "fix: exclude causal session suspension samples"
 - Modify: `docs/verification/macos-session-lifecycle-recovery.md`
 - Modify: `docs/development/current-stage.md`
 - Modify: this plan checklist.
-- Generated ignored: `out/macos-session-lifecycle-recovery/physical-clamshell-sleep-wake-rerun.jsonl`.
+- Generated ignored: `out/macos-session-lifecycle-recovery/physical-clamshell-sleep-wake-final-180s.jsonl`.
 
 **Interfaces:**
 - Produces: one accepted fresh physical clamshell artifact and an explicit record of the two failed attempts.
 
-- [ ] **Step 1: Run automatic gates**
+- [x] **Step 1: Run automatic gates**
 
 Run both affected Python modules under Homebrew and system Python, full CTest,
 `signaled_peer` 20 times, Go race/vet, workflow 8/8, skill validation,
 portable-core scan, artifact redaction, external cache status, and
 `git diff --check`.
 
-- [ ] **Step 2: Run attended physical clamshell acceptance**
+- [x] **Step 2: Run attended physical clamshell acceptance**
 
 Start `physical-wait`, lock the screen, close the lid, wait at least ten seconds,
 open and unlock, then retain at least ten post-resume samples. Require real
@@ -130,7 +143,7 @@ open and unlock, then retain at least ten post-resume samples. Require real
 matching geometry, one bounded host capture restart, five-sample video/voice
 recovery, and no included-range continuity violation.
 
-- [ ] **Step 3: Record evidence boundaries**
+- [x] **Step 3: Record evidence boundaries**
 
 Document the successful artifact SHA-256 and counters. Record the shortcut
 attempt as invalid because no system Sleep/Wake occurred, and record the first

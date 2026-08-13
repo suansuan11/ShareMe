@@ -283,12 +283,28 @@ acknowledged unlock; it made exactly one capture-restarted decision and retained
 review found no remaining Critical or Important issue. See
 [macOS Session Lifecycle Recovery Verification](../verification/macos-session-lifecycle-recovery.md).
 
-The runner did not sleep or lock the machine and did not post native macOS
-notifications. Real sleep/wake and lock/unlock, physical/audible/thermal
-evidence, Windows native execution, and automatic signaling reconnect/rejoin
-remain environment-dependent, unverified, or unimplemented. The next Mac task
-is an attended physical campaign through `physical-wait`; reconnect/rejoin
-design remains conditional on that evidence.
+An attended physical follow-up now verifies both lock/unlock and clamshell
+sleep/wake. The final 180-second clamshell call recorded a 50-second physical
+Sleep/Wake interval, the complete generation-1 notification sequence, one
+bounded host ScreenCaptureKit restart, H.264 VideoToolbox at matching 1470x956,
+video and all four primary-voice counters recovering within five samples, and
+96 post-resume samples. Causally proven suspension samples are excluded from
+ordinary continuity only between the first lifecycle event and the unique
+same-generation recovery marker; pre/post continuity limits are unchanged.
+
+The physical campaign exposed and fixed two runner false rejections without
+changing production media: deliberate suspension was previously counted as an
+ordinary stall, and physical `capture-restarted` was previously rejected unless
+the fault was command-injected. Failed artifacts remain failed diagnostics. See
+[macOS Session Lifecycle Recovery Verification](../verification/macos-session-lifecycle-recovery.md).
+
+Audible voice, acoustic A/V, scanout, thermals, Apple-menu/long/repeated sleep,
+permission revocation, display removal, physical 4K, Windows native execution,
+and automatic signaling reconnect/rejoin remain environment-dependent,
+unverified, or unimplemented. Because the physical call stayed connected,
+reconnect/rejoin is not the next product change. The next Mac acceptance task is
+two-person audible/visual verification, followed by cursor composition and
+display selection.
 
 ## Active stage
 
@@ -547,16 +563,15 @@ resolved.
 
 ## Next recommended stage
 
-On Mac, perform the attended physical lock/unlock campaign and then the attended
-sleep/wake campaign through the lifecycle runner's `physical-wait` mode. Preserve
-H.264 VideoToolbox, exact actual-capture geometry, video and bidirectional voice
-progress, bounded presentation/capture recovery, and at least ten post-resume
-samples. Treat reconnect/rejoin as a separate design only if the physical run
-reaches the retryable connection-loss boundary. The Windows two-device
-visual/audio acceptance, cursor composition, display selection, and packaging
-planning remain the parallel platform backlog. Do not resume file sharing,
-Movie Stage 2B, reportability repair, or hard-resync work while this primary
-screen-and-voice direction remains incomplete.
+On Mac, run the two-person human visual/audible screen-and-voice acceptance pass,
+then implement cursor composition and display selection without changing H.264
+VideoToolbox, exact actual-capture geometry, video/voice progress, or bounded
+presentation/capture recovery. A later repeated/long-duration physical sleep
+campaign may extend evidence, but the successful retained call does not justify
+automatic reconnect/rejoin. The Windows two-device visual/audio acceptance and
+packaging planning remain the parallel platform backlog. Do not resume file
+sharing, Movie Stage 2B, reportability repair, or hard-resync work while this
+primary screen-and-voice direction remains incomplete.
 
 ## Git handoff
 

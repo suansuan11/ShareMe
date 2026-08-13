@@ -45,6 +45,9 @@ This is preferred over the rejected alternatives:
 - Lifecycle validation still independently requires host and viewer video plus
   all primary-voice counters to advance within five samples after recovery and
   requires at least ten post-resume samples.
+- Physical mode derives the host's exact zero/one restart count from its unique
+  generation-1 `healthy` or `capture-restarted` marker. Controlled mode retains
+  its configured fixed decision, and the viewer must remain healthy.
 - Multiple generations, missing events, missing/duplicate markers, malformed
   ranges, and any unbounded post-resume stall fail closed.
 - Production controller, ScreenCaptureKit, WebRTC, VideoToolbox, signaling,
