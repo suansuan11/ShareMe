@@ -205,6 +205,11 @@ RtcDemoController::RtcDemoController(QUrl server_url,
       trigger != nullptr && *trigger != '\0') {
     screen_capture_restart_trigger_path_ = QString::fromUtf8(trigger);
   }
+  if (const char *trigger = std::getenv(
+          "SHAREME_SCREEN_CAPTURE_RETIRED_FAULT_TRIGGER_FILE");
+      trigger != nullptr && *trigger != '\0') {
+    screen_capture_retired_fault_trigger_path_ = QString::fromUtf8(trigger);
+  }
 #endif
   audio_route_monitor_ = std::make_unique<QtAudioRouteMonitor>();
   movie_video_playout_adapter_ =
@@ -1119,11 +1124,40 @@ void RtcDemoController::startPeer() {
                 return;
               if (!QFileInfo::exists(screen_capture_restart_trigger_path_))
                 return;
+              if (!screen_video_source_
+                       ->inject_current_stream_stop_for_diagnostics()) {
+                return;
+              }
               screen_capture_restart_probe_timer_.stop();
-              beginScreenCaptureRecovery(
-                  QStringLiteral("screen-capture-stopped-probe"));
+              std::cout << "SMOKE_STATUS native-delegate-fault-injected"
+                        << std::endl;
             });
     screen_capture_restart_probe_timer_.start();
+  }
+  if (screen_source_ && role_ == shareme::rtc::SignaledRole::host &&
+      screen_video_source_ &&
+      !screen_capture_retired_fault_trigger_path_.isEmpty()) {
+    screen_capture_retired_fault_probe_timer_.setInterval(25);
+    connect(&screen_capture_retired_fault_probe_timer_, &QTimer::timeout, this,
+            [this] {
+              if (shutting_down_ || !screen_video_source_ ||
+                  screen_capture_generation_.load(std::memory_order_relaxed) !=
+                      1) {
+                return;
+              }
+              if (!QFileInfo::exists(
+                      screen_capture_retired_fault_trigger_path_)) {
+                return;
+              }
+              if (!screen_video_source_
+                       ->inject_retired_stream_stop_for_diagnostics()) {
+                return;
+              }
+              screen_capture_retired_fault_probe_timer_.stop();
+              std::cout << "SMOKE_STATUS retired-delegate-fault-injected"
+                        << std::endl;
+            });
+    screen_capture_retired_fault_probe_timer_.start();
   }
 #endif
   if (performance_counters_enabled_) {
@@ -1204,6 +1238,7 @@ void RtcDemoController::stopPeer() noexcept {
   screen_capture_error_timer_.stop();
   screen_capture_recovery_timer_.stop();
   screen_capture_restart_probe_timer_.stop();
+  screen_capture_retired_fault_probe_timer_.stop();
   screen_capture_recovery_policy_.reset();
   if (performance_stats_worker_.joinable()) {
     performance_stats_worker_.request_stop();

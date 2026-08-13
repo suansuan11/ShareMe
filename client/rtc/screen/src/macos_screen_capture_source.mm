@@ -42,6 +42,8 @@ public:
   [[nodiscard]] bool start(FrameCallback callback) override;
   void stop() noexcept override;
   [[nodiscard]] std::string error() const override;
+  [[nodiscard]] bool inject_current_stream_stop_for_diagnostics() override;
+  [[nodiscard]] bool inject_retired_stream_stop_for_diagnostics() override;
 
 private:
   [[nodiscard]] bool select_display(SCShareableContent *content,
@@ -59,6 +61,8 @@ private:
   std::string error_;
   SCStream *__strong stream_{nil};
   ShareMeScreenCaptureDelegate *__strong delegate_{nil};
+  SCStream *__strong retired_diagnostic_stream_{nil};
+  ShareMeScreenCaptureDelegate *__strong retired_diagnostic_delegate_{nil};
   bool stopped_with_error_{false};
   MacScreenCaptureEventGate event_gate_;
   MacScreenCaptureEventGate::Generation active_generation_{0};
@@ -178,6 +182,52 @@ void ScreenCaptureKitStream::stop() noexcept {
   callback_ = {};
   stopped_with_error_ = false;
   active_generation_ = 0;
+}
+
+bool ScreenCaptureKitStream::inject_current_stream_stop_for_diagnostics() {
+  SCStream *stream = nil;
+  ShareMeScreenCaptureDelegate *delegate = nil;
+  {
+    std::lock_guard lock(mutex_);
+    if (stream_ == nil || delegate_ == nil ||
+        retired_diagnostic_delegate_ != nil) {
+      return false;
+    }
+    stream = stream_;
+    delegate = delegate_;
+    retired_diagnostic_stream_ = stream;
+    retired_diagnostic_delegate_ = delegate;
+  }
+
+  NSError *fault = [NSError errorWithDomain:@"ShareMeCaptureDiagnostics"
+                                       code:9001
+                                   userInfo:nil];
+  [delegate stream:stream didStopWithError:fault];
+  return true;
+}
+
+bool ScreenCaptureKitStream::inject_retired_stream_stop_for_diagnostics() {
+  SCStream *stream = nil;
+  ShareMeScreenCaptureDelegate *delegate = nil;
+  {
+    std::lock_guard lock(mutex_);
+    if (stream_ == nil || active_generation_ == 0 ||
+        retired_diagnostic_stream_ == nil ||
+        retired_diagnostic_delegate_ == nil ||
+        retired_diagnostic_stream_ == stream_) {
+      return false;
+    }
+    stream = retired_diagnostic_stream_;
+    delegate = retired_diagnostic_delegate_;
+    retired_diagnostic_stream_ = nil;
+    retired_diagnostic_delegate_ = nil;
+  }
+
+  NSError *fault = [NSError errorWithDomain:@"ShareMeCaptureDiagnostics"
+                                       code:9002
+                                   userInfo:nil];
+  [delegate stream:stream didStopWithError:fault];
+  return true;
 }
 
 std::string ScreenCaptureKitStream::error() const {

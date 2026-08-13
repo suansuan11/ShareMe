@@ -738,6 +738,26 @@ class RtcDemoCliTest(unittest.TestCase):
         ]
         self.assertIn("#if defined(__APPLE__)", error_check)
 
+    def test_macos_fault_probe_enters_through_native_delegate(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        probe = source[
+            source.index("screen_capture_restart_probe_timer_.setInterval"):
+            source.index("if (performance_counters_enabled_)")
+        ]
+        self.assertIn(
+            "inject_current_stream_stop_for_diagnostics", probe
+        )
+        self.assertIn(
+            "inject_retired_stream_stop_for_diagnostics", probe
+        )
+        self.assertNotIn("beginScreenCaptureRecovery", probe)
+        self.assertIn("screen_capture_retired_fault_trigger_path_", header)
+        self.assertIn("screen_capture_retired_fault_probe_timer_", header)
+        self.assertIn(
+            "screen_capture_retired_fault_probe_timer_.stop()", source
+        )
+
     def test_controller_exposes_screen_encoder_and_presentation_diagnostics(self):
         source = self.controller_source.read_text(encoding="utf-8")
         header = self.controller_header.read_text(encoding="utf-8")

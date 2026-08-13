@@ -296,6 +296,8 @@ private:
   shareme::tools::ScreenCaptureRecoveryPolicy screen_capture_recovery_policy_;
   QString screen_capture_restart_trigger_path_;
   QTimer screen_capture_restart_probe_timer_;
+  QString screen_capture_retired_fault_trigger_path_;
+  QTimer screen_capture_retired_fault_probe_timer_;
   std::atomic<std::uint64_t> screen_capture_restart_attempts_{0};
   std::atomic<std::uint64_t> screen_capture_restart_successes_{0};
   std::atomic<std::uint64_t> screen_capture_generation_{0};
