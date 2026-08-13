@@ -1080,6 +1080,8 @@ def run_smoke(
     guard_processes=(),
     motion_fixture: Path | None = None,
     motion_interruption: MotionInterruption | None = None,
+    role_environment_overrides: dict[str, dict[str, str]] | None = None,
+    scenario_observer=None,
 ) -> dict:
     if sys.platform not in ("darwin", "win32"):
         raise SmokeRuntimeError("screen smoke requires macOS or Windows")
@@ -1141,6 +1143,11 @@ def run_smoke(
         environment["SHAREME_SCREEN_CAPTURE_RETIRED_FAULT_TRIGGER_FILE"] = str(
             retired_fault_trigger
         )
+    host_environment = environment.copy()
+    viewer_environment = environment.copy()
+    if role_environment_overrides is not None:
+        host_environment.update(role_environment_overrides.get("host", {}))
+        viewer_environment.update(role_environment_overrides.get("viewer", {}))
 
     with artifact.open("x", encoding="utf-8") as output:
         run_record = {
@@ -1170,6 +1177,8 @@ def run_smoke(
                     motion_interruption.duration_seconds
                 ),
             })
+        if scenario_observer is not None:
+            run_record.update(scenario_observer.run_metadata())
         _write_jsonl(output, run_record)
         try:
             effective_guard_processes = tuple(guard_processes)
@@ -1197,7 +1206,7 @@ def run_smoke(
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                env=environment,
+                env=host_environment,
                 **popen_group_options(),
             )
             host_reader = OutputReader(host)
@@ -1209,7 +1218,7 @@ def run_smoke(
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                env=environment,
+                env=viewer_environment,
                 **popen_group_options(),
             )
             viewer_reader = OutputReader(viewer)
@@ -1235,6 +1244,10 @@ def run_smoke(
                         + (f": {diagnostic}" if diagnostic else "")
                     )
                 now = time.monotonic()
+                if scenario_observer is not None:
+                    scenario_observer.advance(
+                        now - scenario_started, host_reader, viewer_reader
+                    )
                 if motion_interruption is not None:
                     advance_motion_interruption(
                         fixture_process,
@@ -1282,6 +1295,9 @@ def run_smoke(
                 _write_jsonl(output, record)
             for record in motion_phase_records:
                 _write_jsonl(output, record)
+            if scenario_observer is not None:
+                for record in scenario_observer.records:
+                    _write_jsonl(output, record)
             for role, records in (("host", host_records), ("viewer", viewer_records)):
                 for index, record in enumerate(records):
                     _write_jsonl(output, {
@@ -1312,6 +1328,12 @@ def run_smoke(
                     else None
                 ),
             )
+            if scenario_observer is not None:
+                summary.update(
+                    scenario_observer.validate(
+                        host_reader, viewer_reader, host_records, viewer_records
+                    )
+                )
             if motion_interruption is not None:
                 host_stale = motion_state["retired_fault_samples"]["host"]
                 viewer_stale = motion_state["retired_fault_samples"]["viewer"]
@@ -1352,6 +1374,8 @@ def run_smoke(
                 fixture_stopped = fixture_process.poll() is not None
             if restart_trigger_directory is not None:
                 restart_trigger_directory.cleanup()
+            if scenario_observer is not None:
+                scenario_observer.cleanup()
         if summary is not None:
             if motion_fixture is not None:
                 summary.update({
@@ -1389,6 +1413,9 @@ def run_smoke(
                     _write_jsonl(output, record)
                 for record in motion_phase_records:
                     _write_jsonl(output, record)
+                if scenario_observer is not None:
+                    for record in scenario_observer.records:
+                        _write_jsonl(output, record)
                 for role, records in (("host", host_records), ("viewer", viewer_records)):
                     for index, record in enumerate(records):
                         _write_jsonl(output, {
