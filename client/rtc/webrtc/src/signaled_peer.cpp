@@ -235,6 +235,7 @@ public:
       }
       return false;
     }
+    audio_device_ = audio.device;
     runtime_ = WebRtcRuntime::create(audio.device,
                                      std::move(config_.video_encoder_factory));
     if (!runtime_) {
@@ -443,6 +444,11 @@ public:
             } else {
               missing_voice_field = true;
             }
+            result.voice_packets_lost = stats->packets_lost;
+            if (stats->jitter)
+              result.voice_jitter_ms = *stats->jitter * 1000.0;
+            result.voice_concealed_samples = stats->concealed_samples;
+            result.voice_total_samples_received = stats->total_samples_received;
           }
           continue;
         }
@@ -467,6 +473,15 @@ public:
         }
         if (stats->bytes_received)
           result.bytes_received = *stats->bytes_received;
+      }
+      for (const auto *source :
+           report->GetStatsOfType<webrtc::RTCAudioSourceStats>()) {
+        if (source->track_identifier && source->audio_level &&
+            is_expected_voice_rtp_track(role_, true,
+                                        *source->track_identifier)) {
+          result.local_audio_level = *source->audio_level;
+          break;
+        }
       }
       result.unavailable = !found_video_stats || missing_video_field ||
                            !found_outbound_voice_stats ||
@@ -572,6 +587,37 @@ public:
     if (applied)
       remote_audio_enabled_.store(enabled, std::memory_order_release);
     return applied;
+  }
+  bool speaker_volume_available() const noexcept {
+    if (!config_.native_audio_playout || !audio_device_ ||
+        stopped_.load(std::memory_order_acquire))
+      return false;
+    bool available = false;
+    return audio_device_->SpeakerVolumeIsAvailable(&available) == 0 && available;
+  }
+  std::optional<int> speaker_volume() const noexcept {
+    if (!speaker_volume_available())
+      return std::nullopt;
+    std::uint32_t value = 0;
+    std::uint32_t minimum = 0;
+    std::uint32_t maximum = 0;
+    if (audio_device_->SpeakerVolume(&value) != 0 ||
+        audio_device_->MinSpeakerVolume(&minimum) != 0 ||
+        audio_device_->MaxSpeakerVolume(&maximum) != 0)
+      return std::nullopt;
+    return speaker_volume_percent(value, minimum, maximum);
+  }
+  bool set_speaker_volume(int percent) noexcept {
+    if (!speaker_volume_available())
+      return false;
+    std::uint32_t minimum = 0;
+    std::uint32_t maximum = 0;
+    if (audio_device_->MinSpeakerVolume(&minimum) != 0 ||
+        audio_device_->MaxSpeakerVolume(&maximum) != 0)
+      return false;
+    const auto native =
+        speaker_volume_native_value(percent, minimum, maximum);
+    return native && audio_device_->SetSpeakerVolume(*native) == 0;
   }
   void cancel_wait() noexcept {
     wait_cancelled_.store(true, std::memory_order_release);
@@ -958,6 +1004,7 @@ private:
   SignaledRole role_;
   SignaledPeerCallbacks callbacks_;
   std::shared_ptr<WebRtcRuntime> runtime_;
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_;
   std::unique_ptr<webrtc::TaskQueueFactory> queues_;
   webrtc::scoped_refptr<LocalVideoSource> video_source_;
   RemoteVideoSink local_video_sink_;
@@ -1041,6 +1088,15 @@ bool SignaledPeer::set_local_audio_enabled(bool enabled) noexcept {
 }
 bool SignaledPeer::set_remote_audio_enabled(bool enabled) noexcept {
   return impl_->set_remote_audio_enabled(enabled);
+}
+bool SignaledPeer::speaker_volume_available() const noexcept {
+  return impl_->speaker_volume_available();
+}
+std::optional<int> SignaledPeer::speaker_volume() const noexcept {
+  return impl_->speaker_volume();
+}
+bool SignaledPeer::set_speaker_volume(int percent) noexcept {
+  return impl_->set_speaker_volume(percent);
 }
 void SignaledPeer::cancel_wait() noexcept { impl_->cancel_wait(); }
 void SignaledPeer::stop() noexcept { impl_->stop(); }

@@ -310,6 +310,28 @@ recording_device_selection(NativeAudioPlatform platform) noexcept {
              : RecordingDeviceSelection::index_zero;
 }
 
+std::optional<std::uint32_t>
+speaker_volume_native_value(int percent, std::uint32_t minimum,
+                            std::uint32_t maximum) noexcept {
+  if (percent < 0 || percent > 100 || minimum > maximum)
+    return std::nullopt;
+  const auto range = static_cast<std::uint64_t>(maximum) - minimum;
+  const auto scaled = (range * static_cast<std::uint64_t>(percent) + 50U) / 100U;
+  return minimum + static_cast<std::uint32_t>(scaled);
+}
+
+std::optional<int> speaker_volume_percent(std::uint32_t value,
+                                          std::uint32_t minimum,
+                                          std::uint32_t maximum) noexcept {
+  if (minimum > maximum || value < minimum || value > maximum)
+    return std::nullopt;
+  if (minimum == maximum)
+    return 100;
+  const auto range = static_cast<std::uint64_t>(maximum) - minimum;
+  const auto offset = static_cast<std::uint64_t>(value) - minimum;
+  return static_cast<int>((offset * 100U + range / 2U) / range);
+}
+
 AudioDeviceResult
 create_audio_device(const webrtc::Environment &environment,
                     AudioDeviceMode mode,

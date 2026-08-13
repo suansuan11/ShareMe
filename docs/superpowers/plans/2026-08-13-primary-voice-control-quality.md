@@ -53,12 +53,12 @@
 - Extends: `SignaledMediaStats` with `local_audio_level`, `voice_packets_lost`, `voice_jitter_ms`, `voice_concealed_samples`, and `voice_total_samples_received`.
 - Consumes: the same primary `AudioDeviceModule` already passed into `WebRtcRuntime`.
 
-- [ ] Add RED tests for clamping/rejection, native min/max mapping, failed native set preserving the accepted value, no-playout unavailability, and extraction of only the expected voice RTP track.
-- [ ] Run focused tests and verify the new API/assertions fail for the intended reason.
-- [ ] Retain one scoped audio-device reference in `SignaledPeer::Impl`, map 0-100 using native min/max, and apply changes without recreating the runtime or track.
-- [ ] Collect the five voice-only stats fields in the existing one-second snapshot and leave movie/video selection unchanged.
-- [ ] Run `signaled_peer_test`, `audio_device_factory_test`, and the repeated lifecycle target.
-- [ ] Commit `feat: expose primary voice device controls`.
+- [x] Add RED tests for clamping/rejection, native min/max mapping, failed native set preserving the accepted value, no-playout unavailability, and extraction of only the expected voice RTP track.
+- [x] Run focused tests and verify the new API/assertions fail for the intended reason.
+- [x] Retain one scoped audio-device reference in `SignaledPeer::Impl`, map 0-100 using native min/max, and apply changes without recreating the runtime or track.
+- [x] Collect the five voice-only stats fields in the existing one-second snapshot and leave movie/video selection unchanged.
+- [x] Run `signaled_peer_test`, `audio_device_factory_test`, and the repeated lifecycle target.
+- [x] Commit `feat: expose primary voice device controls`.
 
 ### Task 3: Controller state and QML voice panel
 

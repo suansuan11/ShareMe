@@ -76,6 +76,11 @@ struct SignaledMediaStats {
   std::optional<std::uint64_t> voice_packets_received;
   std::optional<std::uint64_t> voice_bytes_sent;
   std::optional<std::uint64_t> voice_bytes_received;
+  std::optional<double> local_audio_level;
+  std::optional<std::int64_t> voice_packets_lost;
+  std::optional<double> voice_jitter_ms;
+  std::optional<std::uint64_t> voice_concealed_samples;
+  std::optional<std::uint64_t> voice_total_samples_received;
   bool unavailable{false};
 };
 
@@ -130,6 +135,9 @@ public:
   [[nodiscard]] bool remote_audio_enabled() const noexcept;
   bool set_local_audio_enabled(bool enabled) noexcept;
   bool set_remote_audio_enabled(bool enabled) noexcept;
+  [[nodiscard]] bool speaker_volume_available() const noexcept;
+  [[nodiscard]] std::optional<int> speaker_volume() const noexcept;
+  bool set_speaker_volume(int percent) noexcept;
   void cancel_wait() noexcept;
   void stop() noexcept;
 

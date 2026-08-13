@@ -596,6 +596,21 @@ void processing_is_reserved_for_microphone_sources() {
           shareme::rtc::AudioProcessingPolicy::unprocessed);
 }
 
+void speaker_volume_mapping_is_bounded_and_reversible() {
+  REQUIRE(!shareme::rtc::speaker_volume_native_value(-1, 10, 210));
+  REQUIRE(!shareme::rtc::speaker_volume_native_value(101, 10, 210));
+  REQUIRE(!shareme::rtc::speaker_volume_native_value(50, 210, 10));
+  REQUIRE(*shareme::rtc::speaker_volume_native_value(0, 10, 210) == 10);
+  REQUIRE(*shareme::rtc::speaker_volume_native_value(25, 10, 210) == 60);
+  REQUIRE(*shareme::rtc::speaker_volume_native_value(100, 10, 210) == 210);
+  REQUIRE(!shareme::rtc::speaker_volume_percent(9, 10, 210));
+  REQUIRE(!shareme::rtc::speaker_volume_percent(211, 10, 210));
+  REQUIRE(*shareme::rtc::speaker_volume_percent(10, 10, 210) == 0);
+  REQUIRE(*shareme::rtc::speaker_volume_percent(60, 10, 210) == 25);
+  REQUIRE(*shareme::rtc::speaker_volume_percent(210, 10, 210) == 100);
+  REQUIRE(*shareme::rtc::speaker_volume_percent(25, 25, 25) == 100);
+}
+
 } // namespace
 
 int main() {
@@ -616,5 +631,6 @@ int main() {
   recording_device_selection_is_platform_explicit();
   audio_options_are_explicit_for_every_source();
   processing_is_reserved_for_microphone_sources();
+  speaker_volume_mapping_is_bounded_and_reversible();
   return EXIT_SUCCESS;
 }

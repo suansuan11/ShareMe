@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <string>
 
 #include "api/audio/audio_device.h"
@@ -106,6 +107,14 @@ audio_processing_policy(AudioSourceKind source) noexcept;
 
 [[nodiscard]] RecordingDeviceSelection
 recording_device_selection(NativeAudioPlatform platform) noexcept;
+
+[[nodiscard]] std::optional<std::uint32_t>
+speaker_volume_native_value(int percent, std::uint32_t minimum,
+                            std::uint32_t maximum) noexcept;
+
+[[nodiscard]] std::optional<int>
+speaker_volume_percent(std::uint32_t value, std::uint32_t minimum,
+                       std::uint32_t maximum) noexcept;
 
 [[nodiscard]] AudioDeviceResult
 create_audio_device(const webrtc::Environment &environment,
