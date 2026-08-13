@@ -34,7 +34,7 @@
 - Produces: matching `ScreenVideoSource` forwarding methods.
 - Produces: matching `MacScreenCaptureStream` and `MacScreenCaptureSource` methods.
 
-- [ ] **Step 1: Write failing forwarding tests**
+- [x] **Step 1: Write failing forwarding tests**
 
 Extend `FakeScreenCaptureBackend` and `FakeScreenCaptureStream` with explicit booleans and call counts. Assert literal false for an unsupported backend, then enable each fake command and require exactly one forwarded call and result.
 
@@ -47,7 +47,7 @@ REQUIRE(source->inject_retired_stream_stop_for_diagnostics());
 REQUIRE(backend->retired_fault_calls == 1);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -57,11 +57,11 @@ cmake --build build/call-dev --target shareme_screen_video_source_test shareme_m
 
 Expected: compilation fails because the diagnostic methods do not exist.
 
-- [ ] **Step 3: Add minimal forwarding methods**
+- [x] **Step 3: Add minimal forwarding methods**
 
 Add default-false virtuals only at the adapter boundaries and direct forwarding in `ScreenVideoSource` and `MacScreenCaptureSource`. Do not add state, timers, environment parsing, or recovery behavior.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 Run focused CTest for `screen_video_source|macos_screen_capture_source`; require both pass. Stage only the six adapter/test files and commit `feat: expose macOS capture fault diagnostics`.
 
@@ -77,7 +77,7 @@ Run focused CTest for `screen_video_source|macos_screen_capture_source`; require
 - Produces: fixed sanitized current error `screen-capture-stopped-9001`.
 - Produces: one retained retired delegate for the active diagnostic episode; it is released after stale injection or shutdown.
 
-- [ ] **Step 1: Write the failing native behavior test**
+- [x] **Step 1: Write the failing native behavior test**
 
 Register a macOS-only Objective-C++ test target that starts the real adapter against a narrow diagnostic stream seam, injects the current delegate fault, performs stop/start, injects the retired delegate fault, and asserts:
 
@@ -94,11 +94,11 @@ REQUIRE(!stream.inject_retired_stream_stop_for_diagnostics());
 
 The test seam must invoke the same `ShareMeScreenCaptureDelegate` methods and `handle_stream_error` path as production; a gate-only assertion is insufficient.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Build and run the new macOS-only target. Expected: current/retired delegate commands are unavailable and the sanitized error is not produced.
 
-- [ ] **Step 3: Implement current and retired delegate commands**
+- [x] **Step 3: Implement current and retired delegate commands**
 
 Under the stream mutex, require an active delegate for current injection, retain it once as the retired diagnostic delegate, and invoke:
 
@@ -111,11 +111,11 @@ NSError *fault = [NSError errorWithDomain:@"ShareMeCaptureDiagnostics"
 
 For stale injection, require a replacement active generation and a retained old delegate, invoke its same method with code 9002, then release diagnostic state. The old delegate block carries the retired generation and must be rejected by `handle_stream_error`. Clear retained diagnostic state on destructor, terminal startup failure, and explicit final cleanup without altering the real stream lifecycle.
 
-- [ ] **Step 4: Verify lifecycle and mutation cases**
+- [x] **Step 4: Verify lifecycle and mutation cases**
 
 Require focused tests to catch wrong error code, direct handler bypass, missing one-shot release, accepting the old generation, injection without an active stream, and retained state surviving shutdown.
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and commit**
 
 Run the native diagnostic test plus `macos_screen_capture_source` and `screen_video_source`; require all pass. Commit `test: exercise native ScreenCaptureKit delegate faults`.
 
@@ -133,7 +133,7 @@ Run the native diagnostic test plus `macos_screen_capture_source` and `screen_vi
 - Produces: macOS-only current and retired trigger acknowledgements.
 - Produces: sanitized artifact fields `native_delegate_fault_verified`, `retired_delegate_fault_rejected`, and `post_stale_samples`.
 
-- [ ] **Step 1: Write failing controller and runner tests**
+- [x] **Step 1: Write failing controller and runner tests**
 
 Require the controller's current trigger to call only `inject_current_stream_stop_for_diagnostics()`, keep normal error polling active, and never call `beginScreenCaptureRecovery` from the trigger lambda. Require a separate stale trigger to call only `inject_retired_stream_stop_for_diagnostics()` after generation one. Require both paths inside `#if defined(__APPLE__)` and both timers stopped in `stopPeer()`.
 
@@ -147,19 +147,19 @@ Runner tests use fake readers and literal counter sequences to prove:
 
 They must fail separately for missing current injection acknowledgement, recovery timeout, stale injection timeout, second recovery, missing post-stale samples, and media/voice regression.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run `tests/scripts/rtc_demo_cli_test.py` and `tests/scripts/screen_stream_smoke_test.py`. Expected: trigger routing, stale state, and artifact assertions fail.
 
-- [ ] **Step 3: Implement controller trigger routing**
+- [x] **Step 3: Implement controller trigger routing**
 
 Parse two non-empty trigger paths only under `__APPLE__`. The current timer stops only after the native command returns true and prints `SMOKE_STATUS native-delegate-fault-injected`. The stale timer starts after successful recovery; on a runner-owned stale file it calls the retired command, prints `SMOKE_STATUS retired-delegate-fault-injected`, and stops. Neither lambda changes status or recovery policy directly.
 
-- [ ] **Step 4: Implement bounded runner sequencing**
+- [x] **Step 4: Implement bounded runner sequencing**
 
 Create both files inside one `TemporaryDirectory`. Suspend the motion fixture before touching the current trigger. Resume only after exact `1/1/1`. Wait for two later host/viewer samples, touch the stale trigger, require its acknowledgement within three seconds, then require unchanged restart fields and progressing video/voice through at least ten final samples. Cleanup resumes the fixture and terminates peers before deleting the temporary directory on every exit.
 
-- [ ] **Step 5: Verify GREEN and commit**
+- [x] **Step 5: Verify GREEN and commit**
 
 Run both Python suites with system and Homebrew Python, focused controller/source CTest, redaction tests, and `git diff --check`. Commit `test: gate native macOS capture fault recovery`.
 
@@ -174,15 +174,15 @@ Run both Python suites with system and Homebrew Python, focused controller/sourc
 **Interfaces:**
 - Produces: exact current-platform evidence and the canonical next-stage handoff.
 
-- [ ] **Step 1: Run fresh regression gates**
+- [x] **Step 1: Run fresh regression gates**
 
 Fresh-configure and build `call-dev`; run full CTest, `signaled_peer` 20 times, affected Python suites under both interpreters, Go `test -race ./...` and vet, workflow 8/8, skill validation, portable-core forbidden-header scan, artifact redaction, external-cache status, and `git diff --check`.
 
-- [ ] **Step 2: Run the native controlled delegate gate**
+- [x] **Step 2: Run the native controlled delegate gate**
 
 Run one 60-second standard Cocoa smoke with the owned motion fixture, current delegate fault at 15 seconds, three-second fixture suspension, and stale delegate fault after two recovered samples. Require H.264 VideoToolbox, matching host/viewer geometry, exact `0/0/0 -> 1/1/1`, recovering status before restart success, unchanged counters after stale injection, host/viewer video recovery within five samples, bidirectional synthetic voice continuity, bounded presentation recovery, and at least ten post-stale samples.
 
-- [ ] **Step 3: Review and record evidence**
+- [x] **Step 3: Review and record evidence**
 
 Review Objective-C ownership, generation races, shutdown cleanup, trigger causality, timeout bounds, Windows/default isolation, schema/redaction, and cache scope. Fix all Critical and Important findings and rerun affected gates. Record platform, binary/artifact hashes, exact counters, evidence labels, and the physical-fault limitation.
 

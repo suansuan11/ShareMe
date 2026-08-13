@@ -226,6 +226,40 @@ environment-dependent. The next Mac evidence stage is a native delegate fault
 seam or authorized physical fault campaign; do not describe the physical error
 path as verified before that evidence exists.
 
+### macOS Native Capture Delegate Fault Gate
+
+The native delegate fault gate is delivered on
+`codex/macos-native-capture-fault-gate`. Its macOS-only, opt-in diagnostic path
+now invokes the active ScreenCaptureKit delegate's real
+`stream:didStopWithError:` entry instead of entering recovery directly. The
+normal controller error monitor discovers the sanitized category, performs the
+existing bounded same-source recovery, and requires a successful real
+`stopCapture` completion before starting the replacement stream.
+
+After replacement, the runner invokes the retired delegate once. Its old
+generation is rejected without setting a new error or beginning a second
+recovery. Retained diagnostic state is released after stale injection, failed
+native stop, failed replacement startup, shutdown, or controller cleanup. The
+default path and Windows remain unchanged; video/voice tracks, signaling,
+VideoToolbox, dimensions, cadence, bitrate, queues, and retry delays were not
+changed.
+
+On macOS 26.6.1 arm64, Apple M4, a 60-second standard native call passed the
+controlled gate. H.264 VideoToolbox remained active at matching 1470x956;
+attempt/success/generation changed exactly `0/0/0 -> 1/1/1`; both peers
+recovered video in one sample; the retired delegate was injected after two
+recovered samples; counters remained unchanged; 40 post-stale samples and
+bidirectional synthetic voice continued. Final `call-dev` passed 52/52,
+`signaled_peer` repeated 20/20, and independent final review found no Critical
+or Important issue. See [macOS Native Capture Delegate Fault Gate](../verification/macos-native-capture-fault-gate.md).
+
+This is verified controlled delegate invocation, not a claim that macOS
+physically emitted an unsolicited error. Physical sleep/wake, lock/unlock,
+permission revocation, display removal, audible voice, scanout, thermals,
+Windows native rerun, and physical 4K remain environment-dependent. The next
+Mac stage is an authorized physical sleep/wake and lock/unlock campaign while
+preserving all current quality and voice gates.
+
 ## Active stage
 
 Movie-audio transport isolation is merged on `main` through `2d806a5`.
