@@ -228,8 +228,8 @@ path as verified before that evidence exists.
 
 ### macOS Native Capture Delegate Fault Gate
 
-The native delegate fault gate is delivered on
-`codex/macos-native-capture-fault-gate`. Its macOS-only, opt-in diagnostic path
+The native delegate fault gate is merged on `main` from reviewed feature tip
+`f17115a`. Its macOS-only, opt-in diagnostic path
 now invokes the active ScreenCaptureKit delegate's real
 `stream:didStopWithError:` entry instead of entering recovery directly. The
 normal controller error monitor discovers the sanitized category, performs the

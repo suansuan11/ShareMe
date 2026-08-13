@@ -186,6 +186,6 @@ Run one 60-second standard Cocoa smoke with the owned motion fixture, current de
 
 Review Objective-C ownership, generation races, shutdown cleanup, trigger causality, timeout bounds, Windows/default isolation, schema/redaction, and cache scope. Fix all Critical and Important findings and rerun affected gates. Record platform, binary/artifact hashes, exact counters, evidence labels, and the physical-fault limitation.
 
-- [ ] **Step 4: Commit and integrate**
+- [x] **Step 4: Commit and integrate**
 
 Commit verification and handoff documentation. If every frozen gate passes, push the feature branch, fast-forward `main`, rerun merged affected tests, push `main`, verify the exact remote SHA, then remove only this merged worktree and local feature branch.
