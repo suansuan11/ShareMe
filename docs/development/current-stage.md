@@ -118,6 +118,31 @@ selection, and this branch's native macOS regression remain not-run or
 environment-dependent. See
 [Windows GUI and Hardware Screen Parity Verification](../verification/windows-gui-hardware-parity.md).
 
+### Primary Voice Control and Quality Diagnostics
+
+The primary-voice control stage is implemented on
+`codex/voice-control-quality`. The in-call details drawer now separates call
+voice from movie-audio diagnostics and shows microphone activity, remote voice
+volume, the existing AEC/noise-suppression/automatic-gain policy, and a
+conservative interval quality status. Native volume changes update the UI only
+after the WebRTC audio device accepts them. System/application audio capture is
+still a separate unimplemented path.
+
+On macOS 26.6.1, Apple M4 arm64, the isolated build passed `57/57` CTest,
+`signaled_peer` repeated `20/20`, both Python runtime gates, Go race/vet, and
+the repository workflow checks. A 15-second native two-peer synthetic voice
+run delivered 652/658 host send/receive packets and 653/647 viewer send/receive
+packets with native playout disabled. Its sanitized evidence explicitly records
+that MotionFixture was neither requested nor started. See
+[Primary Voice Control and Quality Diagnostics](../verification/primary-voice-control-quality.md).
+
+The stage remains `partial-audible-acceptance`: physical microphone/speaker
+sound, subjective echo/noise quality, native output-volume effect, device
+hot-switching, acoustic A/V, and Windows native behavior require separate
+environment evidence. The next product sub-stage is shared system/application
+audio capture and one-way host-to-viewer control, without merging its lifecycle
+or processing policy into primary voice.
+
 ### macOS Evidence Hardening
 
 The portable evidence hardening stage is delivered on

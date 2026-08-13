@@ -99,11 +99,11 @@
 - Produces a bounded host/viewer synthetic primary-voice run with native playout disabled and no MotionFixture argument, process, or artifact path.
 - Produces sanitized JSONL with executable hash, lifecycle booleans, primary-voice counter deltas, quality availability, control acknowledgements, and explicit `motion_fixture_started=false`.
 
-- [ ] Add RED Python tests for command isolation, no native playout, no fixture launch, early exit, missing voice counters, failed control acknowledgements, redaction, and cleanup.
-- [ ] Run the Python test and verify failure because the runner is absent.
-- [ ] Implement the bounded runner by reusing parsing utilities without importing or starting screen-motion fixture ownership.
-- [ ] Fresh-configure/build on macOS; run full CTest, `signaled_peer` 20 times, affected Python suites under both interpreters, Go race/vet, workflow 8/8, skill validator, portable-core scan, and `git diff --check`.
-- [ ] Run one native two-peer synthetic primary-voice acceptance with speaker playout disabled; require bidirectional counter progress and explicit fixture absence.
-- [ ] Request independent read-only review of audio ownership, thread safety, stats identity, failure truthfulness, QML behavior, privacy, default/Windows isolation, and evidence labels; fix every Critical/Important finding.
-- [ ] Record human audible two-device acceptance and system audio as environment-dependent/unimplemented unless performed, update canonical handoff, and commit `docs: verify primary voice controls`.
+- [x] Add RED Python tests for command isolation, no native playout, no fixture launch, missing voice counters, invalid duration, overwrite rejection, and atomic success output.
+- [x] Run the Python test and verify failure because the runner is absent.
+- [x] Implement the bounded runner by reusing the existing bounded process/parsing utilities without invoking screen-motion fixture ownership.
+- [x] Fresh-configure/build on macOS; run full CTest, `signaled_peer` 20 times, affected Python suites under both interpreters, Go race/vet, workflow 8/8, skill validator, portable-core scan, and `git diff --check`.
+- [x] Run one native two-peer synthetic primary-voice acceptance with speaker playout disabled; require bidirectional counter progress and explicit fixture absence.
+- [x] Request independent read-only review of audio ownership, thread safety, stats identity, failure truthfulness, QML behavior, privacy, default/Windows isolation, and evidence labels; fix every Critical/Important finding.
+- [x] Record human audible two-device acceptance and system audio as environment-dependent/unimplemented unless performed, update canonical handoff, and commit `docs: verify primary voice controls`.
 - [ ] Push the feature branch; fast-forward `main` and clean only this worktree/local branch after every automatic gate passes and the remote SHA is verified.
