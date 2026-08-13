@@ -101,6 +101,7 @@ class RtcDemoController final : public shareme::tools::CallSession {
   Q_PROPERTY(int microphoneLevel READ microphoneLevel NOTIFY voiceDiagnosticsChanged)
   Q_PROPERTY(QString voiceQuality READ voiceQuality NOTIFY voiceDiagnosticsChanged)
   Q_PROPERTY(QString voiceQualityMessage READ voiceQualityMessage NOTIFY voiceDiagnosticsChanged)
+  Q_PROPERTY(QString voiceProcessingSummary READ voiceProcessingSummary CONSTANT)
   Q_PROPERTY(bool stoppable READ stoppable NOTIFY callControlsChanged)
   Q_PROPERTY(bool sessionEnded READ sessionEnded NOTIFY sessionEndedChanged)
 
@@ -168,6 +169,7 @@ public:
   [[nodiscard]] int microphoneLevel() const noexcept;
   [[nodiscard]] QString voiceQuality() const;
   [[nodiscard]] QString voiceQualityMessage() const;
+  [[nodiscard]] QString voiceProcessingSummary() const;
   [[nodiscard]] bool stoppable() const noexcept;
   [[nodiscard]] bool sessionEnded() const noexcept override;
 

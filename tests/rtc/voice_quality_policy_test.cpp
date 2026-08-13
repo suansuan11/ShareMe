@@ -85,8 +85,19 @@ void regression_fails_closed_and_reset_discards_history() {
 
 void remote_mute_has_priority_without_advancing_baseline() {
   VoiceQualityPolicy policy;
+  static_cast<void>(policy.evaluate(snapshot(50, 0, 0, 24'000, 5.0)));
   REQUIRE(policy.evaluate(snapshot(100, 0, 0, 48'000, 5.0), true).category ==
           VoiceQualityCategory::muted);
+  REQUIRE(policy.evaluate(snapshot(200, 0, 0, 96'000, 5.0)).category ==
+          VoiceQualityCategory::good);
+}
+
+void missing_interval_clears_the_previous_baseline() {
+  VoiceQualityPolicy policy;
+  static_cast<void>(policy.evaluate(snapshot(100, 0, 0, 48'000, 5.0)));
+  VoiceQualitySnapshot incomplete;
+  incomplete.packets_received = 150;
+  REQUIRE(policy.evaluate(incomplete).category == VoiceQualityCategory::checking);
   REQUIRE(policy.evaluate(snapshot(200, 0, 0, 96'000, 5.0)).category ==
           VoiceQualityCategory::checking);
 }
@@ -98,5 +109,6 @@ int main() {
   missing_or_zero_interval_never_claims_good();
   regression_fails_closed_and_reset_discards_history();
   remote_mute_has_priority_without_advancing_baseline();
+  missing_interval_clears_the_previous_baseline();
   return EXIT_SUCCESS;
 }

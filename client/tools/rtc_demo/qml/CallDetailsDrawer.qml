@@ -60,6 +60,12 @@ Rectangle {
                     Text { text: "对方音量"; color: theme.textSecondary; font.pixelSize: 11 }
                     Slider {
                         objectName: "speakerVolumeControl"
+                        function requestVolume(requested) {
+                            value = requested
+                            if (!drawer.controller.setSpeakerVolume(Math.round(requested)))
+                                value = drawer.controller.speakerVolume
+                            return value === drawer.controller.speakerVolume
+                        }
                         Layout.fillWidth: true
                         from: 0
                         to: 100
@@ -67,13 +73,13 @@ Rectangle {
                         value: drawer.controller.speakerVolume
                         enabled: drawer.controller.speakerVolumeAvailable
                         Accessible.name: "对方声音音量"
-                        onMoved: drawer.controller.setSpeakerVolume(Math.round(value))
+                        onMoved: requestVolume(value)
                     }
                     Text { text: drawer.controller.speakerVolume + "%"; color: theme.textSecondary; font.pixelSize: 10 }
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "麦克风已启用回声消除、降噪和自动增益"
+                    text: drawer.controller.voiceProcessingSummary
                     color: theme.textMuted
                     font.pixelSize: 10
                     wrapMode: Text.WordWrap

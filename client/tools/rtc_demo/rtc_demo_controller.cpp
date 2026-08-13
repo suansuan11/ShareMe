@@ -601,6 +601,12 @@ QString RtcDemoController::voiceQualityMessage() const {
   return voice_quality_message_;
 }
 
+QString RtcDemoController::voiceProcessingSummary() const {
+  return audio_mode_ == shareme::rtc::SignaledAudioMode::microphone
+             ? QStringLiteral("麦克风已启用回声消除、降噪和自动增益")
+             : QStringLiteral("测试语音不使用麦克风处理");
+}
+
 bool RtcDemoController::stoppable() const noexcept {
   return !control_state_.session_ended();
 }
@@ -1424,6 +1430,18 @@ void RtcDemoController::startPeer() {
       failDriftScenario(QStringLiteral("peer-start-failure"));
     return;
   }
+  if (std::getenv("SHAREME_PRIMARY_VOICE_SMOKE") != nullptr) {
+    QTimer::singleShot(2'000, this, [this] {
+      if (!peer_ || shutting_down_ || control_state_.session_ended())
+        return;
+      const bool microphone_muted = setMicrophoneMuted(true);
+      const bool microphone_restored = setMicrophoneMuted(false);
+      const bool speaker_muted = setSpeakerMuted(true);
+      std::cout << "SMOKE_STATUS primary-voice-controls-ack="
+                << (microphone_muted && microphone_restored && speaker_muted)
+                << std::endl;
+    });
+  }
   startSessionLifecycleMonitor();
   movie_audio_output_ready_ = movie_audio_renderer_ == nullptr;
   if (movie_audio_renderer_) {
@@ -1851,6 +1869,22 @@ void RtcDemoController::emitPerformanceCounters() {
             << media_stats.voice_bytes_sent.value_or(0)
             << " voice_bytes_received="
             << media_stats.voice_bytes_received.value_or(0);
+  if (media_stats.local_audio_level)
+    std::cout << " local_audio_level_milli="
+              << static_cast<std::uint64_t>(std::clamp(
+                     *media_stats.local_audio_level * 1000.0, 0.0, 1000.0));
+  if (media_stats.voice_packets_lost)
+    std::cout << " voice_packets_lost=" << *media_stats.voice_packets_lost;
+  if (media_stats.voice_jitter_ms)
+    std::cout << " voice_jitter_us="
+              << static_cast<std::uint64_t>(
+                     std::max(0.0, *media_stats.voice_jitter_ms * 1000.0));
+  if (media_stats.voice_concealed_samples)
+    std::cout << " voice_concealed_samples="
+              << *media_stats.voice_concealed_samples;
+  if (media_stats.voice_total_samples_received)
+    std::cout << " voice_total_samples_received="
+              << *media_stats.voice_total_samples_received;
   std::cout << " bitrate_bps=" << bitrate_bps;
   std::cout << " callback="
             << performance_callback_count_.load(std::memory_order_relaxed)

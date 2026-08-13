@@ -24,10 +24,17 @@ namespace {
 
 VoiceQualityResult VoiceQualityPolicy::evaluate(
     const VoiceQualitySnapshot &snapshot, bool remote_muted) {
-  if (remote_muted)
+  if (remote_muted) {
+    if (complete(snapshot))
+      previous_ = snapshot;
+    else
+      previous_.reset();
     return {.category = VoiceQualityCategory::muted};
-  if (!complete(snapshot))
+  }
+  if (!complete(snapshot)) {
+    previous_.reset();
     return {};
+  }
   if (!previous_) {
     previous_ = snapshot;
     return {};

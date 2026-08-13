@@ -353,12 +353,23 @@ int main(int argc, char **argv) {
             call_page && call_page->property("detailsOpen").toBool();
         const auto voice_panel =
             root && root->findChild<QObject *>("voicePanel") != nullptr;
+        auto *volume_control =
+            root ? root->findChild<QObject *>("speakerVolumeControl") : nullptr;
+        QVariant volume_restored;
+        const auto volume_checked =
+            volume_control && QMetaObject::invokeMethod(
+                                  volume_control, "requestVolume",
+                                  Qt::DirectConnection,
+                                  Q_RETURN_ARG(QVariant, volume_restored),
+                                  Q_ARG(QVariant, 37));
         const auto leave_clicked = invoke_click("leaveControl");
         const auto returned_home = app_controller.page() == QStringLiteral("home");
         std::cout << "GUI_ACTION microphone=" << microphone_clicked
                   << " speaker=" << speaker_clicked
                   << " drawer=" << (details_clicked && drawer_open)
                   << " voice_panel=" << voice_panel
+                  << " volume_rejected_restored="
+                  << (volume_checked && volume_restored.toBool())
                   << " leave=" << (leave_clicked && returned_home)
                   << " page=" << app_controller.page().toStdString()
                   << std::endl;
