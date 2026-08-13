@@ -117,4 +117,4 @@
 - [x] Run one 60-second controlled nested lock/sleep/unlock/wake call and one controlled lock/unlock call with a post-event capture fault; require H.264 VideoToolbox, matching geometry, no unnecessary capture restart on healthy return, bounded authorized recovery on the fault path, video/voice progress, and ten post-resume samples.
 - [x] Run independent read-only review for native observer ownership, queued-callback races, shutdown, nested policy, controller classification, default/Windows isolation, runner causality, and evidence labels; fix all Critical/Important findings.
 - [x] Record physical sleep/wake and lock/unlock as environment-dependent unless the real native notifications are performed in this session.
-- [ ] Commit evidence, push feature branch, fast-forward `main` only after all automatic gates pass, verify merged tests and remote SHA, then remove only this worktree/local branch.
+- [x] Commit evidence, push feature branch, fast-forward `main` only after all automatic gates pass, verify merged tests and remote SHA, then remove only this worktree/local branch.
