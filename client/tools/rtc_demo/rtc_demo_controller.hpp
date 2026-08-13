@@ -14,6 +14,7 @@
 #include "qt_audio_route_monitor.hpp"
 #include "call_session.hpp"
 #include "rtc_control_state.hpp"
+#include "screen_capture_recovery_policy.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -197,6 +198,8 @@ private:
   void emitDriftDiagnostics();
   void emitPerformanceCounters();
   void checkScreenCaptureError();
+  void beginScreenCaptureRecovery(QString category);
+  void runScreenCaptureRecoveryAttempt();
   void startAudioRouteMonitor();
   void startMovieAudioPeer();
   void startMovieAudioViewerPath();
@@ -251,6 +254,7 @@ private:
   QTimer drift_scenario_timer_;
   QTimer performance_timer_;
   QTimer screen_capture_error_timer_;
+  QTimer screen_capture_recovery_timer_;
   std::uint64_t playback_sequence_{1};
   std::uint64_t scheduler_observation_sequence_{1};
   std::chrono::steady_clock::time_point scheduler_started_at_{};
@@ -289,6 +293,7 @@ private:
   bool performance_counters_enabled_{false};
   bool screen_recovery_probe_enabled_{false};
   bool screen_recovery_probe_scheduled_{false};
+  shareme::tools::ScreenCaptureRecoveryPolicy screen_capture_recovery_policy_;
   QString screen_capture_restart_trigger_path_;
   QTimer screen_capture_restart_probe_timer_;
   std::atomic<std::uint64_t> screen_capture_restart_attempts_{0};

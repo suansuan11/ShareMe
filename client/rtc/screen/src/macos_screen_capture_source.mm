@@ -48,6 +48,7 @@ private:
                                     SCDisplay **display);
   [[nodiscard]] bool start_with_display(SCDisplay *display);
   void handle_sample_buffer(CMSampleBufferRef sample_buffer);
+  void handle_stream_error(NSError *error);
   void set_error(std::string value);
 
   const MacScreenCaptureConfig config_;
@@ -56,6 +57,7 @@ private:
   std::string error_;
   SCStream *__strong stream_{nil};
   ShareMeScreenCaptureDelegate *__strong delegate_{nil};
+  bool stopped_with_error_{false};
 };
 
 } // namespace shareme::rtc
@@ -102,6 +104,7 @@ bool ScreenCaptureKitStream::start(FrameCallback callback) {
       return true;
     callback_ = std::move(callback);
     error_.clear();
+    stopped_with_error_ = false;
   }
 
   __block SCShareableContent *content = nil;
@@ -143,27 +146,32 @@ bool ScreenCaptureKitStream::start(FrameCallback callback) {
 void ScreenCaptureKitStream::stop() noexcept {
   SCStream *stream = nil;
   ShareMeScreenCaptureDelegate *delegate = nil;
+  bool stopped_with_error = false;
   {
     std::lock_guard lock(mutex_);
     stream = stream_;
     delegate = delegate_;
+    stopped_with_error = stopped_with_error_;
   }
   if (stream == nil)
     return;
 
-  dispatch_semaphore_t stopped = dispatch_semaphore_create(0);
-  [stream stopCaptureWithCompletionHandler:^(NSError *error) {
-    if (error != nil)
-      set_error(sanitized_error("screen-capture-stop-failed", error));
-    dispatch_semaphore_signal(stopped);
-  }];
-  dispatch_semaphore_wait(stopped, DISPATCH_TIME_FOREVER);
+  if (!stopped_with_error) {
+    dispatch_semaphore_t stopped = dispatch_semaphore_create(0);
+    [stream stopCaptureWithCompletionHandler:^(NSError *error) {
+      if (error != nil)
+        set_error(sanitized_error("screen-capture-stop-failed", error));
+      dispatch_semaphore_signal(stopped);
+    }];
+    dispatch_semaphore_wait(stopped, DISPATCH_TIME_FOREVER);
+  }
   [stream removeStreamOutput:delegate type:SCStreamOutputTypeScreen error:nil];
 
   std::lock_guard lock(mutex_);
   stream_ = nil;
   delegate_ = nil;
   callback_ = {};
+  stopped_with_error_ = false;
 }
 
 std::string ScreenCaptureKitStream::error() const {
@@ -223,7 +231,7 @@ bool ScreenCaptureKitStream::start_with_display(SCDisplay *display) {
       }
                  errorHandler:^(NSError *error) {
                    if (error != nil)
-                     set_error(sanitized_error("screen-capture-stopped", error));
+                     handle_stream_error(error);
                  }];
   auto *filter = [[SCContentFilter alloc] initWithDisplay:display
                                           excludingWindows:@[]];
@@ -259,6 +267,7 @@ bool ScreenCaptureKitStream::start_with_display(SCDisplay *display) {
     std::lock_guard lock(mutex_);
     stream_ = stream;
     delegate_ = delegate;
+    stopped_with_error_ = false;
   }
   return true;
 }
@@ -320,6 +329,12 @@ void ScreenCaptureKitStream::handle_sample_buffer(
 void ScreenCaptureKitStream::set_error(std::string value) {
   std::lock_guard lock(mutex_);
   error_ = std::move(value);
+}
+
+void ScreenCaptureKitStream::handle_stream_error(NSError *error) {
+  std::lock_guard lock(mutex_);
+  error_ = sanitized_error("screen-capture-stopped", error);
+  stopped_with_error_ = true;
 }
 
 } // namespace shareme::rtc

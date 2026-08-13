@@ -269,6 +269,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
   screen_capture_error_timer_.setInterval(250);
   connect(&screen_capture_error_timer_, &QTimer::timeout, this,
           &RtcDemoController::checkScreenCaptureError);
+  screen_capture_recovery_timer_.setSingleShot(true);
+  connect(&screen_capture_recovery_timer_, &QTimer::timeout, this,
+          &RtcDemoController::runScreenCaptureRecoveryAttempt);
   connect(&signaling_, &QtSignalingClient::roomReady, this,
           [this](const QString &room) {
             setRoomId(room);
@@ -576,8 +579,69 @@ void RtcDemoController::checkScreenCaptureError() {
   if (error.empty())
     return;
   screen_capture_error_timer_.stop();
+#if defined(__APPLE__)
+  if (shareme::tools::is_recoverable_screen_capture_error(error)) {
+    beginScreenCaptureRecovery(QString::fromStdString(error));
+    return;
+  }
+#endif
   setStatus(QStringLiteral("screen-capture-error:") +
             QString::fromStdString(error));
+}
+
+void RtcDemoController::beginScreenCaptureRecovery(QString category) {
+  if (shutting_down_ || !screen_video_source_ ||
+      !shareme::tools::is_recoverable_screen_capture_error(
+          category.toStdString()) ||
+      !screen_capture_recovery_policy_.begin()) {
+    return;
+  }
+
+  screen_capture_error_timer_.stop();
+  const auto delay = screen_capture_recovery_policy_.delay_ms();
+  if (!delay)
+    return;
+  setStatus(QStringLiteral("screen-capture-recovering:1"));
+  screen_capture_recovery_timer_.start(*delay);
+}
+
+void RtcDemoController::runScreenCaptureRecoveryAttempt() {
+  if (shutting_down_ || !screen_video_source_ ||
+      !screen_capture_recovery_policy_.begin_attempt()) {
+    return;
+  }
+
+  screen_capture_restart_attempts_.fetch_add(1, std::memory_order_relaxed);
+  screen_video_source_->stop();
+  if (screen_video_source_->start()) {
+    static_cast<void>(screen_capture_recovery_policy_.record_success());
+    screen_capture_restart_successes_.fetch_add(1,
+                                                std::memory_order_relaxed);
+    screen_capture_generation_.fetch_add(1, std::memory_order_relaxed);
+    screen_capture_recovery_policy_.reset();
+    setStatus(QStringLiteral("connected"));
+    screen_capture_error_timer_.start();
+    std::cout << "SMOKE_STATUS screen-capture-restarted" << std::endl;
+    return;
+  }
+
+  static_cast<void>(screen_capture_recovery_policy_.record_failure());
+  if (screen_capture_recovery_policy_.state() ==
+      shareme::tools::ScreenCaptureRecoveryState::exhausted) {
+    setStatus(QStringLiteral(
+        "call-error: screen-capture-recovery-exhausted"));
+    return;
+  }
+
+  const auto next_delay = screen_capture_recovery_policy_.delay_ms();
+  if (!next_delay) {
+    setStatus(QStringLiteral(
+        "call-error: screen-capture-recovery-exhausted"));
+    return;
+  }
+  setStatus(QStringLiteral("screen-capture-recovering:") +
+            QString::number(screen_capture_recovery_policy_.attempt() + 1));
+  screen_capture_recovery_timer_.start(*next_delay);
 }
 
 void RtcDemoController::startAudioRouteMonitor() {
@@ -1049,19 +1113,8 @@ void RtcDemoController::startPeer() {
               if (!QFileInfo::exists(screen_capture_restart_trigger_path_))
                 return;
               screen_capture_restart_probe_timer_.stop();
-              screen_capture_restart_attempts_.fetch_add(
-                  1, std::memory_order_relaxed);
-              screen_video_source_->stop();
-              if (!screen_video_source_->start()) {
-                setStatus(QStringLiteral("screen-capture-restart-failed:") +
-                          QString::fromStdString(screen_video_source_->error()));
-                return;
-              }
-              screen_capture_restart_successes_.fetch_add(
-                  1, std::memory_order_relaxed);
-              screen_capture_generation_.fetch_add(
-                  1, std::memory_order_relaxed);
-              std::cout << "SMOKE_STATUS screen-capture-restarted" << std::endl;
+              beginScreenCaptureRecovery(
+                  QStringLiteral("screen-capture-stopped-probe"));
             });
     screen_capture_restart_probe_timer_.start();
   }
@@ -1133,7 +1186,9 @@ void RtcDemoController::stopPeer() noexcept {
   drift_scenario_timer_.stop();
   performance_timer_.stop();
   screen_capture_error_timer_.stop();
+  screen_capture_recovery_timer_.stop();
   screen_capture_restart_probe_timer_.stop();
+  screen_capture_recovery_policy_.reset();
   if (performance_stats_worker_.joinable()) {
     performance_stats_worker_.request_stop();
     performance_stats_worker_.join();

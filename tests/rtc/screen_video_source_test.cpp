@@ -70,9 +70,16 @@ class FakeScreenCaptureBackend final :
     public shareme::rtc::ScreenCaptureBackend {
 public:
   bool start(FrameCallback callback) override {
+    if (fail_starts_remaining > 0) {
+      --fail_starts_remaining;
+      ++start_count;
+      error_value = "screen-capture-start-failed-7";
+      return false;
+    }
     callback_ = std::move(callback);
     started = true;
     ++start_count;
+    error_value.clear();
     return true;
   }
 
@@ -100,6 +107,7 @@ public:
   bool stopped{false};
   int start_count{0};
   int stop_count{0};
+  int fail_starts_remaining{0};
   std::string error_value;
   std::uint64_t pending_count{0};
   std::uint64_t dropped_count{0};
@@ -237,6 +245,38 @@ void restarts_capture_without_replacing_the_video_source() {
   REQUIRE(source->generated_count() == 1);
 }
 
+void retries_a_failed_restart_on_the_same_video_source() {
+  using shareme::rtc::ScreenFrame;
+  using shareme::rtc::ScreenFrameBacking;
+
+  FakeScreenCaptureBackend *backend = nullptr;
+  auto source = make_source(&backend);
+  RecordingSink sink;
+  auto *video_source =
+      static_cast<webrtc::VideoSourceInterface<webrtc::VideoFrame> *>(
+          source.get());
+  video_source->AddOrUpdateSink(&sink, webrtc::VideoSinkWants{});
+
+  REQUIRE(source->start());
+  backend->error_value = "screen-capture-stopped-42";
+  source->stop();
+  backend->fail_starts_remaining = 1;
+  REQUIRE(!source->start());
+  REQUIRE(source->error() == "screen-capture-start-failed-7");
+  REQUIRE(source->start());
+  REQUIRE(source->error().empty());
+
+  auto buffer = webrtc::I420Buffer::Create(320, 180);
+  backend->emit(
+      ScreenFrame{buffer, 320, 180, 1'200'000, ScreenFrameBacking::i420});
+  source->stop();
+  video_source->RemoveSink(&sink);
+
+  REQUIRE(backend->start_count == 3);
+  REQUIRE(backend->stop_count == 2);
+  REQUIRE(sink.frame_count == 1);
+}
+
 void honors_sink_adaptation_for_i420_frames() {
   using shareme::rtc::ScreenFrame;
 
@@ -334,6 +374,7 @@ int main() {
   forwards_i420_frames_as_the_software_fallback();
   reports_a_runtime_backend_error();
   restarts_capture_without_replacing_the_video_source();
+  retries_a_failed_restart_on_the_same_video_source();
   honors_sink_adaptation_for_i420_frames();
   reports_backend_queue_metrics();
   platform_factory_constructs_without_starting_capture();

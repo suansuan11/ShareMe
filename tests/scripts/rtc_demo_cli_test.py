@@ -707,6 +707,24 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn("video_source_error", peer)
         self.assertIn('screen-capture-error:', source)
 
+    def test_controller_automatically_recovers_bounded_screen_capture_failures(self):
+        source = self.controller_source.read_text(encoding="utf-8")
+        header = self.controller_header.read_text(encoding="utf-8")
+        self.assertIn("screen_capture_recovery_timer_", header)
+        self.assertIn("screen_capture_recovery_policy_", header)
+        self.assertIn("beginScreenCaptureRecovery", source)
+        self.assertIn("runScreenCaptureRecoveryAttempt", source)
+        self.assertIn("screen-capture-recovering:", source)
+        self.assertIn(
+            "call-error: screen-capture-recovery-exhausted", source
+        )
+        self.assertIn("screen_capture_recovery_timer_.stop()", source)
+        error_check = source[
+            source.index("void RtcDemoController::checkScreenCaptureError"):
+            source.index("void RtcDemoController::beginScreenCaptureRecovery")
+        ]
+        self.assertIn("#if defined(__APPLE__)", error_check)
+
     def test_controller_exposes_screen_encoder_and_presentation_diagnostics(self):
         source = self.controller_source.read_text(encoding="utf-8")
         header = self.controller_header.read_text(encoding="utf-8")

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <string_view>
 
 namespace shareme::tools {
 
@@ -12,6 +13,9 @@ enum class ScreenCaptureRecoveryState {
   recovered,
   exhausted,
 };
+
+[[nodiscard]] bool
+is_recoverable_screen_capture_error(std::string_view category) noexcept;
 
 class ScreenCaptureRecoveryPolicy {
 public:

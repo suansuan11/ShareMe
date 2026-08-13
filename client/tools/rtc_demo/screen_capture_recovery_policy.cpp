@@ -9,6 +9,11 @@ constexpr std::array retry_delays_ms{250, 500, 1'000};
 
 } // namespace
 
+bool is_recoverable_screen_capture_error(std::string_view category) noexcept {
+  constexpr std::string_view prefix{"screen-capture-stopped-"};
+  return category.starts_with(prefix) && category.size() > prefix.size();
+}
+
 bool ScreenCaptureRecoveryPolicy::begin() noexcept {
   if (state_ != ScreenCaptureRecoveryState::inactive)
     return false;

@@ -18,6 +18,15 @@ void require(bool condition, const char *expression, int line) {
 
 using shareme::tools::ScreenCaptureRecoveryPolicy;
 using shareme::tools::ScreenCaptureRecoveryState;
+using shareme::tools::is_recoverable_screen_capture_error;
+
+void classifies_only_runtime_screen_capture_stops_as_recoverable() {
+  REQUIRE(is_recoverable_screen_capture_error("screen-capture-stopped-42"));
+  REQUIRE(is_recoverable_screen_capture_error("screen-capture-stopped-probe"));
+  REQUIRE(!is_recoverable_screen_capture_error("screen-capture-start-failed-7"));
+  REQUIRE(!is_recoverable_screen_capture_error("permission-denied"));
+  REQUIRE(!is_recoverable_screen_capture_error(""));
+}
 
 void recovers_on_the_first_bounded_attempt() {
   ScreenCaptureRecoveryPolicy policy;
@@ -79,6 +88,7 @@ void reset_starts_a_fresh_episode() {
 } // namespace
 
 int main() {
+  classifies_only_runtime_screen_capture_stops_as_recoverable();
   recovers_on_the_first_bounded_attempt();
   exhausts_after_three_failures_with_fixed_backoff();
   reset_starts_a_fresh_episode();
