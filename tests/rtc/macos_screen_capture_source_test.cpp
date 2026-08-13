@@ -62,6 +62,16 @@ public:
 
   std::string error() const override { return error_value; }
 
+  bool inject_current_stream_stop_for_diagnostics() override {
+    ++current_fault_calls;
+    return current_fault_available;
+  }
+
+  bool inject_retired_stream_stop_for_diagnostics() override {
+    ++retired_fault_calls;
+    return retired_fault_available;
+  }
+
   void emit(shareme::rtc::ScreenFrame frame) {
     if (callback_)
       callback_(std::move(frame));
@@ -70,10 +80,30 @@ public:
   bool started{false};
   bool stopped{false};
   std::string error_value;
+  bool current_fault_available{false};
+  bool retired_fault_available{false};
+  int current_fault_calls{0};
+  int retired_fault_calls{0};
 
 private:
   FrameCallback callback_;
 };
+
+void forwards_native_fault_diagnostics_to_the_stream() {
+  auto stream_owner = std::make_unique<FakeScreenCaptureStream>();
+  auto *stream = stream_owner.get();
+  shareme::rtc::MacScreenCaptureSource source({}, std::move(stream_owner));
+
+  REQUIRE(!source.inject_current_stream_stop_for_diagnostics());
+  REQUIRE(stream->current_fault_calls == 1);
+  stream->current_fault_available = true;
+  REQUIRE(source.inject_current_stream_stop_for_diagnostics());
+
+  REQUIRE(!source.inject_retired_stream_stop_for_diagnostics());
+  REQUIRE(stream->retired_fault_calls == 1);
+  stream->retired_fault_available = true;
+  REQUIRE(source.inject_retired_stream_stop_for_diagnostics());
+}
 
 void replaces_a_pending_frame_and_keeps_one_slot() {
   shareme::rtc::MacScreenCaptureFrameQueue queue;
@@ -144,6 +174,7 @@ void reports_a_runtime_stream_error() {
 } // namespace
 
 int main() {
+  forwards_native_fault_diagnostics_to_the_stream();
   rejects_late_events_from_a_replaced_native_stream();
   replaces_a_pending_frame_and_keeps_one_slot();
   delivers_on_worker_thread_and_rejects_late_callbacks();

@@ -39,6 +39,12 @@ public:
   dropped_frame_count() const noexcept {
     return 0;
   }
+  [[nodiscard]] virtual bool inject_current_stream_stop_for_diagnostics() {
+    return false;
+  }
+  [[nodiscard]] virtual bool inject_retired_stream_stop_for_diagnostics() {
+    return false;
+  }
 };
 
 [[nodiscard]] std::unique_ptr<ScreenCaptureBackend>
@@ -65,6 +71,8 @@ public:
   last_pts_ms() const noexcept override;
   [[nodiscard]] std::string error() const override;
   [[nodiscard]] std::uint64_t pending_frame_count() const noexcept;
+  [[nodiscard]] bool inject_current_stream_stop_for_diagnostics();
+  [[nodiscard]] bool inject_retired_stream_stop_for_diagnostics();
 
   [[nodiscard]] bool is_screencast() const override;
   [[nodiscard]] std::optional<bool> needs_denoising() const override;

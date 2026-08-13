@@ -178,6 +178,16 @@ std::uint64_t MacScreenCaptureSource::dropped_frame_count() const noexcept {
   return frames_dropped();
 }
 
+bool MacScreenCaptureSource::inject_current_stream_stop_for_diagnostics() {
+  return stream_ != nullptr &&
+         stream_->inject_current_stream_stop_for_diagnostics();
+}
+
+bool MacScreenCaptureSource::inject_retired_stream_stop_for_diagnostics() {
+  return stream_ != nullptr &&
+         stream_->inject_retired_stream_stop_for_diagnostics();
+}
+
 void MacScreenCaptureSource::receive_capture_frame(ScreenFrame frame) {
   if (!accepting_callbacks_.load(std::memory_order_acquire))
     return;

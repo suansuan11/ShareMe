@@ -81,6 +81,16 @@ std::uint64_t ScreenVideoSource::pending_frame_count() const noexcept {
   return backend_ == nullptr ? 0 : backend_->pending_frame_count();
 }
 
+bool ScreenVideoSource::inject_current_stream_stop_for_diagnostics() {
+  return backend_ != nullptr &&
+         backend_->inject_current_stream_stop_for_diagnostics();
+}
+
+bool ScreenVideoSource::inject_retired_stream_stop_for_diagnostics() {
+  return backend_ != nullptr &&
+         backend_->inject_retired_stream_stop_for_diagnostics();
+}
+
 bool ScreenVideoSource::is_screencast() const { return true; }
 
 std::optional<bool> ScreenVideoSource::needs_denoising() const { return false; }

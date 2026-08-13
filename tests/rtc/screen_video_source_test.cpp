@@ -98,6 +98,16 @@ public:
     return dropped_count;
   }
 
+  bool inject_current_stream_stop_for_diagnostics() override {
+    ++current_fault_calls;
+    return current_fault_available;
+  }
+
+  bool inject_retired_stream_stop_for_diagnostics() override {
+    ++retired_fault_calls;
+    return retired_fault_available;
+  }
+
   void emit(shareme::rtc::ScreenFrame frame) {
     if (callback_)
       callback_(std::move(frame));
@@ -111,6 +121,10 @@ public:
   std::string error_value;
   std::uint64_t pending_count{0};
   std::uint64_t dropped_count{0};
+  bool current_fault_available{false};
+  bool retired_fault_available{false};
+  int current_fault_calls{0};
+  int retired_fault_calls{0};
 
 private:
   FrameCallback callback_;
@@ -122,6 +136,23 @@ webrtc::scoped_refptr<shareme::rtc::ScreenVideoSource> make_source(
   *backend = backend_owner.get();
   return webrtc::scoped_refptr<shareme::rtc::ScreenVideoSource>(
       new shareme::rtc::ScreenVideoSource({}, std::move(backend_owner)));
+}
+
+void forwards_opt_in_native_fault_diagnostics() {
+  FakeScreenCaptureBackend *backend = nullptr;
+  auto source = make_source(&backend);
+
+  REQUIRE(!source->inject_current_stream_stop_for_diagnostics());
+  REQUIRE(backend->current_fault_calls == 1);
+  backend->current_fault_available = true;
+  REQUIRE(source->inject_current_stream_stop_for_diagnostics());
+  REQUIRE(backend->current_fault_calls == 2);
+
+  REQUIRE(!source->inject_retired_stream_stop_for_diagnostics());
+  REQUIRE(backend->retired_fault_calls == 1);
+  backend->retired_fault_available = true;
+  REQUIRE(source->inject_retired_stream_stop_for_diagnostics());
+  REQUIRE(backend->retired_fault_calls == 2);
 }
 
 void forwards_native_frames_without_i420_conversion() {
@@ -369,6 +400,7 @@ int windows_platform_factory_delivers_desktop_duplication_frames() {
 } // namespace
 
 int main() {
+  forwards_opt_in_native_fault_diagnostics();
   forwards_native_frames_without_i420_conversion();
   rejects_frames_after_stop_and_rejects_mismatched_dimensions();
   forwards_i420_frames_as_the_software_fallback();
