@@ -106,7 +106,8 @@ class GuiQmlContractTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
-            "GUI_ACTION microphone=1 speaker=1 drawer=1 leave=1 page=home",
+            "GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
+            "leave=1 page=home",
             result.stdout,
         )
         self.assertNotIn("TypeError:", result.stderr)

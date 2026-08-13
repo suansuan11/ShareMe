@@ -32,6 +32,54 @@ Rectangle {
             InfoRow { Layout.fillWidth: true; label: "麦克风"; value: drawer.controller.microphoneMuted ? "已静音" : "已开启" }
             InfoRow { Layout.fillWidth: true; label: "扬声器"; value: drawer.controller.speakerMuted ? "已关闭" : "已开启" }
 
+            ColumnLayout {
+                id: voicePanel
+                objectName: "voicePanel"
+                Layout.fillWidth: true
+                spacing: 8
+                Text { text: "通话声音"; color: theme.textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
+                Text {
+                    Layout.fillWidth: true
+                    text: drawer.controller.voiceQualityMessage
+                    color: drawer.controller.voiceQuality === "poor" ? "#FB7185"
+                         : drawer.controller.voiceQuality === "unstable" ? "#FBBF24"
+                         : drawer.controller.voiceQuality === "good" ? theme.cyan
+                         : theme.textSecondary
+                    font.pixelSize: 11
+                }
+                Text { text: "麦克风活动"; color: theme.textSecondary; font.pixelSize: 11 }
+                ProgressBar {
+                    Layout.fillWidth: true
+                    from: 0
+                    to: 100
+                    value: drawer.controller.microphoneLevel
+                    Accessible.name: "麦克风活动"
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text { text: "对方音量"; color: theme.textSecondary; font.pixelSize: 11 }
+                    Slider {
+                        objectName: "speakerVolumeControl"
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 100
+                        stepSize: 1
+                        value: drawer.controller.speakerVolume
+                        enabled: drawer.controller.speakerVolumeAvailable
+                        Accessible.name: "对方声音音量"
+                        onMoved: drawer.controller.setSpeakerVolume(Math.round(value))
+                    }
+                    Text { text: drawer.controller.speakerVolume + "%"; color: theme.textSecondary; font.pixelSize: 10 }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: "麦克风已启用回声消除、降噪和自动增益"
+                    color: theme.textMuted
+                    font.pixelSize: 10
+                    wrapMode: Text.WordWrap
+                }
+            }
+
             Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: theme.border }
 
             ColumnLayout {

@@ -10,6 +10,8 @@
 #include <QVideoSink>
 
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstdlib>
 #include <iostream>
@@ -308,6 +310,9 @@ RtcDemoController::RtcDemoController(QUrl server_url,
   performance_timer_.setInterval(1'000);
   connect(&performance_timer_, &QTimer::timeout, this,
           &RtcDemoController::emitPerformanceCounters);
+  voice_diagnostics_timer_.setInterval(1'000);
+  connect(&voice_diagnostics_timer_, &QTimer::timeout, this,
+          &RtcDemoController::refreshVoiceDiagnostics);
   screen_capture_error_timer_.setInterval(250);
   connect(&screen_capture_error_timer_, &QTimer::timeout, this,
           &RtcDemoController::checkScreenCaptureError);
@@ -580,6 +585,22 @@ bool RtcDemoController::speakerMuted() const noexcept {
   return control_state_.speaker_muted();
 }
 
+int RtcDemoController::speakerVolume() const noexcept { return speaker_volume_; }
+
+bool RtcDemoController::speakerVolumeAvailable() const noexcept {
+  return speaker_volume_available_;
+}
+
+int RtcDemoController::microphoneLevel() const noexcept {
+  return microphoneMuted() ? 0 : microphone_level_;
+}
+
+QString RtcDemoController::voiceQuality() const { return voice_quality_; }
+
+QString RtcDemoController::voiceQualityMessage() const {
+  return voice_quality_message_;
+}
+
 bool RtcDemoController::stoppable() const noexcept {
   return !control_state_.session_ended();
 }
@@ -604,6 +625,75 @@ bool RtcDemoController::setSpeakerMuted(bool muted) {
   if (control_state_.set_speaker_muted(muted))
     emit callControlsChanged();
   return true;
+}
+
+bool RtcDemoController::setSpeakerVolume(int percent) {
+  if (!peer_ || control_state_.session_ended() || percent < 0 || percent > 100 ||
+      !peer_->set_speaker_volume(percent))
+    return false;
+  speaker_volume_ = percent;
+  speaker_volume_available_ = true;
+  emit voiceDiagnosticsChanged();
+  return true;
+}
+
+void RtcDemoController::refreshVoiceDiagnostics() {
+  shareme::rtc::SignaledMediaStats media;
+  {
+    std::lock_guard lock(performance_stats_mutex_);
+    media = performance_media_stats_;
+  }
+  int level = 0;
+  if (!microphoneMuted() && media.local_audio_level &&
+      std::isfinite(*media.local_audio_level)) {
+    level = std::clamp(
+        static_cast<int>(std::lround(*media.local_audio_level * 100.0)), 0,
+        100);
+  }
+  const auto quality = voice_quality_policy_.evaluate(
+      {
+          .packets_received = media.voice_packets_received,
+          .packets_lost = media.voice_packets_lost,
+          .concealed_samples = media.voice_concealed_samples,
+          .total_samples_received = media.voice_total_samples_received,
+          .jitter_ms = media.voice_jitter_ms,
+      },
+      speakerMuted());
+  QString category = QStringLiteral("checking");
+  QString message = QStringLiteral("正在检测通话声音");
+  switch (quality.category) {
+  case shareme::tools::VoiceQualityCategory::checking:
+    break;
+  case shareme::tools::VoiceQualityCategory::good:
+    category = QStringLiteral("good");
+    message = QStringLiteral("语音传输稳定");
+    break;
+  case shareme::tools::VoiceQualityCategory::unstable:
+    category = QStringLiteral("unstable");
+    message = QStringLiteral("语音网络有轻微波动");
+    break;
+  case shareme::tools::VoiceQualityCategory::poor:
+    category = QStringLiteral("poor");
+    message = QStringLiteral("语音网络质量较差");
+    break;
+  case shareme::tools::VoiceQualityCategory::muted:
+    category = QStringLiteral("muted");
+    message = QStringLiteral("对方声音已关闭");
+    break;
+  }
+  const bool available = peer_ && peer_->speaker_volume_available();
+  const auto current_volume = peer_ ? peer_->speaker_volume() : std::nullopt;
+  const int volume = current_volume.value_or(speaker_volume_);
+  if (level == microphone_level_ && category == voice_quality_ &&
+      message == voice_quality_message_ &&
+      available == speaker_volume_available_ && volume == speaker_volume_)
+    return;
+  microphone_level_ = level;
+  voice_quality_ = std::move(category);
+  voice_quality_message_ = std::move(message);
+  speaker_volume_available_ = available;
+  speaker_volume_ = volume;
+  emit voiceDiagnosticsChanged();
 }
 
 void RtcDemoController::stop() {
@@ -1413,7 +1503,8 @@ void RtcDemoController::startPeer() {
     screen_capture_retired_fault_probe_timer_.start();
   }
 #endif
-  if (performance_counters_enabled_) {
+  if (performance_counters_enabled_ ||
+      audio_mode_ == shareme::rtc::SignaledAudioMode::microphone) {
     performance_stats_worker_ = std::jthread([this](std::stop_token stop_token) {
       while (!stop_token.stop_requested()) {
         const auto stats = peer_
@@ -1431,7 +1522,9 @@ void RtcDemoController::startPeer() {
             });
       }
     });
-    performance_timer_.start();
+    voice_diagnostics_timer_.start();
+    if (performance_counters_enabled_)
+      performance_timer_.start();
   }
   if (role_ == shareme::rtc::SignaledRole::host &&
       drift_scenario_name_ == QStringLiteral("drift-study-v1")) {
@@ -1495,6 +1588,11 @@ void RtcDemoController::stopPeer() noexcept {
   movie_audio_peer_started_ = false;
   drift_scenario_timer_.stop();
   performance_timer_.stop();
+  voice_diagnostics_timer_.stop();
+  voice_quality_policy_.reset();
+  microphone_level_ = 0;
+  voice_quality_ = QStringLiteral("checking");
+  voice_quality_message_ = QStringLiteral("正在检测通话声音");
   screen_capture_error_timer_.stop();
   screen_capture_recovery_timer_.stop();
   session_resume_timer_.stop();

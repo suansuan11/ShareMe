@@ -17,6 +17,7 @@
 #include "screen_capture_recovery_policy.hpp"
 #include "session_lifecycle_monitor.hpp"
 #include "session_lifecycle_policy.hpp"
+#include "voice_quality_policy.hpp"
 #include "drift_scenario.hpp"
 #include "shareme/rtc/movie_audio_peer.hpp"
 #include "shareme/rtc/signaled_peer.hpp"
@@ -95,6 +96,11 @@ class RtcDemoController final : public shareme::tools::CallSession {
   Q_PROPERTY(qulonglong presentationDelayMaxMs READ presentationDelayMaxMs NOTIFY presentationDiagnosticsChanged)
   Q_PROPERTY(bool microphoneMuted READ microphoneMuted NOTIFY callControlsChanged)
   Q_PROPERTY(bool speakerMuted READ speakerMuted NOTIFY callControlsChanged)
+  Q_PROPERTY(int speakerVolume READ speakerVolume NOTIFY voiceDiagnosticsChanged)
+  Q_PROPERTY(bool speakerVolumeAvailable READ speakerVolumeAvailable NOTIFY voiceDiagnosticsChanged)
+  Q_PROPERTY(int microphoneLevel READ microphoneLevel NOTIFY voiceDiagnosticsChanged)
+  Q_PROPERTY(QString voiceQuality READ voiceQuality NOTIFY voiceDiagnosticsChanged)
+  Q_PROPERTY(QString voiceQualityMessage READ voiceQualityMessage NOTIFY voiceDiagnosticsChanged)
   Q_PROPERTY(bool stoppable READ stoppable NOTIFY callControlsChanged)
   Q_PROPERTY(bool sessionEnded READ sessionEnded NOTIFY sessionEndedChanged)
 
@@ -157,6 +163,11 @@ public:
   [[nodiscard]] qulonglong presentationDelayMaxMs() const noexcept;
   [[nodiscard]] bool microphoneMuted() const noexcept;
   [[nodiscard]] bool speakerMuted() const noexcept;
+  [[nodiscard]] int speakerVolume() const noexcept;
+  [[nodiscard]] bool speakerVolumeAvailable() const noexcept;
+  [[nodiscard]] int microphoneLevel() const noexcept;
+  [[nodiscard]] QString voiceQuality() const;
+  [[nodiscard]] QString voiceQualityMessage() const;
   [[nodiscard]] bool stoppable() const noexcept;
   [[nodiscard]] bool sessionEnded() const noexcept override;
 
@@ -167,6 +178,7 @@ public:
   Q_INVOKABLE void seekHostPlayback(qint64 absolute_pts_ms);
   Q_INVOKABLE bool setMicrophoneMuted(bool muted) override;
   Q_INVOKABLE bool setSpeakerMuted(bool muted) override;
+  Q_INVOKABLE bool setSpeakerVolume(int percent);
   Q_INVOKABLE void stop() override;
 
 signals:
@@ -178,6 +190,7 @@ signals:
   void videoDiagnosticsChanged();
   void presentationDiagnosticsChanged();
   void callControlsChanged();
+  void voiceDiagnosticsChanged();
 
 private:
   bool createPeer();
@@ -199,6 +212,7 @@ private:
   void recordDriftError(std::string category, bool notify_viewer = true);
   void emitDriftDiagnostics();
   void emitPerformanceCounters();
+  void refreshVoiceDiagnostics();
   void checkScreenCaptureError();
   void beginScreenCaptureRecovery(QString category,
                                   bool session_resume_authorized = false);
@@ -264,6 +278,7 @@ private:
   QTimer drift_metrics_flush_timer_;
   QTimer drift_scenario_timer_;
   QTimer performance_timer_;
+  QTimer voice_diagnostics_timer_;
   QTimer screen_capture_error_timer_;
   QTimer screen_capture_recovery_timer_;
   shareme::tools::SessionLifecycleMonitor session_lifecycle_monitor_;
@@ -334,6 +349,12 @@ private:
   std::condition_variable_any performance_stats_wait_;
   shareme::rtc::SignaledMediaStats performance_media_stats_{
       .unavailable = true};
+  shareme::tools::VoiceQualityPolicy voice_quality_policy_;
+  int speaker_volume_{100};
+  bool speaker_volume_available_{false};
+  int microphone_level_{0};
+  QString voice_quality_{QStringLiteral("checking")};
+  QString voice_quality_message_{QStringLiteral("正在检测通话声音")};
   std::optional<std::uint64_t> performance_last_video_bytes_;
   std::chrono::steady_clock::time_point performance_last_video_bytes_at_{};
   QString remote_playback_state_{QStringLiteral("unavailable")};

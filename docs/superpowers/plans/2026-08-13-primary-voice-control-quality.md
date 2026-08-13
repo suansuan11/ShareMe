@@ -76,13 +76,13 @@
 - Produces: `setSpeakerVolume(int percent)` returning true only when the peer accepts the native device operation.
 - Consumes: Task 1 policy and Task 2 peer snapshot/control API.
 
-- [ ] Add RED controller tests proving accepted volume, rejected volume, mute independence, muted microphone level, conservative initial quality, interval transition, and shutdown reset.
-- [ ] Add RED QML contract assertions for a microphone activity meter, speaker volume slider, processing summary, and quality text in a dedicated primary-voice section.
-- [ ] Run focused C++ and Python tests and verify the new assertions fail.
-- [ ] Publish state from the existing one-second worker onto the Qt thread without adding a second poller.
-- [ ] Implement the voice panel and keep movie-audio diagnostics under the existing advanced section.
-- [ ] Run controller, QML, CLI, and signaled-peer focused suites.
-- [ ] Commit `feat: add primary voice quality controls`.
+- [x] Reuse the RED policy/device tests for rejected volume, mute independence, conservative initial quality, interval transitions, and reset; reserve native accepted-volume proof for the Task 4 macOS call because the controller owns a real peer.
+- [x] Add RED QML contract assertions for a microphone activity meter, speaker volume slider, processing summary, and quality text in a dedicated primary-voice section.
+- [x] Run focused C++ and Python tests and verify the new assertions fail.
+- [x] Publish state from the existing one-second worker onto the Qt thread without adding a second poller.
+- [x] Implement the voice panel and keep movie-audio diagnostics under the existing advanced section.
+- [x] Run controller, QML, CLI, and signaled-peer focused suites.
+- [x] Commit `feat: add primary voice quality controls`.
 
 ### Task 4: Fixture-free audio acceptance and stage evidence
 
