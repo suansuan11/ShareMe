@@ -348,34 +348,45 @@ class LifecycleScenario:
                 if maximum_stall > 1 or previous - baseline < minimum_delta:
                     raise LifecycleSmokeError(f"{role}-voice-recovery-timeout")
 
+        resume_decisions: dict[str, str] = {}
+        for role, reader in (("host", host_reader), ("viewer", viewer_reader)):
+            decisions = [
+                match.group(2)
+                for raw in reader.lines
+                if (match := RECOVERED_PATTERN.fullmatch(raw.strip()))
+            ]
+            if len(decisions) != 1:
+                raise LifecycleSmokeError(f"{role}-resume-decision-invalid")
+            decision = decisions[0]
+            if role == "viewer" and decision != "healthy":
+                raise LifecycleSmokeError(f"{role}-resume-decision-invalid")
+            if role == "host" and self.mode == "controlled":
+                expected_decision = (
+                    "capture-restarted"
+                    if self.capture_error_during_evaluation
+                    else "healthy"
+                )
+                if decision != expected_decision:
+                    raise LifecycleSmokeError(f"{role}-resume-decision-invalid")
+            resume_decisions[role] = decision
+
         final_host = host_records[-1]
         restart_keys = (
             "screen_capture_restart_attempts",
             "screen_capture_restart_successes",
             "screen_capture_generation",
         )
-        expected_restarts = 1 if self.capture_error_during_evaluation else 0
+        expected_restarts = int(resume_decisions["host"] == "capture-restarted")
         if any(final_host.get(key) != expected_restarts for key in restart_keys):
             raise LifecycleSmokeError("session-capture-restart-count-invalid")
-        for role, reader in (("host", host_reader), ("viewer", viewer_reader)):
-            expected_decision = (
-                "capture-restarted"
-                if self.capture_error_during_evaluation and role == "host"
-                else "healthy"
-            )
-            decisions = [
-                match.group(2)
-                for raw in reader.lines
-                if (match := RECOVERED_PATTERN.fullmatch(raw.strip()))
-            ]
-            if decisions != [expected_decision]:
-                raise LifecycleSmokeError(f"{role}-resume-decision-invalid")
         return {
             "lifecycle_verified": True,
             "lifecycle_mode": self.mode,
             "lifecycle_scenario": self.scenario,
-            "healthy_call_preserved": not self.capture_error_during_evaluation,
-            "capture_recovery_verified": self.capture_error_during_evaluation,
+            "healthy_call_preserved": resume_decisions["host"] == "healthy",
+            "capture_recovery_verified": (
+                resume_decisions["host"] == "capture-restarted"
+            ),
             "post_resume_samples": min(
                 len(host_records) - recovery_samples["host"],
                 len(viewer_records) - recovery_samples["viewer"],

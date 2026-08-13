@@ -251,6 +251,66 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
                         Reader(*host_lines), Reader(*viewer_lines)
                     )
 
+    def test_physical_resume_decision_authorizes_exactly_one_capture_restart(self):
+        lifecycle_events = [
+            "SMOKE_STATUS session-lifecycle-event event=screen-locked generation=1",
+            "SMOKE_STATUS session-lifecycle-event event=will-sleep generation=1",
+            "SMOKE_STATUS session-lifecycle-event event=did-wake generation=1",
+            "SMOKE_STATUS session-lifecycle-event event=screen-unlocked generation=1",
+        ]
+        host_lines = [
+            *lifecycle_events,
+            *("PERF_COUNTERS role=host" for _ in range(4)),
+            "SMOKE_STATUS session-lifecycle-recovered "
+            "generation=1 decision=capture-restarted",
+        ]
+        viewer_lines = [
+            *lifecycle_events,
+            *("PERF_COUNTERS role=viewer" for _ in range(4)),
+            "SMOKE_STATUS session-lifecycle-recovered "
+            "generation=1 decision=healthy",
+        ]
+        host_records = []
+        for sample in range(15):
+            host_records.append({
+                "role": "host",
+                "submitted": 100 + sample,
+                "encoded": 100 + sample,
+                "bytes_sent": 10_000 + sample * 1_000,
+                "voice_packets_sent": 500 + sample * 50,
+                "voice_packets_received": 500 + sample * 50,
+                "voice_bytes_sent": 40_000 + sample * 4_000,
+                "voice_bytes_received": 40_000 + sample * 4_000,
+                "screen_capture_restart_attempts": int(sample >= 4),
+                "screen_capture_restart_successes": int(sample >= 4),
+                "screen_capture_generation": int(sample >= 4),
+            })
+        viewer_records = [
+            {
+                **record,
+                "role": "viewer",
+                "received": record["encoded"],
+                "decoded": record["encoded"],
+                "bytes_received": record["bytes_sent"],
+                "screen_capture_restart_attempts": 0,
+                "screen_capture_restart_successes": 0,
+                "screen_capture_generation": 0,
+            }
+            for record in host_records
+        ]
+        scenario = self.runner.LifecycleScenario(
+            scenario="nested", mode="physical-wait", trigger_after_seconds=10
+        )
+
+        summary = scenario.validate(
+            Reader(*host_lines),
+            Reader(*viewer_lines),
+            host_records,
+            viewer_records,
+        )
+        self.assertTrue(summary["capture_recovery_verified"])
+        self.assertFalse(summary["healthy_call_preserved"])
+
     def test_failure_text_is_redacted_before_artifact_use(self):
         secret = "/Users/private/person/room ABC234 token=secret"
         redacted = self.runner.redact_lifecycle_failure(secret)
