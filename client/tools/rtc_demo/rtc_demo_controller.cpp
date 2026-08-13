@@ -617,8 +617,13 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
   }
 
   screen_capture_restart_attempts_.fetch_add(1, std::memory_order_relaxed);
+  const bool require_native_stop_ack =
+      !screen_capture_restart_trigger_path_.isEmpty();
   screen_video_source_->stop();
-  if (screen_video_source_->start()) {
+  const bool native_stop_acknowledged =
+      !require_native_stop_ack ||
+      screen_video_source_->native_stop_completed_for_diagnostics();
+  if (native_stop_acknowledged && screen_video_source_->start()) {
     static_cast<void>(screen_capture_recovery_policy_.record_success());
     screen_capture_restart_successes_.fetch_add(1,
                                                 std::memory_order_relaxed);
@@ -626,8 +631,7 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
     screen_capture_recovery_policy_.reset();
     setStatus(QStringLiteral("connected"));
     screen_capture_error_timer_.start();
-    if (!screen_capture_restart_trigger_path_.isEmpty() &&
-        screen_video_source_->native_stop_completed_for_diagnostics()) {
+    if (require_native_stop_ack) {
       std::cout << "SMOKE_STATUS native-old-stream-stopped" << std::endl;
     }
     std::cout << "SMOKE_STATUS screen-capture-restarted" << std::endl;

@@ -170,14 +170,18 @@ void ScreenCaptureKitStream::stop() noexcept {
                       retired_diagnostic_delegate_ == delegate_;
     event_gate_.end(active_generation_);
   }
-  if (stream == nil)
+  if (stream == nil) {
+    clear_capture_fault_diagnostics();
     return;
+  }
 
+  __block bool native_stop_succeeded = stopped_with_error;
   if (!stopped_with_error) {
     dispatch_semaphore_t stopped = dispatch_semaphore_create(0);
     [stream stopCaptureWithCompletionHandler:^(NSError *error) {
       if (error != nil)
         set_error(sanitized_error("screen-capture-stop-failed", error));
+      native_stop_succeeded = error == nil;
       dispatch_semaphore_signal(stopped);
     }];
     dispatch_semaphore_wait(stopped, DISPATCH_TIME_FOREVER);
@@ -190,7 +194,7 @@ void ScreenCaptureKitStream::stop() noexcept {
   callback_ = {};
   stopped_with_error_ = false;
   active_generation_ = 0;
-  if (diagnostic_stop) {
+  if (diagnostic_stop && native_stop_succeeded) {
     diagnostic_current_fault_pending_ = false;
     diagnostic_native_stop_completed_ = true;
   } else {
