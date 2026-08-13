@@ -169,6 +169,8 @@ def new_motion_interruption_state() -> dict:
         "suspended": False,
         "suspended_samples": None,
         "resumed_samples": None,
+        "retired_fault_triggered_at": None,
+        "retired_fault_samples": None,
     }
 
 
@@ -217,6 +219,7 @@ def advance_motion_interruption(
     viewer_reader,
     phase_records: list[dict],
     restart_trigger: Path,
+    retired_fault_trigger: Path | None = None,
 ) -> None:
     if not state["suspended"] and state["suspended_samples"] is None:
         if elapsed_seconds >= interruption.after_seconds:
@@ -253,6 +256,37 @@ def advance_motion_interruption(
             "viewer": resumed["viewer_counter_sample"],
         }
         phase_records.append(resumed)
+    if (
+        retired_fault_trigger is not None
+        and not state["suspended"]
+        and state["resumed_samples"] is not None
+        and state["retired_fault_triggered_at"] is None
+        and _latest_counter_sample(host_reader, "host")
+        >= state["resumed_samples"]["host"] + 2
+        and _latest_counter_sample(viewer_reader, "viewer")
+        >= state["resumed_samples"]["viewer"] + 2
+    ):
+        retired_fault_trigger.touch(exist_ok=False)
+        state["retired_fault_triggered_at"] = elapsed_seconds
+    if (
+        state["retired_fault_triggered_at"] is not None
+        and state["retired_fault_samples"] is None
+    ):
+        acknowledged = any(
+            line.strip() == "SMOKE_STATUS retired-delegate-fault-injected"
+            for line in host_reader.lines
+        )
+        if acknowledged:
+            record = _motion_phase_record(
+                "retired-fault", elapsed_seconds, host_reader, viewer_reader
+            )
+            state["retired_fault_samples"] = {
+                "host": record["host_counter_sample"],
+                "viewer": record["viewer_counter_sample"],
+            }
+            phase_records.append(record)
+        elif elapsed_seconds - state["retired_fault_triggered_at"] >= 3:
+            raise SmokeRuntimeError("retired-delegate-fault-ack-timeout")
 
 
 def cleanup_motion_fixture(process, state: dict) -> None:
@@ -932,6 +966,26 @@ def validate_automatic_recovery_status(reader: OutputReader) -> None:
         raise SmokeRuntimeError("screen-capture-recovery-status-order-invalid")
 
 
+def validate_native_delegate_fault_status(reader: OutputReader) -> None:
+    statuses = [
+        line.strip().removeprefix("SMOKE_STATUS ")
+        for line in reader.lines
+        if line.strip().startswith("SMOKE_STATUS ")
+    ]
+    required = (
+        "native-delegate-fault-injected",
+        "screen-capture-recovering:1",
+        "screen-capture-restarted",
+        "retired-delegate-fault-injected",
+    )
+    try:
+        indices = [statuses.index(value) for value in required]
+    except ValueError as error:
+        raise SmokeRuntimeError("native-delegate-fault-status-missing") from error
+    if indices != sorted(indices) or len(set(indices)) != len(indices):
+        raise SmokeRuntimeError("native-delegate-fault-order-invalid")
+
+
 def _codec_diagnostic(reader: OutputReader | None) -> str:
     if reader is None:
         return "sdp=[]"
@@ -1063,6 +1117,7 @@ def run_smoke(
     fixture_stopped = False
     restart_trigger_directory = None
     restart_trigger = None
+    retired_fault_trigger = None
     motion_state = new_motion_interruption_state()
     motion_phase_records: list[dict] = []
     environment = os.environ.copy()
@@ -1076,8 +1131,14 @@ def run_smoke(
         restart_trigger = (
             Path(restart_trigger_directory.name) / "restart.trigger"
         )
+        retired_fault_trigger = (
+            Path(restart_trigger_directory.name) / "retired.trigger"
+        )
         environment["SHAREME_SCREEN_CAPTURE_RESTART_TRIGGER_FILE"] = str(
             restart_trigger
+        )
+        environment["SHAREME_SCREEN_CAPTURE_RETIRED_FAULT_TRIGGER_FILE"] = str(
+            retired_fault_trigger
         )
 
     with artifact.open("x", encoding="utf-8") as output:
@@ -1183,6 +1244,7 @@ def run_smoke(
                         viewer_reader=viewer_reader,
                         phase_records=motion_phase_records,
                         restart_trigger=restart_trigger,
+                        retired_fault_trigger=retired_fault_trigger,
                     )
                 if now < next_sample:
                     time.sleep(min(0.25, next_sample - now))
@@ -1230,6 +1292,9 @@ def run_smoke(
             records_written = True
             if motion_interruption is not None:
                 validate_automatic_recovery_status(host_reader)
+                validate_native_delegate_fault_status(host_reader)
+                if motion_state["retired_fault_samples"] is None:
+                    raise SmokeRuntimeError("retired-delegate-fault-not-observed")
             summary = validate_records(
                 profile,
                 host_records,
@@ -1246,6 +1311,22 @@ def run_smoke(
                     else None
                 ),
             )
+            if motion_interruption is not None:
+                host_stale = motion_state["retired_fault_samples"]["host"]
+                viewer_stale = motion_state["retired_fault_samples"]["viewer"]
+                post_stale_samples = min(
+                    len(host_records) - host_stale - 1,
+                    len(viewer_records) - viewer_stale - 1,
+                )
+                if post_stale_samples < 10:
+                    raise SmokeRuntimeError(
+                        "retired-delegate-fault-needs-post-window"
+                    )
+                summary.update({
+                    "native_delegate_fault_verified": True,
+                    "retired_delegate_fault_rejected": True,
+                    "post_stale_samples": post_stale_samples,
+                })
         except (OSError, ValueError, subprocess.TimeoutExpired,
                 ProcessMetricsError) as error:
             failure = redact_diagnostic(str(error))

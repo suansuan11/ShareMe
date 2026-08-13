@@ -423,6 +423,82 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             "SHAREME_SCREEN_CAPTURE_RESTART_PROBE_AFTER_SECONDS", source
         )
 
+    def test_retired_delegate_fault_waits_for_two_recovered_samples(self):
+        counter = (
+            "PERF_COUNTERS version=1 role={role} width=1920 height=1080 "
+            "encoded=1 callback=1 submitted=1 received=1 decoded=1 "
+            "voice_packets_sent=1 voice_packets_received=1 "
+            "voice_bytes_sent=1 voice_bytes_received=1 "
+            "screen_capture_restart_attempts=1 "
+            "screen_capture_restart_successes=1 screen_capture_generation=1"
+        )
+        host_reader = mock.Mock(lines=[
+            counter.format(role="host") for _ in range(4)
+        ])
+        viewer_reader = mock.Mock(lines=[
+            counter.format(role="viewer") for _ in range(4)
+        ])
+        state = self.runner.new_motion_interruption_state()
+        state["suspended_samples"] = {"host": 0, "viewer": 0}
+        state["resumed_samples"] = {"host": 1, "viewer": 1}
+        process = mock.Mock(pid=4321)
+        process.poll.return_value = None
+        phases = []
+        with tempfile.TemporaryDirectory() as temporary:
+            restart = Path(temporary) / "restart.trigger"
+            retired = Path(temporary) / "retired.trigger"
+            self.runner.advance_motion_interruption(
+                process,
+                self.runner.MotionInterruption(15, 3),
+                elapsed_seconds=20.0,
+                state=state,
+                host_reader=host_reader,
+                viewer_reader=viewer_reader,
+                phase_records=phases,
+                restart_trigger=restart,
+                retired_fault_trigger=retired,
+            )
+            self.assertTrue(retired.is_file())
+            self.assertIsNone(state["retired_fault_samples"])
+            host_reader.lines.append(
+                "SMOKE_STATUS retired-delegate-fault-injected"
+            )
+            self.runner.advance_motion_interruption(
+                process,
+                self.runner.MotionInterruption(15, 3),
+                elapsed_seconds=20.25,
+                state=state,
+                host_reader=host_reader,
+                viewer_reader=viewer_reader,
+                phase_records=phases,
+                restart_trigger=restart,
+                retired_fault_trigger=retired,
+            )
+        self.assertEqual(
+            state["retired_fault_samples"], {"host": 3, "viewer": 3}
+        )
+        self.assertEqual(phases[-1]["phase"], "retired-fault")
+
+    def test_native_delegate_fault_status_requires_causal_order(self):
+        accepted = mock.Mock(lines=[
+            "SMOKE_STATUS native-delegate-fault-injected",
+            "SMOKE_STATUS screen-capture-recovering:1",
+            "SMOKE_STATUS screen-capture-restarted",
+            "SMOKE_STATUS retired-delegate-fault-injected",
+        ])
+        self.runner.validate_native_delegate_fault_status(accepted)
+        rejected = mock.Mock(lines=[
+            "SMOKE_STATUS screen-capture-recovering:1",
+            "SMOKE_STATUS native-delegate-fault-injected",
+            "SMOKE_STATUS screen-capture-restarted",
+            "SMOKE_STATUS retired-delegate-fault-injected",
+        ])
+        with self.assertRaisesRegex(
+            self.runner.SmokeRuntimeError,
+            "native-delegate-fault-order-invalid",
+        ):
+            self.runner.validate_native_delegate_fault_status(rejected)
+
     def test_cleanup_resumes_stopped_fixture_before_termination(self):
         process = mock.Mock(pid=4321)
         process.poll.return_value = None
