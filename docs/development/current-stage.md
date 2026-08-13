@@ -260,6 +260,36 @@ Windows native rerun, and physical 4K remain environment-dependent. The next
 Mac stage is an authorized physical sleep/wake and lock/unlock campaign while
 preserving all current quality and voice gates.
 
+### macOS Session Lifecycle Recovery Readiness
+
+The session lifecycle readiness stage is delivered from reviewed implementation
+tip `5b1e282`. A Qt-free policy folds nested sleep and lock causes into one
+generation. The macOS observer translates workspace sleep/wake and distributed
+lock/unlock notifications into typed events. While suspended or evaluating, the
+controller cancels conflicting capture-recovery timers but retains signaling,
+PeerConnection, tracks, voice, VideoToolbox, and the last submitted frame. After
+all causes clear, one 750 ms decision returns a healthy call to connected,
+routes a recoverable capture error through the existing bounded same-source
+recovery, or enters the retryable connection-loss result page.
+
+On macOS 26.6.1 arm64, Apple M4, two final controlled 60-second calls passed.
+The healthy nested lock/sleep/wake/unlock call preserved H.264 VideoToolbox,
+matching 1470x956 geometry, video, bidirectional synthetic voice, and 44
+post-resume samples without restarting capture. A second lock/unlock call
+injected the production ScreenCaptureKit delegate fault only after both peers
+acknowledged unlock; it made exactly one capture-restarted decision and retained
+45 post-resume samples. Final `call-dev` passed 55/55, `signaled_peer` repeated
+20/20, affected Python suites passed under both interpreters, and independent
+review found no remaining Critical or Important issue. See
+[macOS Session Lifecycle Recovery Verification](../verification/macos-session-lifecycle-recovery.md).
+
+The runner did not sleep or lock the machine and did not post native macOS
+notifications. Real sleep/wake and lock/unlock, physical/audible/thermal
+evidence, Windows native execution, and automatic signaling reconnect/rejoin
+remain environment-dependent, unverified, or unimplemented. The next Mac task
+is an attended physical campaign through `physical-wait`; reconnect/rejoin
+design remains conditional on that evidence.
+
 ## Active stage
 
 Movie-audio transport isolation is merged on `main` through `2d806a5`.
@@ -517,13 +547,16 @@ resolved.
 
 ## Next recommended stage
 
-Proceed with the two-device Windows visual/audio acceptance run through the
-complete GUI, then close cursor composition, display selection, and production
-packaging planning. Preserve the verified hardware H.264,
-host-video-send-only, viewer-video-receive-only, bidirectional primary voice,
-exact actual-capture geometry, and bounded presentation recovery contracts.
-Do not resume file sharing, Movie Stage 2B, reportability repair, or hard-resync
-work while this primary product direction remains incomplete.
+On Mac, perform the attended physical lock/unlock campaign and then the attended
+sleep/wake campaign through the lifecycle runner's `physical-wait` mode. Preserve
+H.264 VideoToolbox, exact actual-capture geometry, video and bidirectional voice
+progress, bounded presentation/capture recovery, and at least ten post-resume
+samples. Treat reconnect/rejoin as a separate design only if the physical run
+reaches the retryable connection-loss boundary. The Windows two-device
+visual/audio acceptance, cursor composition, display selection, and packaging
+planning remain the parallel platform backlog. Do not resume file sharing,
+Movie Stage 2B, reportability repair, or hard-resync work while this primary
+screen-and-voice direction remains incomplete.
 
 ## Git handoff
 

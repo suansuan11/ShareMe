@@ -34,10 +34,10 @@
 - Produces: `SessionLifecycleState { inactive, suspended, evaluating, recovered, failed }`.
 - Produces: `observe(event)`, `begin_evaluation()`, `record_recovered()`, `record_failed()`, `reset()`, `generation()`, `sleeping()`, and `locked()`.
 
-- [ ] Write literal RED tests for duplicate sleep/lock, nested wake-before-unlock, unlock-before-wake, stale resume, one evaluation per generation, terminal result, and reset.
-- [ ] Build the focused test and require compilation failure because the policy is absent.
-- [ ] Implement the minimal platform-free state machine; generation increments only on transition from fully active to suspended.
-- [ ] Run focused and portable-core scans, then commit `feat: define macOS session lifecycle policy`.
+- [x] Write literal RED tests for duplicate sleep/lock, nested wake-before-unlock, unlock-before-wake, stale resume, one evaluation per generation, terminal result, and reset.
+- [x] Build the focused test and require compilation failure because the policy is absent.
+- [x] Implement the minimal platform-free state machine; generation increments only on transition from fully active to suspended.
+- [x] Run focused and portable-core scans, then commit `feat: define macOS session lifecycle policy`.
 
 ### Task 2: Native macOS lifecycle observer
 
@@ -54,10 +54,10 @@
 - Consumes: Task 1 typed events.
 - macOS maps workspace sleep/wake and distributed session lock/unlock notifications to the four exact event values.
 
-- [ ] Write RED tests for start idempotence, stop callback rejection, event translation seam, and no-op unsupported behavior.
-- [ ] Verify focused compile/test failure before implementation.
-- [ ] Implement observer token ownership, queued callback delivery, and deterministic unregister on stop/destruction; do not expose native notification objects.
-- [ ] Build Objective-C++ and focused tests with warnings enabled, then commit `feat: observe macOS session lifecycle`.
+- [x] Write RED tests for start idempotence, stop callback rejection, event translation seam, and no-op unsupported behavior.
+- [x] Verify focused compile/test failure before implementation.
+- [x] Implement observer token ownership, queued callback delivery, and deterministic unregister on stop/destruction; do not expose native notification objects.
+- [x] Build Objective-C++ and focused tests with warnings enabled, then commit `feat: observe macOS session lifecycle`.
 
 ### Task 3: Controller decision, UI, and controlled probe
 
@@ -76,13 +76,13 @@
 - Produces: `handleSessionLifecycleEvent(...)` and `evaluateSessionResume()`.
 - Produces: one single-shot 750 ms settle timer and statuses `session-suspended:sleep`, `session-suspended:locked`, `session-resuming`, and `call-error: session-resume-connection-lost`.
 
-- [ ] Add RED controller/QML tests for nested event ordering, timer ownership, cancellation of capture retry timers, healthy return, recoverable-source routing, connection-loss result, Apple-only probe, and shutdown cleanup.
-- [ ] Run focused suites and verify the new assertions fail.
-- [ ] Implement monitor lifecycle and queued controller handling; suspend timers without stopping peer/tracks/voice.
-- [ ] Implement the 750 ms evaluation: connection unavailable fails, recoverable source reuses `beginScreenCaptureRecovery`, healthy source returns connected; restart monitoring only after a healthy result.
-- [ ] Add friendly Chinese suspended/resuming copy while preserving video and call controls.
-- [ ] Add a macOS-only opt-in typed-event trigger directory for controlled tests; it may create event files but may not post native OS notifications or invoke sleep/lock APIs.
-- [ ] Run focused CTest and Python suites, then commit `feat: coordinate macOS session resume`.
+- [x] Add RED controller/QML tests for nested event ordering, timer ownership, cancellation of capture retry timers, healthy return, recoverable-source routing, connection-loss result, Apple-only probe, and shutdown cleanup.
+- [x] Run focused suites and verify the new assertions fail.
+- [x] Implement monitor lifecycle and queued controller handling; suspend timers without stopping peer/tracks/voice.
+- [x] Implement the 750 ms evaluation: connection unavailable fails, recoverable source reuses `beginScreenCaptureRecovery`, healthy source returns connected; restart monitoring only after a healthy result.
+- [x] Add friendly Chinese suspended/resuming copy while preserving video and call controls.
+- [x] Add a macOS-only opt-in typed-event trigger directory for controlled tests; it may create event files but may not post native OS notifications or invoke sleep/lock APIs.
+- [x] Run focused CTest and Python suites, then commit `feat: coordinate macOS session resume`.
 
 ### Task 4: Safe lifecycle acceptance harness
 
@@ -95,12 +95,12 @@
 - Produces controlled mode for four typed events and physical-wait mode for real native notifications.
 - Produces sanitized JSONL lifecycle phase, generation, peer-liveness, media counter, and completion records.
 
-- [ ] Write RED runner tests for ordered controlled events, nested lock/sleep, timeout, early peer exit, missing native acknowledgement, media regression, redaction, and cleanup.
-- [ ] Verify RED because the runner is absent.
-- [ ] Implement controlled mode by writing only the Apple trigger files owned by Task 3.
-- [ ] Implement physical-wait mode that prints an instruction and waits; forbid `pmset`, AppleScript, CGSession, password prompts, or automatic display operations.
-- [ ] Require VideoToolbox H.264, geometry, process liveness, bounded resume result, video and voice progress, and ten post-resume samples.
-- [ ] Run both Python interpreters and commit `test: gate macOS session lifecycle recovery`.
+- [x] Write RED runner tests for ordered controlled events, nested lock/sleep, timeout, early peer exit, missing native acknowledgement, media regression, redaction, and cleanup.
+- [x] Verify RED because the runner is absent.
+- [x] Implement controlled mode by writing only the Apple trigger files owned by Task 3.
+- [x] Implement physical-wait mode that prints an instruction and waits; forbid `pmset`, AppleScript, CGSession, password prompts, or automatic display operations.
+- [x] Require VideoToolbox H.264, geometry, process liveness, bounded resume result, video and voice progress, and ten post-resume samples.
+- [x] Run both Python interpreters and commit `test: gate macOS session lifecycle recovery`.
 
 ### Task 5: Native controlled evidence, review, and integration
 
@@ -113,8 +113,8 @@
 **Interfaces:**
 - Produces exact controlled evidence and a physical-run handoff without overclaiming.
 
-- [ ] Fresh-configure/build `call-dev`; run full CTest, `signaled_peer` 20 times, affected Python suites under both interpreters, Go race/vet, workflow 8/8, skill validator, portable-core scan, redaction, cache status, and `git diff --check`.
-- [ ] Run one 60-second controlled nested lock/sleep/unlock/wake call and one healthy lock/unlock call; require H.264 VideoToolbox, matching geometry, no unnecessary capture restart on healthy return, video/voice progress, and ten post-resume samples.
-- [ ] Run independent read-only review for native observer ownership, queued-callback races, shutdown, nested policy, controller classification, default/Windows isolation, runner causality, and evidence labels; fix all Critical/Important findings.
-- [ ] Record physical sleep/wake and lock/unlock as environment-dependent unless the real native notifications are performed in this session.
+- [x] Fresh-configure/build `call-dev`; run full CTest, `signaled_peer` 20 times, affected Python suites under both interpreters, Go race/vet, workflow 8/8, skill validator, portable-core scan, redaction, cache status, and `git diff --check`.
+- [x] Run one 60-second controlled nested lock/sleep/unlock/wake call and one controlled lock/unlock call with a post-event capture fault; require H.264 VideoToolbox, matching geometry, no unnecessary capture restart on healthy return, bounded authorized recovery on the fault path, video/voice progress, and ten post-resume samples.
+- [x] Run independent read-only review for native observer ownership, queued-callback races, shutdown, nested policy, controller classification, default/Windows isolation, runner causality, and evidence labels; fix all Critical/Important findings.
+- [x] Record physical sleep/wake and lock/unlock as environment-dependent unless the real native notifications are performed in this session.
 - [ ] Commit evidence, push feature branch, fast-forward `main` only after all automatic gates pass, verify merged tests and remote SHA, then remove only this worktree/local branch.
