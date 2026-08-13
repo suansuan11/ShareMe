@@ -72,6 +72,15 @@ public:
     return retired_fault_available;
   }
 
+  bool native_stop_completed_for_diagnostics() const noexcept override {
+    return diagnostic_stop_completed;
+  }
+
+  void clear_capture_fault_diagnostics() noexcept override {
+    ++clear_fault_calls;
+    diagnostic_stop_completed = false;
+  }
+
   void emit(shareme::rtc::ScreenFrame frame) {
     if (callback_)
       callback_(std::move(frame));
@@ -84,6 +93,8 @@ public:
   bool retired_fault_available{false};
   int current_fault_calls{0};
   int retired_fault_calls{0};
+  bool diagnostic_stop_completed{false};
+  int clear_fault_calls{0};
 
 private:
   FrameCallback callback_;
@@ -103,6 +114,12 @@ void forwards_native_fault_diagnostics_to_the_stream() {
   REQUIRE(stream->retired_fault_calls == 1);
   stream->retired_fault_available = true;
   REQUIRE(source.inject_retired_stream_stop_for_diagnostics());
+  REQUIRE(!source.native_stop_completed_for_diagnostics());
+  stream->diagnostic_stop_completed = true;
+  REQUIRE(source.native_stop_completed_for_diagnostics());
+  source.clear_capture_fault_diagnostics();
+  REQUIRE(stream->clear_fault_calls == 1);
+  REQUIRE(!source.native_stop_completed_for_diagnostics());
 }
 
 void replaces_a_pending_frame_and_keeps_one_slot() {

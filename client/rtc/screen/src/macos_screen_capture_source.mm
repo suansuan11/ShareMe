@@ -44,6 +44,9 @@ public:
   [[nodiscard]] std::string error() const override;
   [[nodiscard]] bool inject_current_stream_stop_for_diagnostics() override;
   [[nodiscard]] bool inject_retired_stream_stop_for_diagnostics() override;
+  [[nodiscard]] bool
+  native_stop_completed_for_diagnostics() const noexcept override;
+  void clear_capture_fault_diagnostics() noexcept override;
 
 private:
   [[nodiscard]] bool select_display(SCShareableContent *content,
@@ -63,6 +66,8 @@ private:
   ShareMeScreenCaptureDelegate *__strong delegate_{nil};
   SCStream *__strong retired_diagnostic_stream_{nil};
   ShareMeScreenCaptureDelegate *__strong retired_diagnostic_delegate_{nil};
+  bool diagnostic_current_fault_pending_{false};
+  bool diagnostic_native_stop_completed_{false};
   bool stopped_with_error_{false};
   MacScreenCaptureEventGate event_gate_;
   MacScreenCaptureEventGate::Generation active_generation_{0};
@@ -155,11 +160,14 @@ void ScreenCaptureKitStream::stop() noexcept {
   SCStream *stream = nil;
   ShareMeScreenCaptureDelegate *delegate = nil;
   bool stopped_with_error = false;
+  bool diagnostic_stop = false;
   {
     std::lock_guard lock(mutex_);
     stream = stream_;
     delegate = delegate_;
     stopped_with_error = stopped_with_error_;
+    diagnostic_stop = diagnostic_current_fault_pending_ &&
+                      retired_diagnostic_delegate_ == delegate_;
     event_gate_.end(active_generation_);
   }
   if (stream == nil)
@@ -182,6 +190,15 @@ void ScreenCaptureKitStream::stop() noexcept {
   callback_ = {};
   stopped_with_error_ = false;
   active_generation_ = 0;
+  if (diagnostic_stop) {
+    diagnostic_current_fault_pending_ = false;
+    diagnostic_native_stop_completed_ = true;
+  } else {
+    retired_diagnostic_stream_ = nil;
+    retired_diagnostic_delegate_ = nil;
+    diagnostic_current_fault_pending_ = false;
+    diagnostic_native_stop_completed_ = false;
+  }
 }
 
 bool ScreenCaptureKitStream::inject_current_stream_stop_for_diagnostics() {
@@ -197,6 +214,8 @@ bool ScreenCaptureKitStream::inject_current_stream_stop_for_diagnostics() {
     delegate = delegate_;
     retired_diagnostic_stream_ = stream;
     retired_diagnostic_delegate_ = delegate;
+    diagnostic_current_fault_pending_ = true;
+    diagnostic_native_stop_completed_ = false;
   }
 
   NSError *fault = [NSError errorWithDomain:@"ShareMeCaptureDiagnostics"
@@ -214,13 +233,15 @@ bool ScreenCaptureKitStream::inject_retired_stream_stop_for_diagnostics() {
     if (stream_ == nil || active_generation_ == 0 ||
         retired_diagnostic_stream_ == nil ||
         retired_diagnostic_delegate_ == nil ||
-        retired_diagnostic_stream_ == stream_) {
+        retired_diagnostic_delegate_ == delegate_ ||
+        !diagnostic_native_stop_completed_) {
       return false;
     }
     stream = retired_diagnostic_stream_;
     delegate = retired_diagnostic_delegate_;
     retired_diagnostic_stream_ = nil;
     retired_diagnostic_delegate_ = nil;
+    diagnostic_native_stop_completed_ = false;
   }
 
   NSError *fault = [NSError errorWithDomain:@"ShareMeCaptureDiagnostics"
@@ -228,6 +249,20 @@ bool ScreenCaptureKitStream::inject_retired_stream_stop_for_diagnostics() {
                                    userInfo:nil];
   [delegate stream:stream didStopWithError:fault];
   return true;
+}
+
+bool ScreenCaptureKitStream::native_stop_completed_for_diagnostics() const
+    noexcept {
+  std::lock_guard lock(mutex_);
+  return diagnostic_native_stop_completed_;
+}
+
+void ScreenCaptureKitStream::clear_capture_fault_diagnostics() noexcept {
+  std::lock_guard lock(mutex_);
+  retired_diagnostic_stream_ = nil;
+  retired_diagnostic_delegate_ = nil;
+  diagnostic_current_fault_pending_ = false;
+  diagnostic_native_stop_completed_ = false;
 }
 
 std::string ScreenCaptureKitStream::error() const {
@@ -402,7 +437,11 @@ void ScreenCaptureKitStream::handle_stream_error(
   if (!event_gate_.accepts(generation))
     return;
   error_ = sanitized_error("screen-capture-stopped", error);
-  stopped_with_error_ = true;
+  const bool diagnostic_error =
+      diagnostic_current_fault_pending_ && error != nil &&
+      [error.domain isEqualToString:@"ShareMeCaptureDiagnostics"] &&
+      error.code == 9001;
+  stopped_with_error_ = !diagnostic_error;
 }
 
 } // namespace shareme::rtc

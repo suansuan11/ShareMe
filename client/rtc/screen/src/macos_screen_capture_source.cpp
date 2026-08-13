@@ -188,6 +188,17 @@ bool MacScreenCaptureSource::inject_retired_stream_stop_for_diagnostics() {
          stream_->inject_retired_stream_stop_for_diagnostics();
 }
 
+bool MacScreenCaptureSource::native_stop_completed_for_diagnostics() const
+    noexcept {
+  return stream_ != nullptr &&
+         stream_->native_stop_completed_for_diagnostics();
+}
+
+void MacScreenCaptureSource::clear_capture_fault_diagnostics() noexcept {
+  if (stream_ != nullptr)
+    stream_->clear_capture_fault_diagnostics();
+}
+
 void MacScreenCaptureSource::receive_capture_frame(ScreenFrame frame) {
   if (!accepting_callbacks_.load(std::memory_order_acquire))
     return;

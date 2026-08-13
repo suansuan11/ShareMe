@@ -975,6 +975,7 @@ def validate_native_delegate_fault_status(reader: OutputReader) -> None:
     required = (
         "native-delegate-fault-injected",
         "screen-capture-recovering:1",
+        "native-old-stream-stopped",
         "screen-capture-restarted",
         "retired-delegate-fault-injected",
     )

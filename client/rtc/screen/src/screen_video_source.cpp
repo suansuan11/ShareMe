@@ -91,6 +91,16 @@ bool ScreenVideoSource::inject_retired_stream_stop_for_diagnostics() {
          backend_->inject_retired_stream_stop_for_diagnostics();
 }
 
+bool ScreenVideoSource::native_stop_completed_for_diagnostics() const noexcept {
+  return backend_ != nullptr &&
+         backend_->native_stop_completed_for_diagnostics();
+}
+
+void ScreenVideoSource::clear_capture_fault_diagnostics() noexcept {
+  if (backend_ != nullptr)
+    backend_->clear_capture_fault_diagnostics();
+}
+
 bool ScreenVideoSource::is_screencast() const { return true; }
 
 std::optional<bool> ScreenVideoSource::needs_denoising() const { return false; }

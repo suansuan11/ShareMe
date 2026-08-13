@@ -483,6 +483,7 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         accepted = mock.Mock(lines=[
             "SMOKE_STATUS native-delegate-fault-injected",
             "SMOKE_STATUS screen-capture-recovering:1",
+            "SMOKE_STATUS native-old-stream-stopped",
             "SMOKE_STATUS screen-capture-restarted",
             "SMOKE_STATUS retired-delegate-fault-injected",
         ])
@@ -490,6 +491,7 @@ class ScreenStreamSmokeTest(unittest.TestCase):
         rejected = mock.Mock(lines=[
             "SMOKE_STATUS screen-capture-recovering:1",
             "SMOKE_STATUS native-delegate-fault-injected",
+            "SMOKE_STATUS native-old-stream-stopped",
             "SMOKE_STATUS screen-capture-restarted",
             "SMOKE_STATUS retired-delegate-fault-injected",
         ])

@@ -108,6 +108,15 @@ public:
     return retired_fault_available;
   }
 
+  bool native_stop_completed_for_diagnostics() const noexcept override {
+    return diagnostic_stop_completed;
+  }
+
+  void clear_capture_fault_diagnostics() noexcept override {
+    ++clear_fault_calls;
+    diagnostic_stop_completed = false;
+  }
+
   void emit(shareme::rtc::ScreenFrame frame) {
     if (callback_)
       callback_(std::move(frame));
@@ -125,6 +134,8 @@ public:
   bool retired_fault_available{false};
   int current_fault_calls{0};
   int retired_fault_calls{0};
+  bool diagnostic_stop_completed{false};
+  int clear_fault_calls{0};
 
 private:
   FrameCallback callback_;
@@ -153,6 +164,12 @@ void forwards_opt_in_native_fault_diagnostics() {
   backend->retired_fault_available = true;
   REQUIRE(source->inject_retired_stream_stop_for_diagnostics());
   REQUIRE(backend->retired_fault_calls == 2);
+  REQUIRE(!source->native_stop_completed_for_diagnostics());
+  backend->diagnostic_stop_completed = true;
+  REQUIRE(source->native_stop_completed_for_diagnostics());
+  source->clear_capture_fault_diagnostics();
+  REQUIRE(backend->clear_fault_calls == 1);
+  REQUIRE(!source->native_stop_completed_for_diagnostics());
 }
 
 void forwards_native_frames_without_i420_conversion() {

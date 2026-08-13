@@ -626,6 +626,10 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
     screen_capture_recovery_policy_.reset();
     setStatus(QStringLiteral("connected"));
     screen_capture_error_timer_.start();
+    if (!screen_capture_restart_trigger_path_.isEmpty() &&
+        screen_video_source_->native_stop_completed_for_diagnostics()) {
+      std::cout << "SMOKE_STATUS native-old-stream-stopped" << std::endl;
+    }
     std::cout << "SMOKE_STATUS screen-capture-restarted" << std::endl;
     return;
   }
@@ -1240,6 +1244,8 @@ void RtcDemoController::stopPeer() noexcept {
   screen_capture_restart_probe_timer_.stop();
   screen_capture_retired_fault_probe_timer_.stop();
   screen_capture_recovery_policy_.reset();
+  if (screen_video_source_)
+    screen_video_source_->clear_capture_fault_diagnostics();
   if (performance_stats_worker_.joinable()) {
     performance_stats_worker_.request_stop();
     performance_stats_worker_.join();

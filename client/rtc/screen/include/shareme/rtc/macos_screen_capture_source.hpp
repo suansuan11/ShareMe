@@ -50,6 +50,11 @@ public:
   [[nodiscard]] virtual bool inject_retired_stream_stop_for_diagnostics() {
     return false;
   }
+  [[nodiscard]] virtual bool
+  native_stop_completed_for_diagnostics() const noexcept {
+    return false;
+  }
+  virtual void clear_capture_fault_diagnostics() noexcept {}
 };
 
 [[nodiscard]] std::unique_ptr<MacScreenCaptureStream>
@@ -95,6 +100,9 @@ public:
   [[nodiscard]] std::uint64_t dropped_frame_count() const noexcept override;
   [[nodiscard]] bool inject_current_stream_stop_for_diagnostics() override;
   [[nodiscard]] bool inject_retired_stream_stop_for_diagnostics() override;
+  [[nodiscard]] bool
+  native_stop_completed_for_diagnostics() const noexcept override;
+  void clear_capture_fault_diagnostics() noexcept override;
 
 private:
   void receive_capture_frame(ScreenFrame frame);

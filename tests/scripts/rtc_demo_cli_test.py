@@ -757,6 +757,8 @@ class RtcDemoCliTest(unittest.TestCase):
         self.assertIn(
             "screen_capture_retired_fault_probe_timer_.stop()", source
         )
+        self.assertIn("native_stop_completed_for_diagnostics", source)
+        self.assertIn("clear_capture_fault_diagnostics", source)
 
     def test_controller_exposes_screen_encoder_and_presentation_diagnostics(self):
         source = self.controller_source.read_text(encoding="utf-8")

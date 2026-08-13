@@ -45,6 +45,11 @@ public:
   [[nodiscard]] virtual bool inject_retired_stream_stop_for_diagnostics() {
     return false;
   }
+  [[nodiscard]] virtual bool
+  native_stop_completed_for_diagnostics() const noexcept {
+    return false;
+  }
+  virtual void clear_capture_fault_diagnostics() noexcept {}
 };
 
 [[nodiscard]] std::unique_ptr<ScreenCaptureBackend>
@@ -73,6 +78,8 @@ public:
   [[nodiscard]] std::uint64_t pending_frame_count() const noexcept;
   [[nodiscard]] bool inject_current_stream_stop_for_diagnostics();
   [[nodiscard]] bool inject_retired_stream_stop_for_diagnostics();
+  [[nodiscard]] bool native_stop_completed_for_diagnostics() const noexcept;
+  void clear_capture_fault_diagnostics() noexcept;
 
   [[nodiscard]] bool is_screencast() const override;
   [[nodiscard]] std::optional<bool> needs_denoising() const override;
