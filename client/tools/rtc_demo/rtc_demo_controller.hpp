@@ -200,7 +200,8 @@ private:
   void emitDriftDiagnostics();
   void emitPerformanceCounters();
   void checkScreenCaptureError();
-  void beginScreenCaptureRecovery(QString category);
+  void beginScreenCaptureRecovery(QString category,
+                                  bool session_resume_authorized = false);
   void runScreenCaptureRecoveryAttempt();
   void startSessionLifecycleMonitor();
   void pollSessionLifecycleTrigger();
@@ -273,6 +274,7 @@ private:
   QString session_lifecycle_trigger_directory_;
   bool session_lifecycle_monitor_started_{false};
   bool capture_recovery_was_active_before_session_suspend_{false};
+  bool session_resume_capture_recovery_authorized_{false};
   std::uint64_t playback_sequence_{1};
   std::uint64_t scheduler_observation_sequence_{1};
   std::chrono::steady_clock::time_point scheduler_started_at_{};

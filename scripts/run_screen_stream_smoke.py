@@ -1012,6 +1012,10 @@ def _write_jsonl(handle, value: dict) -> None:
     handle.flush()
 
 
+def should_finalize_success(summary: dict | None, failure: str | None) -> bool:
+    return summary is not None and failure is None
+
+
 def _find_demo(repo_root: Path) -> Path:
     candidates = (
         repo_root / "build" / "call-dev" / "shareme_rtc_demo.exe",
@@ -1376,7 +1380,7 @@ def run_smoke(
                 restart_trigger_directory.cleanup()
             if scenario_observer is not None:
                 scenario_observer.cleanup()
-        if summary is not None:
+        if should_finalize_success(summary, failure):
             if motion_fixture is not None:
                 summary.update({
                     "motion_fixture_started": fixture_started,

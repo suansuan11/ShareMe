@@ -111,6 +111,23 @@ void classifies_resume_without_rebuilding_a_healthy_call() {
           SessionResumeDecision::healthy);
 }
 
+void defers_capture_recovery_until_resume_evaluation_authorizes_it() {
+  SessionLifecyclePolicy policy;
+  REQUIRE(!policy.defers_capture_recovery());
+  REQUIRE(policy.observe(SessionLifecycleEvent::screen_locked));
+  REQUIRE(policy.defers_capture_recovery());
+  REQUIRE(!policy.capture_recovery_may_start(false));
+  REQUIRE(policy.capture_recovery_may_start(true));
+  REQUIRE(policy.observe(SessionLifecycleEvent::screen_unlocked));
+  REQUIRE(policy.begin_evaluation());
+  REQUIRE(policy.defers_capture_recovery());
+  REQUIRE(!policy.capture_recovery_may_start(false));
+  REQUIRE(policy.capture_recovery_may_start(true));
+  REQUIRE(policy.record_recovered());
+  REQUIRE(!policy.defers_capture_recovery());
+  REQUIRE(policy.capture_recovery_may_start(false));
+}
+
 } // namespace
 
 int main() {
@@ -119,5 +136,6 @@ int main() {
   rejects_stale_resume_and_records_one_terminal_result();
   starts_a_new_generation_after_a_terminal_episode_and_resets();
   classifies_resume_without_rebuilding_a_healthy_call();
+  defers_capture_recovery_until_resume_evaluation_authorizes_it();
   return EXIT_SUCCESS;
 }

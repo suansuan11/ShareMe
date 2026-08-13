@@ -43,6 +43,9 @@ public:
   [[nodiscard]] std::size_t generation() const noexcept;
   [[nodiscard]] bool sleeping() const noexcept;
   [[nodiscard]] bool locked() const noexcept;
+  [[nodiscard]] bool defers_capture_recovery() const noexcept;
+  [[nodiscard]] bool
+  capture_recovery_may_start(bool resume_authorized) const noexcept;
 
 private:
   void begin_suspension_if_needed() noexcept;

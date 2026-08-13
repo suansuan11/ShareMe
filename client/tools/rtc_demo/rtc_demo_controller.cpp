@@ -638,9 +638,10 @@ void RtcDemoController::checkScreenCaptureError() {
             QString::fromStdString(error));
 }
 
-void RtcDemoController::beginScreenCaptureRecovery(QString category) {
-  if (session_lifecycle_policy_.state() ==
-      shareme::tools::SessionLifecycleState::suspended) {
+void RtcDemoController::beginScreenCaptureRecovery(
+    QString category, bool session_resume_authorized) {
+  if (!session_lifecycle_policy_.capture_recovery_may_start(
+          session_resume_authorized)) {
     capture_recovery_was_active_before_session_suspend_ = true;
     return;
   }
@@ -650,6 +651,7 @@ void RtcDemoController::beginScreenCaptureRecovery(QString category) {
       !screen_capture_recovery_policy_.begin()) {
     return;
   }
+  session_resume_capture_recovery_authorized_ = session_resume_authorized;
 
   screen_capture_error_timer_.stop();
   const auto delay = screen_capture_recovery_policy_.delay_ms();
@@ -660,6 +662,11 @@ void RtcDemoController::beginScreenCaptureRecovery(QString category) {
 }
 
 void RtcDemoController::runScreenCaptureRecoveryAttempt() {
+  if (!session_lifecycle_policy_.capture_recovery_may_start(
+          session_resume_capture_recovery_authorized_)) {
+    capture_recovery_was_active_before_session_suspend_ = true;
+    return;
+  }
   if (shutting_down_ || !screen_video_source_ ||
       !screen_capture_recovery_policy_.begin_attempt()) {
     return;
@@ -679,6 +686,7 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
     screen_capture_generation_.fetch_add(1, std::memory_order_relaxed);
     screen_capture_recovery_policy_.reset();
     capture_recovery_was_active_before_session_suspend_ = false;
+    session_resume_capture_recovery_authorized_ = false;
     if (session_lifecycle_policy_.state() ==
         shareme::tools::SessionLifecycleState::evaluating) {
       static_cast<void>(session_lifecycle_policy_.record_recovered());
@@ -698,6 +706,7 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
   static_cast<void>(screen_capture_recovery_policy_.record_failure());
   if (screen_capture_recovery_policy_.state() ==
       shareme::tools::ScreenCaptureRecoveryState::exhausted) {
+    session_resume_capture_recovery_authorized_ = false;
     if (session_lifecycle_policy_.state() ==
         shareme::tools::SessionLifecycleState::evaluating) {
       static_cast<void>(session_lifecycle_policy_.record_failed());
@@ -709,6 +718,7 @@ void RtcDemoController::runScreenCaptureRecoveryAttempt() {
 
   const auto next_delay = screen_capture_recovery_policy_.delay_ms();
   if (!next_delay) {
+    session_resume_capture_recovery_authorized_ = false;
     if (session_lifecycle_policy_.state() ==
         shareme::tools::SessionLifecycleState::evaluating) {
       static_cast<void>(session_lifecycle_policy_.record_failed());
@@ -782,6 +792,7 @@ void RtcDemoController::handleSessionLifecycleEvent(
     screen_capture_error_timer_.stop();
     screen_capture_recovery_timer_.stop();
     screen_capture_recovery_policy_.reset();
+    session_resume_capture_recovery_authorized_ = false;
   }
 
   std::cout << "SMOKE_STATUS session-lifecycle-event event="
@@ -857,6 +868,7 @@ void RtcDemoController::applySessionResumeDecision(
   }
 
   if (decision == shareme::tools::SessionResumeDecision::connection_lost) {
+    session_resume_capture_recovery_authorized_ = false;
     static_cast<void>(session_lifecycle_policy_.record_failed());
     setStatus(QStringLiteral("call-error: session-resume-connection-lost"));
     std::cout << "SMOKE_STATUS session-lifecycle-failed generation="
@@ -871,12 +883,13 @@ void RtcDemoController::applySessionResumeDecision(
       return;
     }
     beginScreenCaptureRecovery(
-        QStringLiteral("screen-capture-stopped-session-resume"));
+        QStringLiteral("screen-capture-stopped-session-resume"), true);
     return;
   }
 
   static_cast<void>(session_lifecycle_policy_.record_recovered());
   capture_recovery_was_active_before_session_suspend_ = false;
+  session_resume_capture_recovery_authorized_ = false;
   setStatus(QStringLiteral("connected"));
   if (screen_source_ && role_ == shareme::rtc::SignaledRole::host)
     screen_capture_error_timer_.start();
@@ -1490,6 +1503,7 @@ void RtcDemoController::stopPeer() noexcept {
   screen_capture_retired_fault_probe_timer_.stop();
   screen_capture_recovery_policy_.reset();
   session_lifecycle_policy_.reset();
+  session_resume_capture_recovery_authorized_ = false;
   if (screen_video_source_)
     screen_video_source_->clear_capture_fault_diagnostics();
   if (performance_stats_worker_.joinable()) {

@@ -85,6 +85,16 @@ bool SessionLifecyclePolicy::sleeping() const noexcept { return sleeping_; }
 
 bool SessionLifecyclePolicy::locked() const noexcept { return locked_; }
 
+bool SessionLifecyclePolicy::defers_capture_recovery() const noexcept {
+  return state_ == SessionLifecycleState::suspended ||
+         state_ == SessionLifecycleState::evaluating;
+}
+
+bool SessionLifecyclePolicy::capture_recovery_may_start(
+    bool resume_authorized) const noexcept {
+  return resume_authorized || !defers_capture_recovery();
+}
+
 void SessionLifecyclePolicy::begin_suspension_if_needed() noexcept {
   if (sleeping_ || locked_)
     return;

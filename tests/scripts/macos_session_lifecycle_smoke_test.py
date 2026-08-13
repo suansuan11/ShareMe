@@ -89,6 +89,39 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
             scenario.advance(60.0, Reader(), Reader())
             self.assertEqual(list(root.rglob("*.trigger")), [])
 
+    def test_capture_fault_is_injected_only_after_both_final_event_acks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scenario = self.runner.LifecycleScenario(
+                scenario="nested",
+                mode="controlled",
+                trigger_after_seconds=10,
+                host_trigger_directory=root / "host",
+                viewer_trigger_directory=root / "viewer",
+                capture_error_during_evaluation=True,
+            )
+            host = Reader()
+            viewer = Reader()
+            for index, event in enumerate(scenario.required_events):
+                scenario.advance(20.0, host, viewer)
+                host.lines.append(
+                    "SMOKE_STATUS session-lifecycle-event "
+                    f"event={event} generation=1\n"
+                )
+                if index < len(scenario.required_events) - 1:
+                    viewer.lines.append(
+                        "SMOKE_STATUS session-lifecycle-event "
+                        f"event={event} generation=1\n"
+                    )
+            scenario.advance(20.0, host, viewer)
+            self.assertFalse(scenario.capture_fault_trigger.exists())
+            viewer.lines.append(
+                "SMOKE_STATUS session-lifecycle-event "
+                "event=screen-unlocked generation=1\n"
+            )
+            scenario.advance(20.0, host, viewer)
+            self.assertTrue(scenario.capture_fault_trigger.is_file())
+
     def test_validation_requires_both_recovery_markers_and_ten_progress_samples(self):
         recovered = (
             "SMOKE_STATUS session-lifecycle-recovered generation=1 decision=healthy"
@@ -105,7 +138,7 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
         host_events.append(recovered)
         viewer_events.append(recovered)
         records = []
-        for sample in range(14):
+        for sample in range(15):
             records.append({
                 "role": "host",
                 "submitted": 100 + sample,
@@ -113,6 +146,8 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
                 "bytes_sent": 10_000 + sample * 1_000,
                 "voice_packets_sent": 500 + sample * 50,
                 "voice_packets_received": 500 + sample * 50,
+                "voice_bytes_sent": 40_000 + sample * 4_000,
+                "voice_bytes_received": 40_000 + sample * 4_000,
                 "screen_capture_restart_attempts": 0,
                 "screen_capture_restart_successes": 0,
                 "screen_capture_generation": 0,
@@ -135,6 +170,21 @@ class MacosSessionLifecycleSmokeTest(unittest.TestCase):
         )
         self.assertEqual(summary["post_resume_samples"], 10)
         self.assertTrue(summary["healthy_call_preserved"])
+
+        late_host = [dict(record) for record in records]
+        late_viewer = [dict(record) for record in viewer_records]
+        for sample in range(5, 10):
+            for key in ("submitted", "encoded", "bytes_sent"):
+                late_host[sample][key] = late_host[4][key]
+            for key in ("submitted", "received", "decoded", "bytes_received"):
+                late_viewer[sample][key] = late_viewer[4][key]
+        with self.assertRaisesRegex(
+            self.runner.LifecycleSmokeError, "video-recovery-timeout"
+        ):
+            scenario.validate(
+                Reader(*host_events), Reader(*viewer_events), late_host,
+                late_viewer
+            )
 
         with self.assertRaisesRegex(
             self.runner.LifecycleSmokeError, "viewer-recovery-marker-missing"

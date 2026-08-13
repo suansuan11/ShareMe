@@ -198,6 +198,17 @@ class ScreenStreamSmokeTest(unittest.TestCase):
             first = json.loads(artifact.read_text(encoding="utf-8").splitlines()[0])
             self.assertRegex(first["run_id"], r"^[0-9a-f]{32}$")
 
+    def test_extension_failure_cannot_be_overwritten_by_base_summary(self):
+        self.assertTrue(
+            self.runner.should_finalize_success({"complete": True}, None)
+        )
+        self.assertFalse(
+            self.runner.should_finalize_success(
+                {"complete": True}, "lifecycle-gate-failed"
+            )
+        )
+        self.assertFalse(self.runner.should_finalize_success(None, None))
+
     def test_owned_motion_fixture_is_cleaned_and_redacted_on_failure(self):
         class FixtureProcess:
             def __init__(self):
