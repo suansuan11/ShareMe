@@ -198,6 +198,35 @@ the same frozen video/voice/quality gates. Actual sleep/wake, lock, permission
 revocation, physical display/audio/temperature, Windows, and 4K remain separate
 environment-dependent evidence.
 
+### macOS Automatic Capture Recovery Policy
+
+The automatic recovery stage is delivered on
+`codex/macos-automatic-capture-recovery`. Runtime
+`screen-capture-stopped-*` categories on macOS now enter one bounded policy
+episode with 250/500/1000 ms delays and at most three attempts. Recovery keeps
+the existing PeerConnection, screen source, video track, VideoToolbox choice,
+signaling, and voice tracks. Exhaustion enters the existing retryable result
+page; the call UI displays “正在恢复屏幕共享” while controls and the last submitted
+frame remain available.
+
+A final 60-second controlled macOS run entered this policy, recreated
+ScreenCaptureKit once, retained H.264 VideoToolbox at 1470x956, recovered both
+peers in one sample, kept bidirectional synthetic voice continuous, and observed
+42 post-recovery samples. Full `call-dev` CTest passed 52/52 and
+`signaled_peer` repeated 20/20. Native callbacks now carry a generation so
+retired stream events cannot affect the replacement stream, and early peer
+failure/wait paths route recognized categories into recovery instead of
+overwriting it with a terminal status. See
+[macOS Automatic Screen Capture Recovery](../verification/macos-automatic-capture-recovery.md).
+
+The accepted run used a private controlled policy trigger, not a physically
+induced `SCStreamDelegate::didStopWithError`. Actual unsolicited delegate
+failure, sleep/wake, lock, permission revocation, display removal, physical
+audio/display/thermal evidence, Windows native rerun, and 4K remain partial or
+environment-dependent. The next Mac evidence stage is a native delegate fault
+seam or authorized physical fault campaign; do not describe the physical error
+path as verified before that evidence exists.
+
 ## Active stage
 
 Movie-audio transport isolation is merged on `main` through `2d806a5`.
