@@ -159,7 +159,7 @@ clamshell artifact as a valid bug reproduction but failed acceptance. Keep
 audible audio, scanout, thermals, other sleep modes, Windows, and reconnect/rejoin
 outside the verified claim.
 
-- [ ] **Step 4: Review, commit, integrate, and clean**
+- [x] **Step 4: Review, commit, integrate, and clean**
 
 Fix all Critical/Important review findings, commit focused evidence, push the
 feature branch, fast-forward `main` only after merged tests pass, push `main`,
