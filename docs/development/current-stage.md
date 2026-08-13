@@ -200,8 +200,7 @@ environment-dependent evidence.
 
 ### macOS Automatic Capture Recovery Policy
 
-The automatic recovery stage is delivered on
-`codex/macos-automatic-capture-recovery`. Runtime
+The automatic recovery stage is merged on `main`. Runtime
 `screen-capture-stopped-*` categories on macOS now enter one bounded policy
 episode with 250/500/1000 ms delays and at most three attempts. Recovery keeps
 the existing PeerConnection, screen source, video track, VideoToolbox choice,

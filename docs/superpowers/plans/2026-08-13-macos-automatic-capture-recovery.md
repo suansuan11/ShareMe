@@ -151,6 +151,6 @@ Run a new 60-second standard-profile Cocoa smoke with the owned motion fixture, 
 
 Review lifecycle races, retry bounds, error classification, Windows/default isolation, QML behavior, schema/redaction, generated scope, and external cache. Fix all Critical/Important findings, rerun affected gates, then record exact platform, binary/artifact hashes, counters, and evidence boundaries.
 
-- [ ] **Step 4: Commit and integrate**
+- [x] **Step 4: Commit and integrate**
 
 Commit verification/handoff documentation. If every frozen gate passes, push the feature branch, fast-forward `main`, rerun merged affected tests, push `main`, verify the remote SHA, and remove only the merged worktree and local feature branch.
