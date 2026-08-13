@@ -34,11 +34,11 @@
 - Produces: `VoiceQualityResult evaluate(snapshot, remote_muted)` returning `checking`, `good`, `unstable`, `poor`, or `muted` plus interval ratios.
 - Produces: `reset()` for call shutdown.
 
-- [ ] Write RED tests for first snapshot, good/unstable/poor thresholds, missing fields, counter regression, remote mute, zero interval, and reset.
-- [ ] Build the focused target and verify failure because the policy is absent.
-- [ ] Implement consecutive-snapshot deltas with inclusive threshold boundaries and fail-closed regression handling.
-- [ ] Run the focused test, portable boundary scan, and `git diff --check`.
-- [ ] Commit `feat: classify primary voice quality`.
+- [x] Write RED tests for first snapshot, good/unstable/poor thresholds, missing fields, counter regression, remote mute, zero interval, and reset.
+- [x] Build the focused target and verify failure because the policy is absent.
+- [x] Implement consecutive-snapshot deltas with inclusive threshold boundaries and fail-closed regression handling.
+- [x] Run the focused test, portable boundary scan, and `git diff --check`.
+- [x] Commit `feat: classify primary voice quality`.
 
 ### Task 2: Native speaker volume and voice statistics
 

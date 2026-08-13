@@ -264,12 +264,30 @@ shareme_set_project_warnings(shareme_drift_scenario_test)
 add_test(NAME drift_scenario COMMAND shareme_drift_scenario_test)
 
 if(TARGET ShareMe::QtSignaling)
-  add_executable(
-    shareme_session_lifecycle_policy_test
+add_executable(
+  shareme_session_lifecycle_policy_test
     session_lifecycle_policy_test.cpp
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/session_lifecycle_policy.cpp"
     "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/screen_capture_recovery_policy.cpp"
-  )
+)
+
+add_executable(
+  shareme_voice_quality_policy_test
+  voice_quality_policy_test.cpp
+  "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo/voice_quality_policy.cpp"
+)
+target_compile_features(
+  shareme_voice_quality_policy_test PRIVATE cxx_std_20
+)
+target_include_directories(
+  shareme_voice_quality_policy_test
+  PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"
+)
+shareme_set_project_warnings(shareme_voice_quality_policy_test)
+add_test(
+  NAME voice_quality_policy
+  COMMAND shareme_voice_quality_policy_test
+)
   target_include_directories(
     shareme_session_lifecycle_policy_test
     PRIVATE "${PROJECT_SOURCE_DIR}/client/tools/rtc_demo"

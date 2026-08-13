@@ -50,6 +50,7 @@ set(shareme_rtc_demo_sources main.cpp playback_state.cpp playback_state.hpp
                               launch_options.cpp launch_options.hpp
                               shareme_app_controller.cpp shareme_app_controller.hpp
                               rtc_control_state.cpp rtc_control_state.hpp
+                              voice_quality_policy.cpp voice_quality_policy.hpp
                               session_lifecycle_policy.cpp session_lifecycle_policy.hpp
                               session_lifecycle_monitor.cpp session_lifecycle_monitor.hpp
                               screen_capture_recovery_policy.cpp screen_capture_recovery_policy.hpp
