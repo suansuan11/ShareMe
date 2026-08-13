@@ -1,0 +1,101 @@
+#include "session_lifecycle_policy.hpp"
+
+#include <cstdlib>
+#include <iostream>
+
+namespace {
+
+void require(bool condition, const char *expression, int line) {
+  if (condition)
+    return;
+  std::cerr << "Requirement failed at line " << line << ": " << expression
+            << '\n';
+  std::exit(EXIT_FAILURE);
+}
+
+#define REQUIRE(expression) require((expression), #expression, __LINE__)
+
+using shareme::tools::SessionLifecycleEvent;
+using shareme::tools::SessionLifecyclePolicy;
+using shareme::tools::SessionLifecycleState;
+
+void folds_nested_sleep_and_lock_into_one_generation() {
+  SessionLifecyclePolicy policy;
+
+  REQUIRE(policy.state() == SessionLifecycleState::inactive);
+  REQUIRE(policy.observe(SessionLifecycleEvent::will_sleep));
+  REQUIRE(policy.generation() == 1);
+  REQUIRE(policy.sleeping());
+  REQUIRE(!policy.locked());
+  REQUIRE(policy.state() == SessionLifecycleState::suspended);
+
+  REQUIRE(!policy.observe(SessionLifecycleEvent::will_sleep));
+  REQUIRE(policy.observe(SessionLifecycleEvent::screen_locked));
+  REQUIRE(policy.generation() == 1);
+  REQUIRE(policy.sleeping());
+  REQUIRE(policy.locked());
+}
+
+void evaluates_only_after_every_nested_cause_clears() {
+  SessionLifecyclePolicy wake_first;
+  REQUIRE(wake_first.observe(SessionLifecycleEvent::will_sleep));
+  REQUIRE(wake_first.observe(SessionLifecycleEvent::screen_locked));
+  REQUIRE(wake_first.observe(SessionLifecycleEvent::did_wake));
+  REQUIRE(!wake_first.begin_evaluation());
+  REQUIRE(wake_first.observe(SessionLifecycleEvent::screen_unlocked));
+  REQUIRE(wake_first.begin_evaluation());
+  REQUIRE(!wake_first.begin_evaluation());
+  REQUIRE(wake_first.state() == SessionLifecycleState::evaluating);
+
+  SessionLifecyclePolicy unlock_first;
+  REQUIRE(unlock_first.observe(SessionLifecycleEvent::will_sleep));
+  REQUIRE(unlock_first.observe(SessionLifecycleEvent::screen_locked));
+  REQUIRE(unlock_first.observe(SessionLifecycleEvent::screen_unlocked));
+  REQUIRE(!unlock_first.begin_evaluation());
+  REQUIRE(unlock_first.observe(SessionLifecycleEvent::did_wake));
+  REQUIRE(unlock_first.begin_evaluation());
+}
+
+void rejects_stale_resume_and_records_one_terminal_result() {
+  SessionLifecyclePolicy policy;
+  REQUIRE(!policy.observe(SessionLifecycleEvent::did_wake));
+  REQUIRE(!policy.observe(SessionLifecycleEvent::screen_unlocked));
+  REQUIRE(!policy.begin_evaluation());
+
+  REQUIRE(policy.observe(SessionLifecycleEvent::screen_locked));
+  REQUIRE(policy.observe(SessionLifecycleEvent::screen_unlocked));
+  REQUIRE(policy.begin_evaluation());
+  REQUIRE(policy.record_recovered());
+  REQUIRE(!policy.record_recovered());
+  REQUIRE(!policy.record_failed());
+  REQUIRE(policy.state() == SessionLifecycleState::recovered);
+}
+
+void starts_a_new_generation_after_a_terminal_episode_and_resets() {
+  SessionLifecyclePolicy policy;
+  REQUIRE(policy.observe(SessionLifecycleEvent::screen_locked));
+  REQUIRE(policy.observe(SessionLifecycleEvent::screen_unlocked));
+  REQUIRE(policy.begin_evaluation());
+  REQUIRE(policy.record_failed());
+  REQUIRE(policy.state() == SessionLifecycleState::failed);
+
+  REQUIRE(policy.observe(SessionLifecycleEvent::will_sleep));
+  REQUIRE(policy.generation() == 2);
+  REQUIRE(policy.state() == SessionLifecycleState::suspended);
+
+  policy.reset();
+  REQUIRE(policy.state() == SessionLifecycleState::inactive);
+  REQUIRE(policy.generation() == 0);
+  REQUIRE(!policy.sleeping());
+  REQUIRE(!policy.locked());
+}
+
+} // namespace
+
+int main() {
+  folds_nested_sleep_and_lock_into_one_generation();
+  evaluates_only_after_every_nested_cause_clears();
+  rejects_stale_resume_and_records_one_terminal_result();
+  starts_a_new_generation_after_a_terminal_episode_and_resets();
+  return EXIT_SUCCESS;
+}
