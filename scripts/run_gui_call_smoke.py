@@ -56,6 +56,17 @@ GUI_PROBE_STATES = (
 )
 GUI_SMOKE_PROBE_COUNT = 9
 
+_GUI_RECOVERY_MARKERS = (
+    "GUI_RECOVERY_TITLE category=permission-denied title=\u9700\u8981\u68c0\u67e5\u6743\u9650",
+    "GUI_RECOVERY_TITLE category=invalid-room title=\u65e0\u6cd5\u52a0\u5165\u8fd9\u4e2a\u623f\u95f4",
+    "GUI_RECOVERY_TITLE category=screen-capture title=\u5c4f\u5e55\u5171\u4eab\u4e0d\u53ef\u7528",
+    "GUI_RECOVERY_TITLE category=audio-device title=\u58f0\u97f3\u8bbe\u5907\u4e0d\u53ef\u7528",
+    "GUI_RECOVERY_TITLE category=connection-lost title=\u8fde\u63a5\u672a\u5efa\u7acb",
+    "GUI_RECOVERY_TITLE category=ICE-failed title=\u8fde\u63a5\u672a\u5efa\u7acb",
+    "GUI_RECOVERY_TITLE category=timed out title=\u8fde\u63a5\u672a\u5efa\u7acb",
+    "GUI_RECOVERY_TITLE category=generic-failure title=\u901a\u8bdd\u6682\u65f6\u65e0\u6cd5\u7ee7\u7eed",
+)
+
 _RECOVERY_CATEGORY_MARKER = re.compile(
     r"^(GUI_RECOVERY_TITLE category=)\S+(?= title=)"
 )
@@ -87,6 +98,11 @@ def _unsanitized_gui_output(stdout: str, stderr: str) -> str | None:
         if match is not None:
             return match.group(0)
     return None
+
+
+def _has_exact_lines(output: str, expected: Iterable[str]) -> bool:
+    lines = output.splitlines()
+    return all(marker in lines for marker in expected)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -153,13 +169,16 @@ def run_probes(demo: Path, states: Iterable[str],
             if state == "call-host-actions"
             else f"GUI_STATE page={state} qml_loaded=1"
         )
-        required_objects = _GUI_OBJECT_MARKERS_BY_STATE.get(state, ())
+        expected_lines = tuple(expected.splitlines())
+        required_markers = _GUI_OBJECT_MARKERS_BY_STATE.get(state, ())
+        if state == "recovery":
+            required_markers += _GUI_RECOVERY_MARKERS
         forbidden = ("TypeError:", "ReferenceError:", "Binding loop",
                      "failed to load component", "is not a type")
         if _unsanitized_gui_output(completed.stdout, completed.stderr):
             raise GuiSmokeFailure(f"probe-sanitized:{state}", results)
-        if (expected not in completed.stdout or
-                any(item not in completed.stdout for item in required_objects) or
+        if (not _has_exact_lines(completed.stdout, expected_lines) or
+                not _has_exact_lines(completed.stdout, required_markers) or
                 any(
                     item in completed.stderr for item in forbidden)):
             raise GuiSmokeFailure(f"probe-contract:{state}", results)
@@ -251,6 +270,7 @@ def main() -> int:
         print("invalid GUI smoke arguments", file=sys.stderr)
         return 2
     states = GUI_PROBE_STATES
+    probes: list[ProbeResult] = []
     try:
         probes = run_probes(demo, states, 5.0)
         if len(probes) != GUI_SMOKE_PROBE_COUNT:
@@ -275,13 +295,13 @@ def main() -> int:
     except (GuiSmokeFailure, subprocess.TimeoutExpired, UnicodeDecodeError) as error:
         if isinstance(error, GuiSmokeFailure):
             category = error.category
-            partial = error.partial
+            partial = error.partial or probes
         elif isinstance(error, subprocess.TimeoutExpired):
             category = "timeout"
-            partial = []
+            partial = probes
         else:
             category = "decode-error"
-            partial = []
+            partial = probes
         atomic_write_json(args.artifact, {
             "schema": "gui-call-smoke-v1",
             "status": "failed",

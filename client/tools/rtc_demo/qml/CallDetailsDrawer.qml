@@ -32,6 +32,28 @@ Rectangle {
         return "连接中"
     }
 
+    function profileLabel(profile) {
+        if (profile === "standard")
+            return "1080p 60 · 流畅"
+        if (profile === "quality")
+            return "1440p 60 · 高画质"
+        if (profile === "cinema")
+            return "4K 30 · 影院"
+        return "不可用"
+    }
+
+    function sourceLabel(source) {
+        if (source === "screen")
+            return "屏幕共享"
+        if (source === "desktop")
+            return "桌面共享"
+        if (source === "movie")
+            return "影片"
+        if (source === "test")
+            return "测试画面"
+        return "不可用"
+    }
+
     ScrollView {
         anchors.fill: parent
         anchors.margins: theme.spacingLg
@@ -83,12 +105,12 @@ Rectangle {
                 InfoRow {
                     Layout.fillWidth: true
                     label: "共享质量"
-                    value: drawer.controller.screenProfile
+                    value: drawer.profileLabel(drawer.controller.screenProfile)
                 }
                 InfoRow {
                     Layout.fillWidth: true
                     label: "视频来源"
-                    value: drawer.controller.videoSource
+                    value: drawer.sourceLabel(drawer.controller.videoSource)
                 }
             }
 
@@ -232,6 +254,8 @@ Rectangle {
                     font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
+                InfoRow { Layout.fillWidth: true; label: "原始共享质量"; value: drawer.controller.screenProfile }
+                InfoRow { Layout.fillWidth: true; label: "原始视频来源"; value: drawer.controller.videoSource }
                 InfoRow { Layout.fillWidth: true; label: "协商编码"; value: drawer.controller.videoNegotiatedCodec }
                 InfoRow { Layout.fillWidth: true; label: "编码器"; value: drawer.controller.videoEncoderImplementation }
                 InfoRow { Layout.fillWidth: true; label: "硬件状态"; value: drawer.controller.videoHardwareStatus }

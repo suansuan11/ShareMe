@@ -130,7 +130,7 @@ def run_fixture(fixture: Path, profile: str, duration_seconds: int,
     ]
     process = subprocess.Popen(
         arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, env=environment,
+        text=True, encoding="utf-8", errors="strict", env=environment,
     )
     sampler = None
     samples = []
@@ -153,6 +153,8 @@ def run_fixture(fixture: Path, profile: str, duration_seconds: int,
             raise AcceptanceError("process-samples-missing")
         return ({"profile": profile, "frames": int(match.group(2))},
                 summarize_samples(samples))
+    except UnicodeDecodeError as error:
+        raise AcceptanceError("fixture-decode") from error
     except ProcessMetricsError as error:
         raise AcceptanceError(error.category) from error
     finally:
@@ -235,7 +237,10 @@ def main() -> int:
               f"probes={len(partial_probes)} "
               f"samples={process_summary['sampleCount']}")
         return 0
-    except (AcceptanceError, GuiSmokeFailure, subprocess.TimeoutExpired) as error:
+    except (AcceptanceError, GuiSmokeFailure, subprocess.TimeoutExpired,
+            UnicodeDecodeError) as error:
+        if isinstance(error, UnicodeDecodeError):
+            error = AcceptanceError("fixture-decode")
         payload = failure_artifact(error, partial_probes)
         atomic_write_json(args.artifact, payload)
         category = payload["failure"]

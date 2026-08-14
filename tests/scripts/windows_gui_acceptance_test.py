@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import io
 import json
 import os
 import stat
@@ -8,7 +9,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 def _load_runner():
@@ -135,6 +138,124 @@ class WindowsGuiAcceptanceTest(unittest.TestCase):
         self.assertEqual(payload["probes"], [
             {"state": "home", "passed": True, "duration_ms": 7}
         ])
+
+    def test_fixture_capture_uses_strict_utf8_decoding(self):
+        class FakeProcess:
+            pid = 17
+            returncode = 0
+
+            def __init__(self):
+                self.poll_results = iter((None, None, 0, 0))
+                self.stdout = mock.Mock()
+                self.stderr = mock.Mock()
+
+            def poll(self):
+                return next(self.poll_results, 0)
+
+            def communicate(self, timeout):
+                return (
+                    "SCREEN_MOTION_FIXTURE status=completed "
+                    "profile=standard frames=60\n",
+                    "",
+                )
+
+        class FakeSampler:
+            def sample(self):
+                return object()
+
+            def close(self):
+                pass
+
+        process = FakeProcess()
+        with mock.patch.object(
+            self.runner.subprocess, "Popen", return_value=process
+        ) as popen, mock.patch.object(
+            self.runner, "ProcessSampler", return_value=FakeSampler()
+        ), mock.patch.object(
+            self.runner, "summarize_samples",
+            return_value={"sampleCount": 1},
+        ):
+            fixture, summary = self.runner.run_fixture(
+                Path("fixture"), "standard", 1, False
+            )
+        self.assertEqual(fixture["frames"], 60)
+        self.assertEqual(summary["sampleCount"], 1)
+        self.assertEqual(popen.call_args.kwargs.get("encoding"), "utf-8")
+        self.assertEqual(popen.call_args.kwargs.get("errors"), "strict")
+
+    def test_fixture_decode_failure_becomes_sanitized_acceptance_error(self):
+        class FakeProcess:
+            pid = 17
+            returncode = 0
+
+            def __init__(self):
+                self.poll_results = iter((None, None, 0, 0))
+                self.stdout = mock.Mock()
+                self.stderr = mock.Mock()
+
+            def poll(self):
+                return next(self.poll_results, 0)
+
+            def communicate(self, timeout):
+                raise UnicodeDecodeError(
+                    "utf-8", b"\xff", 0, 1, "invalid start byte"
+                )
+
+        class FakeSampler:
+            def sample(self):
+                return object()
+
+            def close(self):
+                pass
+
+        with mock.patch.object(
+            self.runner.subprocess, "Popen", return_value=FakeProcess()
+        ), mock.patch.object(
+            self.runner, "ProcessSampler", return_value=FakeSampler()
+        ):
+            with self.assertRaisesRegex(
+                self.runner.AcceptanceError, "fixture-decode"
+            ):
+                self.runner.run_fixture(Path("fixture"), "standard", 1, False)
+
+    def test_fixture_decode_failure_writes_atomic_failed_artifact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = self.make_program(root, "pass\n")
+            fixture = self.make_program(root, "pass\n")
+            artifact = root / "acceptance.json"
+            artifact.write_text('{"status": "old"}\n', encoding="utf-8")
+            probe_type = self.runner.dataclasses.make_dataclass(
+                "Probe", [("state", str), ("passed", bool),
+                          ("duration_ms", int)]
+            )
+            probes = [probe_type(state, True, 1) for state in (
+                "home", "create", "join", "settings", "help", "recovery",
+                "call-host", "call-viewer", "call-host-actions",
+            )]
+            with mock.patch.object(
+                self.runner, "run_probes", return_value=probes
+            ), mock.patch.object(
+                self.runner,
+                "run_fixture",
+                side_effect=UnicodeDecodeError(
+                    "utf-8", b"\xff", 0, 1, "invalid start byte"
+                ),
+            ), mock.patch.object(
+                self.runner.sys,
+                "argv",
+                [
+                    "run_windows_gui_acceptance.py",
+                    "--demo", str(demo),
+                    "--fixture", str(fixture),
+                    "--artifact", str(artifact),
+                ],
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(self.runner.main(), 1)
+            payload = json.loads(artifact.read_text(encoding="utf-8"))
+            self.assertEqual(payload["failure"], "fixture-decode")
+            self.assertEqual(len(payload["probes"]), 9)
+            self.assertEqual(list(root.glob("*.tmp")), [])
 
 
 if __name__ == "__main__":

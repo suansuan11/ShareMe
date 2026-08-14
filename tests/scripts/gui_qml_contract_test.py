@@ -7,10 +7,31 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 class GuiQmlContractTest(unittest.TestCase):
     demo = Path()
+
+    def assert_exact_line(self, output: str, marker: str) -> None:
+        self.assertIn(marker, output.splitlines())
+
+    def run_demo(
+        self, arguments: list[str], environment: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                arguments,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="strict",
+                timeout=5,
+                check=False,
+                env=environment,
+            )
+        except UnicodeDecodeError:
+            self.fail("GUI output decode failed")
 
     def run_state(
         self, state: str, compact: bool = False
@@ -19,13 +40,8 @@ class GuiQmlContractTest(unittest.TestCase):
         environment["QT_QPA_PLATFORM"] = (
             "offscreen:size=760x520" if compact else "offscreen"
         )
-        return subprocess.run(
-            [str(self.demo), "--gui-smoke-state", state],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-            env=environment,
+        return self.run_demo(
+            [str(self.demo), "--gui-smoke-state", state], environment
         )
 
     def assert_sanitized_output(
@@ -64,19 +80,26 @@ class GuiQmlContractTest(unittest.TestCase):
         ]
         if role == "viewer":
             arguments.extend(["--room", "ABC234"])
-        return subprocess.run(
-            arguments,
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-            env=environment,
+        return self.run_demo(arguments, environment)
+
+    def test_gui_decode_failure_is_a_sanitized_contract_failure(self):
+        decode_error = UnicodeDecodeError(
+            "utf-8", b"\xff", 0, 1, "invalid start byte"
         )
+        with mock.patch.object(
+            subprocess, "run", side_effect=decode_error
+        ):
+            with self.assertRaisesRegex(
+                AssertionError, "GUI output decode failed"
+            ):
+                self.run_state("home")
 
     def assert_clean_state(self, state: str) -> None:
         result = self.run_state(state)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"GUI_STATE page={state} qml_loaded=1", result.stdout)
+        self.assert_exact_line(
+            result.stdout, f"GUI_STATE page={state} qml_loaded=1"
+        )
         for failure in (
             "TypeError:",
             "ReferenceError:",
@@ -106,10 +129,12 @@ class GuiQmlContractTest(unittest.TestCase):
             with self.subTest(state=state):
                 result = self.run_state(state)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(
-                    f"GUI_STATE page={state} qml_loaded=1", result.stdout
+                self.assert_exact_line(
+                    result.stdout, f"GUI_STATE page={state} qml_loaded=1"
                 )
-                self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
+                self.assert_exact_line(
+                    result.stdout, f"GUI_OBJECT {object_name}=1"
+                )
                 for failure in (
                     "TypeError:",
                     "ReferenceError:",
@@ -158,6 +183,36 @@ class GuiQmlContractTest(unittest.TestCase):
             "pauseHostPlayback()",
             "resumeHostPlayback()",
             "seekHostPlayback(",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+
+    def test_details_normalizes_video_enums_and_keeps_raw_values_advanced(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        source = (qml_dir / "CallDetailsDrawer.qml").read_text(encoding="utf-8")
+        video_start = source.index('id: videoSection')
+        advanced_start = source.index('objectName: "advancedSection"')
+        normal_video = source[video_start:advanced_start]
+        for raw_binding in (
+            "value: drawer.controller.screenProfile",
+            "value: drawer.controller.videoSource",
+        ):
+            self.assertNotIn(raw_binding, normal_video)
+        for marker in (
+            "function profileLabel(profile)",
+            "function sourceLabel(source)",
+            'return "1080p 60 · 流畅"',
+            'return "1440p 60 · 高画质"',
+            'return "4K 30 · 影院"',
+            'return "屏幕共享"',
+            'return "桌面共享"',
+            'return "影片"',
+            'return "测试画面"',
+            'return "不可用"',
+            "drawer.profileLabel(drawer.controller.screenProfile)",
+            "drawer.sourceLabel(drawer.controller.videoSource)",
+            'label: "原始共享质量"',
+            'label: "原始视频来源"',
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, source)
@@ -256,9 +311,9 @@ class GuiQmlContractTest(unittest.TestCase):
             ("generic-failure", "通话暂时无法继续"),
         ):
             with self.subTest(category=category):
-                self.assertIn(
-                    f"GUI_RECOVERY_TITLE category={category} title={title}",
+                self.assert_exact_line(
                     result.stdout,
+                    f"GUI_RECOVERY_TITLE category={category} title={title}",
                 )
 
     def test_normal_gui_output_is_sanitized(self):
@@ -276,14 +331,18 @@ class GuiQmlContractTest(unittest.TestCase):
     def test_compact_minimum_window_state_exits_cleanly(self):
         result = self.run_state("create", compact=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("GUI_STATE page=create qml_loaded=1", result.stdout)
+        self.assert_exact_line(
+            result.stdout, "GUI_STATE page=create qml_loaded=1"
+        )
         for object_name in (
             "microphoneIntentControl",
             "speakerIntentControl",
             "qualityProfileControl",
             "preflightPrimaryButton",
         ):
-            self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
+            self.assert_exact_line(
+                result.stdout, f"GUI_OBJECT {object_name}=1"
+            )
         self.assert_sanitized_output(result)
 
         main_source = (Path(__file__).parents[2] /
@@ -309,7 +368,9 @@ class GuiQmlContractTest(unittest.TestCase):
             result = self.run_state(state)
             self.assertEqual(result.returncode, 0, result.stderr)
             for object_name in required:
-                self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
+                self.assert_exact_line(
+                    result.stdout, f"GUI_OBJECT {object_name}=1"
+                )
 
     def test_home_and_preflight_use_user_facing_copy(self):
         qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
@@ -361,25 +422,39 @@ class GuiQmlContractTest(unittest.TestCase):
             with self.subTest(role=role):
                 result = self.run_call_state(role)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(
-                    f"GUI_STATE page=call-{role} qml_loaded=1", result.stdout
+                self.assert_exact_line(
+                    result.stdout, f"GUI_STATE page=call-{role} qml_loaded=1"
                 )
                 self.assertNotIn("TypeError:", result.stderr)
                 self.assertNotIn("ReferenceError:", result.stderr)
                 self.assertNotIn("failed to load component", result.stderr)
-                self.assertIn("GUI_OBJECT callPage=1", result.stdout)
-                self.assertIn("GUI_OBJECT microphoneControl=1", result.stdout)
-                self.assertIn("GUI_OBJECT speakerControl=1", result.stdout)
-                self.assertIn("GUI_OBJECT detailsControl=1", result.stdout)
-                self.assertIn("GUI_OBJECT leaveControl=1", result.stdout)
-                self.assertIn("GUI_OBJECT shareControl=0", result.stdout)
+                self.assert_exact_line(
+                    result.stdout, "GUI_OBJECT callPage=1"
+                )
+                self.assert_exact_line(
+                    result.stdout, "GUI_OBJECT microphoneControl=1"
+                )
+                self.assert_exact_line(
+                    result.stdout, "GUI_OBJECT speakerControl=1"
+                )
+                self.assert_exact_line(
+                    result.stdout, "GUI_OBJECT detailsControl=1"
+                )
+                self.assert_exact_line(
+                    result.stdout, "GUI_OBJECT leaveControl=1"
+                )
+                self.assert_exact_line(
+                    result.stdout, "GUI_OBJECT shareControl=0"
+                )
                 for object_name in (
                     "connectionSection",
                     "videoSection",
                     "audioSection",
                     "advancedSection",
                 ):
-                    self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
+                    self.assert_exact_line(
+                        result.stdout, f"GUI_OBJECT {object_name}=1"
+                    )
 
     def test_call_stage_overlay_visibility_is_mutually_exclusive(self):
         qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
@@ -439,7 +514,7 @@ class GuiQmlContractTest(unittest.TestCase):
     def test_real_qml_controls_drive_audio_drawer_and_leave(self):
         environment = os.environ.copy()
         environment["QT_QPA_PLATFORM"] = "offscreen"
-        result = subprocess.run(
+        result = self.run_demo(
             [
                 str(self.demo),
                 "--server", "ws://127.0.0.1:18080/v1/ws",
@@ -449,20 +524,16 @@ class GuiQmlContractTest(unittest.TestCase):
                 "--no-audio-playout",
                 "--gui-smoke-state", "call-host-actions",
             ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-            env=environment,
+            environment,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
+        self.assert_exact_line(
+            result.stdout,
             "GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
             "volume_rejected_restored=1 leave=1 page=home",
-            result.stdout,
         )
-        self.assertIn(
-            "GUI_ACTION advanced_closed=1 advanced_expanded=1", result.stdout
+        self.assert_exact_line(
+            result.stdout, "GUI_ACTION advanced_closed=1 advanced_expanded=1"
         )
         self.assertNotIn("TypeError:", result.stderr)
 

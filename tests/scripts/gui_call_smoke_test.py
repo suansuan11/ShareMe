@@ -87,6 +87,17 @@ class GuiCallSmokeTest(unittest.TestCase):
             " }.get(state, ())\n"
             " if include_object_markers:\n"
             "  for marker in markers: print(marker)\n"
+            " if state == 'recovery':\n"
+            "  for marker in (\n"
+            "   'GUI_RECOVERY_TITLE category=permission-denied title=\\u9700\\u8981\\u68c0\\u67e5\\u6743\\u9650',\n"
+            "   'GUI_RECOVERY_TITLE category=invalid-room title=\\u65e0\\u6cd5\\u52a0\\u5165\\u8fd9\\u4e2a\\u623f\\u95f4',\n"
+            "   'GUI_RECOVERY_TITLE category=screen-capture title=\\u5c4f\\u5e55\\u5171\\u4eab\\u4e0d\\u53ef\\u7528',\n"
+            "   'GUI_RECOVERY_TITLE category=audio-device title=\\u58f0\\u97f3\\u8bbe\\u5907\\u4e0d\\u53ef\\u7528',\n"
+            "   'GUI_RECOVERY_TITLE category=connection-lost title=\\u8fde\\u63a5\\u672a\\u5efa\\u7acb',\n"
+            "   'GUI_RECOVERY_TITLE category=ICE-failed title=\\u8fde\\u63a5\\u672a\\u5efa\\u7acb',\n"
+            "   'GUI_RECOVERY_TITLE category=timed out title=\\u8fde\\u63a5\\u672a\\u5efa\\u7acb',\n"
+            "   'GUI_RECOVERY_TITLE category=generic-failure title=\\u901a\\u8bdd\\u6682\\u65f6\\u65e0\\u6cd5\\u7ee7\\u7eed',\n"
+            "  ): print(marker)\n"
             "if extra_output:\n"
             " for line in extra_output.splitlines(): print(line)\n"
             "if not state: time.sleep(idle_seconds)\n",
@@ -118,6 +129,67 @@ class GuiCallSmokeTest(unittest.TestCase):
             self.assertEqual(
                 len(results), self.runner.GUI_SMOKE_PROBE_COUNT
             )
+
+    def test_gui_object_marker_requires_an_exact_line(self):
+        completed = self.runner.subprocess.CompletedProcess(
+            args=["fake-demo"],
+            returncode=0,
+            stdout=("GUI_STATE page=home qml_loaded=1\n"
+                    "GUI_OBJECT createRoomButton=10\n"
+                    "GUI_OBJECT joinRoomButton=1\n"
+                    "GUI_OBJECT recentRoomAction=1\n"),
+            stderr="",
+        )
+        with mock.patch.object(
+            self.runner.subprocess, "run", return_value=completed
+        ):
+            with self.assertRaisesRegex(
+                self.runner.GuiSmokeFailure, "probe-contract:home"
+            ):
+                self.runner.run_probes(Path("fake-demo"), ("home",), 2.0)
+
+    def test_gui_action_marker_requires_an_exact_line(self):
+        completed = self.runner.subprocess.CompletedProcess(
+            args=["fake-demo"],
+            returncode=0,
+            stdout=(
+                "GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
+                "volume_rejected_restored=1 leave=1 page=home\n"
+                "GUI_ACTION advanced_closed=1 advanced_expanded=10\n"
+            ),
+            stderr="",
+        )
+        with mock.patch.object(
+            self.runner.subprocess, "run", return_value=completed
+        ):
+            with self.assertRaisesRegex(
+                self.runner.GuiSmokeFailure, "probe-contract:call-host-actions"
+            ):
+                self.runner.run_probes(
+                    Path("fake-demo"), ("call-host-actions",), 2.0
+                )
+
+    def test_recovery_marker_requires_an_exact_line(self):
+        recovery_markers = list(self.runner._GUI_RECOVERY_MARKERS)
+        recovery_markers[0] += " extra"
+        completed = self.runner.subprocess.CompletedProcess(
+            args=["fake-demo"],
+            returncode=0,
+            stdout=(
+                "GUI_STATE page=recovery qml_loaded=1\n"
+                "GUI_OBJECT recoverySurface=1\n"
+                + "\n".join(recovery_markers)
+                + "\n"
+            ),
+            stderr="",
+        )
+        with mock.patch.object(
+            self.runner.subprocess, "run", return_value=completed
+        ):
+            with self.assertRaisesRegex(
+                self.runner.GuiSmokeFailure, "probe-contract:recovery"
+            ):
+                self.runner.run_probes(Path("fake-demo"), ("recovery",), 2.0)
 
     def test_rejects_unsanitized_gui_output(self):
         for unsafe in (
@@ -244,6 +316,41 @@ class GuiCallSmokeTest(unittest.TestCase):
             self.assertEqual(payload["status"], "failed")
             self.assertEqual(payload["failure"], "decode-error")
             self.assertEqual(list(root.glob("*.tmp")), [])
+
+    def test_idle_failure_preserves_completed_gui_probe_results(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = self.make_demo(root)
+            artifact = root / "result.json"
+            artifact.write_text('{"status": "old"}\n', encoding="utf-8")
+            probes = [
+                self.runner.ProbeResult(state, True, 1)
+                for state in self.runner.GUI_PROBE_STATES
+            ]
+            with mock.patch.object(
+                self.runner, "run_probes", return_value=probes
+            ), mock.patch.object(
+                self.runner,
+                "sample_idle_process",
+                side_effect=self.runner.GuiSmokeFailure(
+                    "process-output-malformed", []
+                ),
+            ), mock.patch.object(
+                self.runner.sys,
+                "argv",
+                [
+                    "run_gui_call_smoke.py",
+                    "--demo", str(demo),
+                    "--artifact", str(artifact),
+                ],
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(self.runner.main(), 1)
+            payload = json.loads(artifact.read_text(encoding="utf-8"))
+            self.assertEqual(payload["failure"], "process-output-malformed")
+            self.assertEqual(
+                [item["state"] for item in payload["probes"]],
+                list(self.runner.GUI_PROBE_STATES),
+            )
 
     def test_idle_sampling_uses_injected_cross_platform_sampler(self):
         runner = self.runner
