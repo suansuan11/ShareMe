@@ -77,8 +77,18 @@ Rectangle {
             text: bar.controller.roomId.length > 0
                   ? bar.formattedRoom(bar.controller.roomId) : "正在创建房间"
             enabled: bar.controller.roomId.length > 0
+            property color copyColor: !enabled ? theme.textDisabled
+                                         : down ? theme.accentPressed
+                                         : hovered ? theme.accentHover : theme.accent
+            implicitHeight: theme.controlHeight
+            Layout.minimumHeight: theme.controlHeight
+            hoverEnabled: true
             Accessible.name: enabled ? "复制房间码 " + text
                                      : "正在创建房间"
+            Accessible.description: enabled ? "复制当前房间码" : "房间码正在创建"
+            ToolTip.text: enabled ? "复制房间码" : "正在创建房间"
+            ToolTip.visible: (hovered || activeFocus) && ToolTip.text.length > 0
+            focusPolicy: Qt.StrongFocus
             padding: 9
             leftPadding: 12
             rightPadding: 12
@@ -92,7 +102,7 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     text: roomButton.text
-                    color: roomButton.enabled ? theme.accent : theme.textMuted
+                    color: roomButton.copyColor
                     font.pixelSize: 11
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter
@@ -103,14 +113,20 @@ Rectangle {
                     Layout.preferredHeight: 16
                     name: "copy"
                     size: 16
-                    color: roomButton.enabled ? theme.accent : theme.textMuted
+                    color: roomButton.copyColor
                 }
             }
             background: Rectangle {
                 radius: 15
-                color: roomButton.hovered ? theme.surfaceHover : theme.accentSubtle
+                color: !roomButton.enabled ? theme.surfaceDisabled
+                      : roomButton.down ? theme.surfacePressed
+                      : roomButton.hovered ? theme.surfaceHover : theme.accentSubtle
                 border.width: roomButton.activeFocus ? 2 : 1
-                border.color: roomButton.activeFocus ? theme.focus : theme.borderStrong
+                border.color: roomButton.activeFocus ? theme.focus
+                              : !roomButton.enabled ? theme.border
+                              : roomButton.down ? theme.accentPressed
+                              : roomButton.hovered ? theme.accentHover
+                              : theme.borderStrong
             }
         }
     }

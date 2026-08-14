@@ -150,6 +150,61 @@ class GuiQmlContractTest(unittest.TestCase):
                 self.assertIn("GUI_OBJECT leaveControl=1", result.stdout)
                 self.assertIn("GUI_OBJECT shareControl=0", result.stdout)
 
+    def test_call_stage_overlay_visibility_is_mutually_exclusive(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        source = (qml_dir / "VideoStage.qml").read_text(encoding="utf-8")
+
+        status_start = source.index("id: statusRow")
+        status_visibility_start = source.index("visible:", status_start)
+        status_visibility = source[
+            status_visibility_start:source.index("        Rectangle {", status_visibility_start)
+        ]
+        message_start = source.index("id: stageMessage")
+        message_visibility_start = source.index("visible:", message_start)
+        message_visibility = source[
+            message_visibility_start:source.index("        Text {", message_visibility_start)
+        ]
+
+        for marker in (
+            "!stage.sessionTransition",
+            "&& !stage.captureRecovering",
+            "stage.controller.viewer",
+            "stage.controller.remoteVideoAvailable",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, status_visibility)
+        for marker in (
+            "|| (!stage.captureRecovering",
+            "!stage.sessionTransition",
+            "!stage.controller.remoteVideoAvailable",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, message_visibility)
+
+    def test_call_room_copy_control_uses_semantic_interaction_states(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        source = (qml_dir / "CallTopBar.qml").read_text(encoding="utf-8")
+        room_start = source.index("id: roomButton")
+        room_control = source[room_start:]
+        for marker in (
+            "implicitHeight: theme.controlHeight",
+            "hoverEnabled: true",
+            "Accessible.name:",
+            "Accessible.description:",
+            "ToolTip.text:",
+            "ToolTip.visible: (hovered || activeFocus)",
+            "roomButton.down",
+            "!roomButton.enabled",
+            "theme.surfacePressed",
+            "theme.surfaceDisabled",
+            "theme.textDisabled",
+            "theme.accentHover",
+            "theme.accentPressed",
+            "theme.focus",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, room_control)
+
     def test_real_qml_controls_drive_audio_drawer_and_leave(self):
         environment = os.environ.copy()
         environment["QT_QPA_PLATFORM"] = "offscreen"

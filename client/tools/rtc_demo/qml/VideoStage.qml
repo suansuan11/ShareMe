@@ -29,9 +29,10 @@ Item {
         anchors.margins: 14
         spacing: 7
         visible: !stage.sessionTransition
-                 && (stage.controller.status === "connected"
-                  || stage.captureRecovering
-                  || stage.controller.remoteVideoAvailable)
+                 && !stage.captureRecovering
+                 && (stage.controller.viewer
+                     ? stage.controller.remoteVideoAvailable
+                     : stage.controller.status === "connected")
         Rectangle { width: 6; height: 6; radius: 3; color: stage.captureRecovering ? theme.warning : theme.success }
         Text {
             text: stage.captureRecovering ? "正在恢复屏幕共享"
@@ -45,11 +46,12 @@ Item {
         id: stageMessage
         anchors.centerIn: parent
         spacing: 6
-        visible: stage.captureRecovering
-                 || (stage.controller.viewer
-                     ? !stage.controller.remoteVideoAvailable
-                     : stage.controller.status !== "connected"
-                       && !stage.sessionTransition)
+        visible: !stage.sessionTransition
+                 && (stage.captureRecovering
+                     || (!stage.captureRecovering
+                         && (stage.controller.viewer
+                             ? !stage.controller.remoteVideoAvailable
+                             : stage.controller.status !== "connected")))
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: stage.captureRecovering ? "正在恢复屏幕共享"
