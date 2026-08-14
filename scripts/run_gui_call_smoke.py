@@ -73,6 +73,8 @@ def run_probes(demo: Path, states: Iterable[str],
             _arguments(demo, state),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="strict",
             timeout=timeout_seconds,
             check=False,
             env=environment,
@@ -111,6 +113,8 @@ def launch_idle_demo(demo: Path) -> subprocess.Popen:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="strict",
         env=environment,
     )
 

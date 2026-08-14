@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 class GuiCallSmokeTest(unittest.TestCase):
@@ -92,6 +93,23 @@ class GuiCallSmokeTest(unittest.TestCase):
                 self.runner.GuiSmokeFailure, "probe-contract:call-host-actions"
             ):
                 self.runner.run_probes(demo, ("call-host-actions",), 2.0)
+
+    def test_probe_subprocess_uses_strict_utf8_decoding(self):
+        completed = self.runner.subprocess.CompletedProcess(
+            args=["fake-demo"],
+            returncode=0,
+            stdout=("GUI_STATE page=home qml_loaded=1\n"
+                    "GUI_OBJECT createRoomButton=1\n"
+                    "GUI_OBJECT joinRoomButton=1\n"
+                    "GUI_OBJECT recentRoomAction=1\n"),
+            stderr="",
+        )
+        with mock.patch.object(
+            self.runner.subprocess, "run", return_value=completed
+        ) as run:
+            self.runner.run_probes(Path("fake-demo"), ("home",), 2.0)
+        self.assertEqual(run.call_args.kwargs.get("encoding"), "utf-8")
+        self.assertEqual(run.call_args.kwargs.get("errors"), "strict")
 
     def test_atomic_artifact_contains_no_temporary_file(self):
         with tempfile.TemporaryDirectory() as temporary:
