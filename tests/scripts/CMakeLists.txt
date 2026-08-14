@@ -78,6 +78,7 @@ if(TARGET shareme_rtc_demo)
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/gui_call_smoke_test.py"
   )
+  set_tests_properties(gui_call_smoke_contract PROPERTIES TIMEOUT 15)
   if(TARGET shareme_screen_motion_fixture)
     add_test(
       NAME windows_gui_acceptance

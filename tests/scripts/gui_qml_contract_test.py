@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -11,9 +12,13 @@ from pathlib import Path
 class GuiQmlContractTest(unittest.TestCase):
     demo = Path()
 
-    def run_state(self, state: str) -> subprocess.CompletedProcess[str]:
+    def run_state(
+        self, state: str, compact: bool = False
+    ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
-        environment["QT_QPA_PLATFORM"] = "offscreen"
+        environment["QT_QPA_PLATFORM"] = (
+            "offscreen:size=760x520" if compact else "offscreen"
+        )
         return subprocess.run(
             [str(self.demo), "--gui-smoke-state", state],
             capture_output=True,
@@ -21,6 +26,28 @@ class GuiQmlContractTest(unittest.TestCase):
             timeout=5,
             check=False,
             env=environment,
+        )
+
+    def assert_sanitized_output(
+        self, result: subprocess.CompletedProcess[str]
+    ) -> None:
+        output = []
+        for line in (result.stdout + "\n" + result.stderr).splitlines():
+            if line.startswith("GUI_RECOVERY_TITLE category="):
+                line = re.sub(r" category=\S+", "", line, count=1)
+            output.append(line)
+        visible_output = "\n".join(output)
+        for raw in ("kVTParameterErr", "HRESULT", "NSError", "ICE", "SDP"):
+            with self.subTest(raw=raw):
+                self.assertNotIn(raw, visible_output)
+        self.assertNotRegex(
+            visible_output,
+            r"(?<![A-Za-z0-9:/])/(?:[A-Za-z0-9_.-]+/){1,}[A-Za-z0-9_.-]+",
+        )
+        self.assertNotRegex(
+            visible_output,
+            r"(?i)(?:password|passwd|secret|token|credential|api[-_]?key)"
+            r"\s*[:=]\s*\S+",
         )
 
     def run_call_state(self, role: str) -> subprocess.CompletedProcess[str]:
@@ -109,6 +136,20 @@ class GuiQmlContractTest(unittest.TestCase):
         self.assertIn("property bool expanded: false", source)
         self.assertIn("visible: advancedButton.expanded", source)
         self.assertNotIn("value: drawer.controller.status", source)
+        advanced_start = source.index('objectName: "advancedSection"')
+        advanced_source = source[advanced_start:]
+        for marker in (
+            "videoNegotiatedCodec",
+            "videoEncoderImplementation",
+            "videoHardwareStatus",
+            "videoCaptureProfile",
+            "presentationSubmissions",
+            "audioRouteGeneration",
+            "hostViewerDeltaMs",
+        ):
+            with self.subTest(advanced_marker=marker):
+                self.assertIn(marker, advanced_source)
+                self.assertNotIn(marker, source[:advanced_start])
         for marker in (
             "function statusLabel(status)",
             "drawer.controller.voiceQualityMessage",
@@ -220,6 +261,37 @@ class GuiQmlContractTest(unittest.TestCase):
                     result.stdout,
                 )
 
+    def test_normal_gui_output_is_sanitized(self):
+        for state in (
+            "home", "create", "join", "settings", "help",
+            "call-host", "call-viewer", "recovery",
+        ):
+            with self.subTest(state=state):
+                arguments = (self.run_call_state(
+                    "host" if state == "call-host" else "viewer"
+                ) if state.startswith("call-") else self.run_state(state))
+                self.assertEqual(arguments.returncode, 0, arguments.stderr)
+                self.assert_sanitized_output(arguments)
+
+    def test_compact_minimum_window_state_exits_cleanly(self):
+        result = self.run_state("create", compact=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("GUI_STATE page=create qml_loaded=1", result.stdout)
+        for object_name in (
+            "microphoneIntentControl",
+            "speakerIntentControl",
+            "qualityProfileControl",
+            "preflightPrimaryButton",
+        ):
+            self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
+        self.assert_sanitized_output(result)
+
+        main_source = (Path(__file__).parents[2] /
+                       "client" / "tools" / "rtc_demo" / "qml" /
+                       "Main.qml").read_text(encoding="utf-8")
+        self.assertIn("minimumWidth: 760", main_source)
+        self.assertIn("minimumHeight: 520", main_source)
+
     def test_create_preflight_loads_without_qml_errors(self):
         self.assert_clean_state("create")
 
@@ -229,8 +301,10 @@ class GuiQmlContractTest(unittest.TestCase):
     def test_home_and_preflight_expose_primary_actions(self):
         for state, required in (
             ("home", ("createRoomButton", "joinRoomButton")),
-            ("create", ("preflightPrimaryButton", "qualityProfileControl")),
-            ("join", ("roomCodeField", "preflightPrimaryButton")),
+            ("create", ("preflightPrimaryButton", "qualityProfileControl",
+                         "microphoneIntentControl", "speakerIntentControl")),
+            ("join", ("roomCodeField", "preflightPrimaryButton",
+                       "microphoneIntentControl", "speakerIntentControl")),
         ):
             result = self.run_state(state)
             self.assertEqual(result.returncode, 0, result.stderr)

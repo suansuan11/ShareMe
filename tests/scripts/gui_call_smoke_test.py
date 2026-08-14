@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import io
 import json
 import os
 import stat
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -24,7 +26,8 @@ class GuiCallSmokeTest(unittest.TestCase):
     def make_demo(self, directory: Path, fail_state: str = "",
                   idle_seconds: float = 0.0,
                   include_object_markers: bool = True,
-                  include_advanced_action_marker: bool = True) -> Path:
+                  include_advanced_action_marker: bool = True,
+                  extra_output: str = "") -> Path:
         demo = directory / "fake-demo.py"
         demo.write_text(
             "#!/usr/bin/env python3\n"
@@ -35,6 +38,7 @@ class GuiCallSmokeTest(unittest.TestCase):
             f"idle_seconds = {idle_seconds!r}\n"
             f"include_object_markers = {include_object_markers!r}\n"
             f"include_advanced_action_marker = {include_advanced_action_marker!r}\n"
+            f"extra_output = {extra_output!r}\n"
             "if fail and state == fail: sys.exit(3)\n"
             "if state == 'call-host-actions':\n"
             " print('GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
@@ -44,12 +48,47 @@ class GuiCallSmokeTest(unittest.TestCase):
             "else:\n"
             " print(f'GUI_STATE page={state} qml_loaded=1')\n"
             " markers = {\n"
-            "  'home': ('createRoomButton', 'joinRoomButton', 'recentRoomAction'),\n"
-            "  'create': ('preflightPrimaryButton', 'qualityProfileControl'),\n"
-            "  'join': ('roomCodeField', 'preflightPrimaryButton'),\n"
+            "  'home': ('GUI_OBJECT createRoomButton=1',\n"
+            "           'GUI_OBJECT joinRoomButton=1',\n"
+            "           'GUI_OBJECT recentRoomAction=1'),\n"
+            "  'create': ('GUI_OBJECT preflightPrimaryButton=1',\n"
+            "             'GUI_OBJECT qualityProfileControl=1',\n"
+            "             'GUI_OBJECT microphoneIntentControl=1',\n"
+            "             'GUI_OBJECT speakerIntentControl=1'),\n"
+            "  'join': ('GUI_OBJECT roomCodeField=1',\n"
+            "           'GUI_OBJECT preflightPrimaryButton=1',\n"
+            "           'GUI_OBJECT microphoneIntentControl=1',\n"
+            "           'GUI_OBJECT speakerIntentControl=1'),\n"
+            "  'settings': ('GUI_OBJECT settingsDialog=1',),\n"
+            "  'help': ('GUI_OBJECT helpDialog=1',),\n"
+            "  'recovery': ('GUI_OBJECT recoverySurface=1',),\n"
+            "  'call-host': (\n"
+            "      'GUI_OBJECT callPage=1',\n"
+            "      'GUI_OBJECT microphoneControl=1',\n"
+            "      'GUI_OBJECT speakerControl=1',\n"
+            "      'GUI_OBJECT detailsControl=1',\n"
+            "      'GUI_OBJECT leaveControl=1',\n"
+            "      'GUI_OBJECT shareControl=0',\n"
+            "      'GUI_OBJECT connectionSection=1',\n"
+            "      'GUI_OBJECT videoSection=1',\n"
+            "      'GUI_OBJECT audioSection=1',\n"
+            "      'GUI_OBJECT advancedSection=1'),\n"
+            "  'call-viewer': (\n"
+            "      'GUI_OBJECT callPage=1',\n"
+            "      'GUI_OBJECT microphoneControl=1',\n"
+            "      'GUI_OBJECT speakerControl=1',\n"
+            "      'GUI_OBJECT detailsControl=1',\n"
+            "      'GUI_OBJECT leaveControl=1',\n"
+            "      'GUI_OBJECT shareControl=0',\n"
+            "      'GUI_OBJECT connectionSection=1',\n"
+            "      'GUI_OBJECT videoSection=1',\n"
+            "      'GUI_OBJECT audioSection=1',\n"
+            "      'GUI_OBJECT advancedSection=1'),\n"
             " }.get(state, ())\n"
             " if include_object_markers:\n"
-            "  for marker in markers: print(f'GUI_OBJECT {marker}=1')\n"
+            "  for marker in markers: print(marker)\n"
+            "if extra_output:\n"
+            " for line in extra_output.splitlines(): print(line)\n"
             "if not state: time.sleep(idle_seconds)\n",
             encoding="utf-8",
         )
@@ -65,6 +104,41 @@ class GuiCallSmokeTest(unittest.TestCase):
             self.assertEqual([item.state for item in results],
                              ["home", "create", "call-host-actions"])
             self.assertTrue(all(item.passed for item in results))
+
+    def test_all_nine_probe_states_are_enforced(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            demo = self.make_demo(Path(temporary))
+            results = self.runner.run_probes(
+                demo, self.runner.GUI_PROBE_STATES, 2.0
+            )
+            self.assertEqual(
+                [item.state for item in results],
+                list(self.runner.GUI_PROBE_STATES),
+            )
+            self.assertEqual(
+                len(results), self.runner.GUI_SMOKE_PROBE_COUNT
+            )
+
+    def test_rejects_unsanitized_gui_output(self):
+        for unsafe in (
+            "kVTParameterErr",
+            "HRESULT",
+            "NSError",
+            "ICE",
+            "SDP",
+            "/private/secret/shareme.exe",
+            "password=super-secret",
+        ):
+            with self.subTest(unsafe=unsafe):
+                with tempfile.TemporaryDirectory() as temporary:
+                    demo = self.make_demo(
+                        Path(temporary),
+                        extra_output=f"GUI_STATE detail={unsafe}",
+                    )
+                    with self.assertRaisesRegex(
+                        self.runner.GuiSmokeFailure, "probe-sanitized:home"
+                    ):
+                        self.runner.run_probes(demo, ("home",), 2.0)
 
     def test_preserves_failure_category_and_partial_results(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -111,6 +185,32 @@ class GuiCallSmokeTest(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs.get("encoding"), "utf-8")
         self.assertEqual(run.call_args.kwargs.get("errors"), "strict")
 
+    def test_timeout_preserves_completed_probe_results(self):
+        completed = self.runner.subprocess.CompletedProcess(
+            args=["fake-demo"],
+            returncode=0,
+            stdout=("GUI_STATE page=home qml_loaded=1\n"
+                    "GUI_OBJECT createRoomButton=1\n"
+                    "GUI_OBJECT joinRoomButton=1\n"
+                    "GUI_OBJECT recentRoomAction=1\n"),
+            stderr="",
+        )
+        timeout = self.runner.subprocess.TimeoutExpired(
+            cmd=["fake-demo"], timeout=2.0
+        )
+        with mock.patch.object(
+            self.runner.subprocess, "run", side_effect=[completed, timeout]
+        ):
+            with self.assertRaisesRegex(
+                self.runner.GuiSmokeFailure, "^timeout$"
+            ) as raised:
+                self.runner.run_probes(
+                    Path("fake-demo"), ("home", "create"), 2.0
+                )
+        self.assertEqual(
+            [item.state for item in raised.exception.partial], ["home"]
+        )
+
     def test_atomic_artifact_contains_no_temporary_file(self):
         with tempfile.TemporaryDirectory() as temporary:
             artifact = Path(temporary) / "result.json"
@@ -118,6 +218,32 @@ class GuiCallSmokeTest(unittest.TestCase):
             self.assertEqual(json.loads(artifact.read_text())["schema"],
                              "gui-call-smoke-v1")
             self.assertEqual(list(Path(temporary).glob("*.tmp")), [])
+
+    def test_strict_decode_failure_writes_atomic_failed_artifact(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = self.make_demo(root)
+            artifact = root / "result.json"
+            artifact.write_text('{"status": "old"}\n', encoding="utf-8")
+            decode_error = UnicodeDecodeError(
+                "utf-8", b"\xff", 0, 1, "invalid start byte"
+            )
+            with mock.patch.object(
+                self.runner.subprocess, "run", side_effect=decode_error
+            ), mock.patch.object(
+                self.runner.sys,
+                "argv",
+                [
+                    "run_gui_call_smoke.py",
+                    "--demo", str(demo),
+                    "--artifact", str(artifact),
+                ],
+            ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(self.runner.main(), 1)
+            payload = json.loads(artifact.read_text(encoding="utf-8"))
+            self.assertEqual(payload["status"], "failed")
+            self.assertEqual(payload["failure"], "decode-error")
+            self.assertEqual(list(root.glob("*.tmp")), [])
 
     def test_idle_sampling_uses_injected_cross_platform_sampler(self):
         runner = self.runner

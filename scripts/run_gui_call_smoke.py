@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,12 +23,70 @@ from process_metrics import (ProcessMetricsError, ProcessSample, ProcessSampler,
 
 _GUI_OBJECTS_BY_STATE = {
     "home": ("createRoomButton", "joinRoomButton", "recentRoomAction"),
-    "create": ("qualityProfileControl", "preflightPrimaryButton"),
-    "join": ("roomCodeField", "preflightPrimaryButton"),
+    "create": ("qualityProfileControl", "preflightPrimaryButton",
+                "microphoneIntentControl", "speakerIntentControl"),
+    "join": ("roomCodeField", "preflightPrimaryButton",
+              "microphoneIntentControl", "speakerIntentControl"),
     "settings": ("settingsDialog",),
     "help": ("helpDialog",),
     "recovery": ("recoverySurface",),
+    "call-host": ("callPage", "microphoneControl", "speakerControl",
+                  "detailsControl", "leaveControl", "shareControl",
+                  "connectionSection", "videoSection", "audioSection",
+                  "advancedSection"),
+    "call-viewer": ("callPage", "microphoneControl", "speakerControl",
+                    "detailsControl", "leaveControl", "shareControl",
+                    "connectionSection", "videoSection", "audioSection",
+                    "advancedSection"),
 }
+_GUI_OBJECT_MARKERS_BY_STATE = {
+    state: tuple(f"GUI_OBJECT {name}=1" for name in names)
+    for state, names in _GUI_OBJECTS_BY_STATE.items()
+}
+for _call_state in ("call-host", "call-viewer"):
+    _GUI_OBJECT_MARKERS_BY_STATE[_call_state] = tuple(
+        marker if not marker.endswith("shareControl=1")
+        else "GUI_OBJECT shareControl=0"
+        for marker in _GUI_OBJECT_MARKERS_BY_STATE[_call_state]
+    )
+
+GUI_PROBE_STATES = (
+    "home", "create", "join", "settings", "help", "recovery",
+    "call-host", "call-viewer", "call-host-actions",
+)
+GUI_SMOKE_PROBE_COUNT = 9
+
+_RECOVERY_CATEGORY_MARKER = re.compile(
+    r"^(GUI_RECOVERY_TITLE category=)\S+(?= title=)"
+)
+_RAW_GUI_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9])(?:kVTParameterErr|HRESULT|NSError|ICE|SDP)"
+    r"(?![A-Za-z0-9])"
+)
+_ABSOLUTE_PATH = re.compile(
+    r"(?<![A-Za-z0-9:/])/(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"
+    r"|(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s\"']+"
+)
+_CREDENTIAL = re.compile(
+    r"(?i)(?:password|passwd|secret|token|credential|api[-_]?key)"
+    r"\s*[:=]\s*\S+|(?:https?|wss?)://[^/\s:@]+:[^@\s]+@"
+)
+
+
+def _without_recovery_category(output: str) -> str:
+    return "\n".join(
+        _RECOVERY_CATEGORY_MARKER.sub(r"\1<category>", line)
+        for line in output.splitlines()
+    )
+
+
+def _unsanitized_gui_output(stdout: str, stderr: str) -> str | None:
+    output = _without_recovery_category(stdout + "\n" + stderr)
+    for pattern in (_RAW_GUI_TOKEN, _ABSOLUTE_PATH, _CREDENTIAL):
+        match = pattern.search(output)
+        if match is not None:
+            return match.group(0)
+    return None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -69,16 +128,21 @@ def run_probes(demo: Path, states: Iterable[str],
     results: list[ProbeResult] = []
     for state in states:
         started = time.monotonic()
-        completed = subprocess.run(
-            _arguments(demo, state),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="strict",
-            timeout=timeout_seconds,
-            check=False,
-            env=environment,
-        )
+        try:
+            completed = subprocess.run(
+                _arguments(demo, state),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="strict",
+                timeout=timeout_seconds,
+                check=False,
+                env=environment,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise GuiSmokeFailure("timeout", results) from error
+        except UnicodeDecodeError as error:
+            raise GuiSmokeFailure("decode-error", results) from error
         duration_ms = round((time.monotonic() - started) * 1000)
         if completed.returncode != 0:
             raise GuiSmokeFailure(f"probe-exit:{state}", results)
@@ -89,12 +153,11 @@ def run_probes(demo: Path, states: Iterable[str],
             if state == "call-host-actions"
             else f"GUI_STATE page={state} qml_loaded=1"
         )
-        required_objects = tuple(
-            f"GUI_OBJECT {name}=1"
-            for name in _GUI_OBJECTS_BY_STATE.get(state, ())
-        )
+        required_objects = _GUI_OBJECT_MARKERS_BY_STATE.get(state, ())
         forbidden = ("TypeError:", "ReferenceError:", "Binding loop",
-                     "failed to load component")
+                     "failed to load component", "is not a type")
+        if _unsanitized_gui_output(completed.stdout, completed.stderr):
+            raise GuiSmokeFailure(f"probe-sanitized:{state}", results)
         if (expected not in completed.stdout or
                 any(item not in completed.stdout for item in required_objects) or
                 any(
@@ -187,10 +250,11 @@ def main() -> int:
     if not demo.is_file() or args.idle_sample_seconds < 1.0:
         print("invalid GUI smoke arguments", file=sys.stderr)
         return 2
-    states = ("home", "create", "join", "settings", "help", "recovery",
-              "call-host", "call-viewer", "call-host-actions")
+    states = GUI_PROBE_STATES
     try:
         probes = run_probes(demo, states, 5.0)
+        if len(probes) != GUI_SMOKE_PROBE_COUNT:
+            raise GuiSmokeFailure("probe-count", probes)
         idle = sample_idle_process(demo, args.idle_sample_seconds)
         artifact = {
             "schema": "gui-call-smoke-v1",
@@ -208,9 +272,16 @@ def main() -> int:
         print(f"GUI_SMOKE status=verified probes={len(probes)} idle_samples="
               f"{idle['sampleCount']}")
         return 0
-    except (GuiSmokeFailure, subprocess.TimeoutExpired) as error:
-        category = error.category if isinstance(error, GuiSmokeFailure) else "timeout"
-        partial = error.partial if isinstance(error, GuiSmokeFailure) else []
+    except (GuiSmokeFailure, subprocess.TimeoutExpired, UnicodeDecodeError) as error:
+        if isinstance(error, GuiSmokeFailure):
+            category = error.category
+            partial = error.partial
+        elif isinstance(error, subprocess.TimeoutExpired):
+            category = "timeout"
+            partial = []
+        else:
+            category = "decode-error"
+            partial = []
         atomic_write_json(args.artifact, {
             "schema": "gui-call-smoke-v1",
             "status": "failed",

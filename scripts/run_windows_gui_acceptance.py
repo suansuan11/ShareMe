@@ -21,15 +21,19 @@ if _SCRIPT_DIRECTORY not in sys.path:
     sys.path.insert(0, _SCRIPT_DIRECTORY)
 
 from process_metrics import ProcessMetricsError, ProcessSampler, summarize_samples
-from run_gui_call_smoke import GuiSmokeFailure, run_probes
+from run_gui_call_smoke import (
+    GUI_PROBE_STATES,
+    GUI_SMOKE_PROBE_COUNT,
+    GuiSmokeFailure,
+    run_probes,
+)
 
 
 PROFILES = ("standard", "quality", "cinema")
 SURFACES = ("home", "create", "join", "settings", "help", "call",
             "details", "recovery")
 DPI_SCALES = (100, 125, 150, 200)
-PROBE_STATES = ("home", "create", "join", "settings", "help", "recovery",
-                "call-host", "call-viewer", "call-host-actions")
+PROBE_STATES = GUI_PROBE_STATES
 _FIXTURE_RESULT = re.compile(
     r"SCREEN_MOTION_FIXTURE status=completed profile=(\w+) frames=(\d+)"
 )
@@ -216,6 +220,8 @@ def main() -> int:
     partial_probes: list[dict] = []
     try:
         results = run_probes(demo, PROBE_STATES, 5.0)
+        if len(results) != GUI_SMOKE_PROBE_COUNT:
+            raise AcceptanceError("probe-count")
         partial_probes = [dataclasses.asdict(item) for item in results]
         fixture_result, process_summary = run_fixture(
             fixture, args.profile, args.duration_seconds, args.offscreen

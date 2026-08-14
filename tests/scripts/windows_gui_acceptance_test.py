@@ -86,6 +86,14 @@ class WindowsGuiAcceptanceTest(unittest.TestCase):
              "call-host", "call-viewer", "call-host-actions"),
         )
 
+    def test_windows_probe_count_matches_gui_smoke_contract(self):
+        self.assertEqual(
+            self.runner.PROBE_STATES, self.runner.GUI_PROBE_STATES
+        )
+        self.assertEqual(
+            len(self.runner.PROBE_STATES), self.runner.GUI_SMOKE_PROBE_COUNT
+        )
+
     def test_artifact_is_redacted_and_failure_is_atomic(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
