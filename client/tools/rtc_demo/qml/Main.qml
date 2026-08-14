@@ -39,8 +39,9 @@ ApplicationWindow {
     }
 
     RecoveryDialog {
+        id: recoveryDialog
         anchors.fill: parent
-        visible: window.appController.page === "result"
+        visible: window.appController.page === "result" || recoveryDialog.smokePreview
         appController: window.appController
     }
 

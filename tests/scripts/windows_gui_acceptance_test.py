@@ -79,6 +79,13 @@ class WindowsGuiAcceptanceTest(unittest.TestCase):
             for item in checklist["dpiScales"][1:]
         ))
 
+    def test_probe_states_cover_secondary_surfaces(self):
+        self.assertEqual(
+            self.runner.PROBE_STATES,
+            ("home", "create", "join", "settings", "help", "recovery",
+             "call-host", "call-viewer", "call-host-actions"),
+        )
+
     def test_artifact_is_redacted_and_failure_is_atomic(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

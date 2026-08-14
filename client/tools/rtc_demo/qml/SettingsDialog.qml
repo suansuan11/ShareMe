@@ -2,32 +2,46 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-Dialog {
+DialogSurface {
     id: dialog
+    objectName: "settingsDialog"
     required property QtObject appController
     title: "设置"
-    modal: true
-    anchors.centerIn: parent
-    width: Math.min(460, parent ? parent.width - 48 : 460)
-    standardButtons: Dialog.Close
+    closeAccessibleDescription: "关闭设置"
     ShareMeTheme { id: theme }
-    background: Rectangle { color: theme.surface; radius: 14; border.color: theme.border }
+
     contentItem: ColumnLayout {
-        spacing: 12
-        Text { text: "连接"; color: theme.textPrimary; font.pixelSize: 16; font.weight: Font.Bold }
-        Text { text: "开发服务地址"; color: theme.textSecondary; font.pixelSize: 12 }
+        spacing: theme.spacingSm
+        Text {
+            text: "连接地址"
+            color: theme.textPrimary
+            font.pixelSize: theme.fontLabel
+            font.weight: Font.DemiBold
+        }
         TextField {
+            id: serverUrlField
+            objectName: "serverUrlField"
             Layout.fillWidth: true
+            implicitHeight: theme.controlHeight
             text: dialog.appController.serverUrl
-            Accessible.name: "WebSocket 服务地址"
+            Accessible.name: "连接地址"
+            placeholderText: "ws://127.0.0.1:8080/v1/ws"
             onEditingFinished: dialog.appController.serverUrl = text
         }
         Text {
             Layout.fillWidth: true
-            text: "服务地址只在当前运行中使用，不会和房间码一起保存。设备切换将在底层支持安全热切换后启用。"
+            text: "这是开发环境的连接设置，不会和房间数据一起保存。"
             color: theme.textMuted
-            font.pixelSize: 11
+            font.pixelSize: theme.fontCaption
             wrapMode: Text.WordWrap
+        }
+
+        Connections {
+            target: dialog.appController
+            function onServerUrlChanged() {
+                if (!serverUrlField.activeFocus)
+                    serverUrlField.text = dialog.appController.serverUrl
+            }
         }
     }
 }

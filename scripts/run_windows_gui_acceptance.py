@@ -28,8 +28,8 @@ PROFILES = ("standard", "quality", "cinema")
 SURFACES = ("home", "create", "join", "settings", "help", "call",
             "details", "recovery")
 DPI_SCALES = (100, 125, 150, 200)
-PROBE_STATES = ("home", "create", "join", "call-host", "call-viewer",
-                "call-host-actions")
+PROBE_STATES = ("home", "create", "join", "settings", "help", "recovery",
+                "call-host", "call-viewer", "call-host-actions")
 _FIXTURE_RESULT = re.compile(
     r"SCREEN_MOTION_FIXTURE status=completed profile=(\w+) frames=(\d+)"
 )

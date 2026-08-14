@@ -100,8 +100,10 @@ int main(int argc, char **argv) {
                                      QStringLiteral("Validate configuration and exit"));
   QCommandLineOption gui_smoke_state_option(
       QStringList{QStringLiteral("gui-smoke-state")},
-      QStringLiteral("Run a bounded GUI state smoke and exit"),
-      QStringLiteral("home|create|join"));
+      QStringLiteral(
+          "Run a bounded GUI state smoke and exit (home, create, join, settings, "
+          "help, recovery, call-host, call-viewer, or call-host-actions)"),
+      QStringLiteral("state"));
   parser.addOption(server_option);
   parser.addOption(role_option);
   parser.addOption(room_option);
@@ -132,6 +134,9 @@ int main(int argc, char **argv) {
       gui_smoke_state != QStringLiteral("home") &&
       gui_smoke_state != QStringLiteral("create") &&
       gui_smoke_state != QStringLiteral("join") &&
+      gui_smoke_state != QStringLiteral("settings") &&
+      gui_smoke_state != QStringLiteral("help") &&
+      gui_smoke_state != QStringLiteral("recovery") &&
       gui_smoke_state != QStringLiteral("call-host") &&
       gui_smoke_state != QStringLiteral("call-viewer") &&
       gui_smoke_state != QStringLiteral("call-host-actions")) {
@@ -332,14 +337,30 @@ int main(int argc, char **argv) {
         app_controller.showCreateRoom();
       else if (gui_smoke_state == QStringLiteral("join"))
         app_controller.showJoinRoom();
+      auto *root = engine.rootObjects().isEmpty()
+                       ? nullptr
+                       : engine.rootObjects().constFirst();
+      if (gui_smoke_state == QStringLiteral("settings") ||
+          gui_smoke_state == QStringLiteral("help")) {
+        const auto object_name = gui_smoke_state == QStringLiteral("settings")
+                                     ? QStringLiteral("settingsDialog")
+                                     : QStringLiteral("helpDialog");
+        auto *dialog = root ? root->findChild<QObject *>(object_name) : nullptr;
+        if (dialog)
+          static_cast<void>(QMetaObject::invokeMethod(
+              dialog, "open", Qt::DirectConnection));
+      } else if (gui_smoke_state == QStringLiteral("recovery")) {
+        auto *surface = root ? root->findChild<QObject *>(
+                                  QStringLiteral("recoverySurface"))
+                             : nullptr;
+        if (surface)
+          surface->setProperty("smokePreview", true);
+      }
       std::cout << "GUI_STATE page=" << gui_smoke_state.toStdString()
                 << " qml_loaded=1" << std::endl;
       if (gui_smoke_state == QStringLiteral("home") ||
           gui_smoke_state == QStringLiteral("create") ||
           gui_smoke_state == QStringLiteral("join")) {
-        auto *root = engine.rootObjects().isEmpty()
-                         ? nullptr
-                         : engine.rootObjects().constFirst();
         const std::array<QString, 8> object_names{
             QStringLiteral("createRoomButton"),
             QStringLiteral("joinRoomButton"),
@@ -371,18 +392,31 @@ int main(int argc, char **argv) {
           std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
                     << (present ? 1 : 0) << std::endl;
         }
+      } else if (gui_smoke_state == QStringLiteral("settings") ||
+                 gui_smoke_state == QStringLiteral("help") ||
+                 gui_smoke_state == QStringLiteral("recovery")) {
+        const auto object_name =
+            gui_smoke_state == QStringLiteral("settings")
+                ? QStringLiteral("settingsDialog")
+                : gui_smoke_state == QStringLiteral("help")
+                      ? QStringLiteral("helpDialog")
+                      : QStringLiteral("recoverySurface");
+        const auto present = root && root->findChild<QObject *>(object_name);
+        std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
+                  << (present ? 1 : 0) << std::endl;
       } else if (gui_smoke_state == QStringLiteral("call-host") ||
                  gui_smoke_state == QStringLiteral("call-viewer")) {
-        auto *root = engine.rootObjects().isEmpty()
-                         ? nullptr
-                         : engine.rootObjects().constFirst();
-        const std::array<QString, 6> object_names{
+        const std::array<QString, 10> object_names{
             QStringLiteral("callPage"),
             QStringLiteral("microphoneControl"),
             QStringLiteral("speakerControl"),
             QStringLiteral("detailsControl"),
             QStringLiteral("leaveControl"),
-            QStringLiteral("shareControl")};
+            QStringLiteral("shareControl"),
+            QStringLiteral("connectionSection"),
+            QStringLiteral("videoSection"),
+            QStringLiteral("audioSection"),
+            QStringLiteral("advancedSection")};
         for (const auto &object_name : object_names) {
           const auto present = root && root->findChild<QObject *>(object_name);
           std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
@@ -411,12 +445,20 @@ int main(int argc, char **argv) {
             root && root->findChild<QObject *>("voicePanel") != nullptr;
         auto *volume_control =
             root ? root->findChild<QObject *>("speakerVolumeControl") : nullptr;
+        auto *advanced_section =
+            root ? root->findChild<QObject *>("advancedSection") : nullptr;
+        const auto advanced_closed =
+            advanced_section && !advanced_section->property("visible").toBool();
+        const auto advanced_clicked = invoke_click("advancedControl");
+        const auto advanced_expanded =
+            advanced_clicked && advanced_section &&
+            advanced_section->property("visible").toBool();
         QVariant volume_restored;
         const auto volume_checked =
             volume_control && QMetaObject::invokeMethod(
-                                  volume_control, "requestVolume",
-                                  Qt::DirectConnection,
-                                  Q_RETURN_ARG(QVariant, volume_restored),
+                                   volume_control, "requestVolume",
+                                   Qt::DirectConnection,
+                                   Q_RETURN_ARG(QVariant, volume_restored),
                                   Q_ARG(QVariant, 37));
         const auto leave_clicked = invoke_click("leaveControl");
         const auto returned_home = app_controller.page() == QStringLiteral("home");
@@ -429,6 +471,8 @@ int main(int argc, char **argv) {
                   << " leave=" << (leave_clicked && returned_home)
                   << " page=" << app_controller.page().toStdString()
                   << std::endl;
+        std::cout << "GUI_ACTION advanced_closed=" << advanced_closed
+                  << " advanced_expanded=" << advanced_expanded << std::endl;
         QTimer::singleShot(20, &app, &QCoreApplication::quit);
       });
     } else {

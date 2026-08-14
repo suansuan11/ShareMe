@@ -24,6 +24,9 @@ _GUI_OBJECTS_BY_STATE = {
     "home": ("createRoomButton", "joinRoomButton", "recentRoomAction"),
     "create": ("qualityProfileControl", "preflightPrimaryButton"),
     "join": ("roomCodeField", "preflightPrimaryButton"),
+    "settings": ("settingsDialog",),
+    "help": ("helpDialog",),
+    "recovery": ("recoverySurface",),
 }
 
 
@@ -179,8 +182,8 @@ def main() -> int:
     if not demo.is_file() or args.idle_sample_seconds < 1.0:
         print("invalid GUI smoke arguments", file=sys.stderr)
         return 2
-    states = ("home", "create", "join", "call-host", "call-viewer",
-              "call-host-actions")
+    states = ("home", "create", "join", "settings", "help", "recovery",
+              "call-host", "call-viewer", "call-host-actions")
     try:
         probes = run_probes(demo, states, 5.0)
         idle = sample_idle_process(demo, args.idle_sample_seconds)
@@ -197,7 +200,7 @@ def main() -> int:
             },
         }
         atomic_write_json(args.artifact, artifact)
-        print("GUI_SMOKE status=verified probes=6 idle_samples="
+        print(f"GUI_SMOKE status=verified probes={len(probes)} idle_samples="
               f"{idle['sampleCount']}")
         return 0
     except (GuiSmokeFailure, subprocess.TimeoutExpired) as error:

@@ -70,6 +70,108 @@ class GuiQmlContractTest(unittest.TestCase):
         self.assertIn("qml/IconGlyph.qml", cmake)
         self.assertIn("qml/DialogSurface.qml", cmake)
 
+    def test_settings_help_and_recovery_surfaces_load_cleanly(self):
+        for state, object_name in (
+            ("settings", "settingsDialog"),
+            ("help", "helpDialog"),
+            ("recovery", "recoverySurface"),
+        ):
+            with self.subTest(state=state):
+                result = self.run_state(state)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(
+                    f"GUI_STATE page={state} qml_loaded=1", result.stdout
+                )
+                self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
+                for failure in (
+                    "TypeError:",
+                    "ReferenceError:",
+                    "is not a type",
+                    "failed to load component",
+                    "Binding loop",
+                ):
+                    self.assertNotIn(failure, result.stderr)
+
+    def test_details_drawer_exposes_semantic_sections_and_safe_status_copy(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        source = (qml_dir / "CallDetailsDrawer.qml").read_text(encoding="utf-8")
+        for object_name in (
+            "connectionSection",
+            "videoSection",
+            "audioSection",
+            "advancedSection",
+        ):
+            with self.subTest(object_name=object_name):
+                self.assertIn(f'objectName: "{object_name}"', source)
+        for title in ("连接", "画面", "声音", "高级信息"):
+            with self.subTest(title=title):
+                self.assertIn(f'text: "{title}"', source)
+        self.assertIn("property bool expanded: false", source)
+        self.assertIn("visible: advancedButton.expanded", source)
+        self.assertNotIn("value: drawer.controller.status", source)
+        for marker in (
+            "function statusLabel(status)",
+            "drawer.controller.voiceQualityMessage",
+            "drawer.controller.microphoneLevel",
+            "speakerVolumeControl",
+            "pauseHostPlayback()",
+            "resumeHostPlayback()",
+            "seekHostPlayback(",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+
+    def test_secondary_dialogs_and_recovery_keep_the_approved_copy_contract(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        settings = (qml_dir / "SettingsDialog.qml").read_text(encoding="utf-8")
+        help_source = (qml_dir / "HelpDialog.qml").read_text(encoding="utf-8")
+        recovery = (qml_dir / "RecoveryDialog.qml").read_text(encoding="utf-8")
+
+        for marker in (
+            "DialogSurface {",
+            'objectName: "settingsDialog"',
+            'text: "连接地址"',
+            "serverUrl",
+            "onServerUrlChanged",
+            "开发环境",
+            "不会和房间数据一起保存",
+        ):
+            with self.subTest(surface="settings", marker=marker):
+                self.assertIn(marker, settings)
+        self.assertNotIn("设备切换", settings)
+
+        for marker in (
+            "DialogSurface {",
+            'objectName: "helpDialog"',
+            "怎么创建房间？",
+            "怎么加入房间？",
+            "没有画面怎么办？",
+            "没有声音怎么办？",
+            "macOS 屏幕录制权限在哪里？",
+            "Tab",
+            "Enter / Space",
+            "Esc",
+        ):
+            with self.subTest(surface="help", marker=marker):
+                self.assertIn(marker, help_source)
+
+        for marker in (
+            'objectName: "recoverySurface"',
+            "smokePreview",
+            "需要检查权限",
+            "无法加入这个房间",
+            "屏幕共享不可用",
+            "声音设备不可用",
+            "连接未建立",
+            "通话暂时无法继续",
+            "errorMessage",
+            "returnHome()",
+            "retryCall()",
+        ):
+            with self.subTest(surface="recovery", marker=marker):
+                self.assertIn(marker, recovery)
+        self.assertNotIn("诊断类别", recovery)
+
     def test_create_preflight_loads_without_qml_errors(self):
         self.assert_clean_state("create")
 
@@ -149,6 +251,13 @@ class GuiQmlContractTest(unittest.TestCase):
                 self.assertIn("GUI_OBJECT detailsControl=1", result.stdout)
                 self.assertIn("GUI_OBJECT leaveControl=1", result.stdout)
                 self.assertIn("GUI_OBJECT shareControl=0", result.stdout)
+                for object_name in (
+                    "connectionSection",
+                    "videoSection",
+                    "audioSection",
+                    "advancedSection",
+                ):
+                    self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
 
     def test_call_stage_overlay_visibility_is_mutually_exclusive(self):
         qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
@@ -229,6 +338,9 @@ class GuiQmlContractTest(unittest.TestCase):
             "GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
             "volume_rejected_restored=1 leave=1 page=home",
             result.stdout,
+        )
+        self.assertIn(
+            "GUI_ACTION advanced_closed=1 advanced_expanded=1", result.stdout
         )
         self.assertNotIn("TypeError:", result.stderr)
 
