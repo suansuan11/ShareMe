@@ -87,6 +87,8 @@ qt_add_qml_module(
   QML_FILES
     qml/Main.qml
     qml/ShareMeTheme.qml
+    qml/IconGlyph.qml
+    qml/DialogSurface.qml
     qml/PrimaryButton.qml
     qml/IconControl.qml
     qml/InfoRow.qml

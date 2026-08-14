@@ -62,6 +62,14 @@ class GuiQmlContractTest(unittest.TestCase):
     def test_home_loads_without_qml_errors(self):
         self.assert_clean_state("home")
 
+    def test_shared_visual_primitives_are_registered(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        for filename in ("IconGlyph.qml", "DialogSurface.qml"):
+            self.assertTrue((qml_dir / filename).is_file())
+        cmake = (qml_dir.parent / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn("qml/IconGlyph.qml", cmake)
+        self.assertIn("qml/DialogSurface.qml", cmake)
+
     def test_create_preflight_loads_without_qml_errors(self):
         self.assert_clean_state("create")
 

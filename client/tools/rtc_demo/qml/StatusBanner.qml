@@ -6,22 +6,22 @@ Rectangle {
     property string text: ""
     property string kind: "info"
     visible: text.length > 0
-    implicitHeight: visible ? 40 : 0
-    radius: 9
+    implicitHeight: visible ? theme.controlHeight : 0
+    radius: theme.radiusMedium
     ShareMeTheme { id: theme }
-    color: kind === "error" ? "#351B24"
-         : kind === "warning" ? "#332B18" : "#10283D"
+    color: kind === "error" ? theme.errorSurface
+         : kind === "warning" ? theme.warningSurface : theme.accentSubtle
     border.width: 1
-    border.color: kind === "error" ? theme.danger
-                : kind === "warning" ? theme.warning : theme.primary
+    border.color: kind === "error" ? theme.error
+                : kind === "warning" ? theme.warning : theme.accent
 
     Text {
         anchors.fill: parent
-        anchors.margins: 11
+        anchors.margins: theme.spacingMd
         text: banner.text
-        color: kind === "error" ? "#FFAFBA"
-             : kind === "warning" ? "#FFE09A" : theme.cyan
-        font.pixelSize: 12
+        color: kind === "error" ? theme.error
+             : kind === "warning" ? theme.warning : theme.accent
+        font.pixelSize: theme.fontMeta
         verticalAlignment: Text.AlignVCenter
         elide: Text.ElideRight
     }
