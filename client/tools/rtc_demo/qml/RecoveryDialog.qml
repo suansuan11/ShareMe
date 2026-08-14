@@ -30,10 +30,10 @@ Rectangle {
     }
 
     Rectangle {
-        width: Math.min(520, parent.width - 48)
-        implicitHeight: content.implicitHeight + 48
+        width: Math.min(520, parent.width - theme.spacingXl * 2)
+        implicitHeight: content.implicitHeight + theme.spacingXl * 2
         anchors.centerIn: parent
-        radius: 16
+        radius: theme.radiusLarge
         color: theme.surface
         border.width: 1
         border.color: theme.border
@@ -42,18 +42,20 @@ Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: 24
-            spacing: 14
+            anchors.margins: theme.spacingXl
+            spacing: theme.spacingMd
             Rectangle {
-                width: 44; height: 44; radius: 13
-                color: "#35251C"
-                Text { anchors.centerIn: parent; text: "!"; color: theme.warning; font.pixelSize: 22; font.weight: Font.Bold }
+                width: theme.controlHeight
+                height: theme.controlHeight
+                radius: theme.radiusLarge
+                color: theme.warningSurface
+                Text { anchors.centerIn: parent; text: "!"; color: theme.warning; font.pixelSize: theme.fontPageTitle; font.weight: Font.Bold }
             }
             Text {
                 Layout.fillWidth: true
                 text: recovery.recoveryTitle(recovery.appController.errorCategory)
                 color: theme.textPrimary
-                font.pixelSize: 20
+                font.pixelSize: theme.fontPageTitle
                 font.weight: Font.Bold
             }
             Text {
@@ -62,12 +64,13 @@ Rectangle {
                       ? recovery.appController.errorMessage
                       : "通话遇到问题，请重试或返回首页。"
                 color: theme.textSecondary
-                font.pixelSize: 13
-                lineHeight: 1.4
+                font.pixelSize: theme.fontLabel
+                lineHeight: theme.lineHeightBody
                 wrapMode: Text.WordWrap
             }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
+                spacing: theme.spacingSm
                 PrimaryButton { text: "返回首页"; secondary: true; onClicked: recovery.appController.returnHome() }
                 PrimaryButton { text: "重试"; onClicked: recovery.appController.retryCall() }
             }

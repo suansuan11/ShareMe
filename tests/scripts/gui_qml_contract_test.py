@@ -121,6 +121,35 @@ class GuiQmlContractTest(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, source)
 
+    def test_details_and_recovery_use_shared_theme_tokens(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        for filename in ("CallDetailsDrawer.qml", "RecoveryDialog.qml"):
+            source = (qml_dir / filename).read_text(encoding="utf-8")
+            with self.subTest(filename=filename):
+                self.assertNotRegex(source, r"spacing:\s*\d+")
+                self.assertNotRegex(source, r"anchors\.margins:\s*\d+")
+                self.assertNotRegex(source, r"font\.pixelSize:\s*\d+")
+                self.assertNotRegex(source, r"radius:\s*\d+")
+                self.assertNotRegex(source, r'color:\s*"#')
+        recovery = (qml_dir / "RecoveryDialog.qml").read_text(encoding="utf-8")
+        self.assertIn("theme.lineHeightBody", recovery)
+
+    def test_movie_seek_control_has_accessible_themed_hit_area(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        source = (qml_dir / "CallDetailsDrawer.qml").read_text(encoding="utf-8")
+        playback_start = source.index("id: playbackSection")
+        seek_start = source.index("Slider {", playback_start)
+        seek_control = source[seek_start:source.index("            }", seek_start)]
+        for marker in (
+            'Accessible.name: "播放进度"',
+            "implicitHeight: theme.controlHeight",
+            "Layout.minimumHeight: theme.controlHeight",
+            "value: Math.max(0, drawer.controller.hostPlaybackPositionMs",
+            "onMoved: drawer.controller.seekHostPlayback(",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, seek_control)
+
     def test_secondary_dialogs_and_recovery_keep_the_approved_copy_contract(self):
         qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
         settings = (qml_dir / "SettingsDialog.qml").read_text(encoding="utf-8")
@@ -171,6 +200,25 @@ class GuiQmlContractTest(unittest.TestCase):
             with self.subTest(surface="recovery", marker=marker):
                 self.assertIn(marker, recovery)
         self.assertNotIn("诊断类别", recovery)
+
+    def test_recovery_smoke_prints_runtime_sanitized_titles(self):
+        result = self.run_state("recovery")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for category, title in (
+            ("permission-denied", "需要检查权限"),
+            ("invalid-room", "无法加入这个房间"),
+            ("screen-capture", "屏幕共享不可用"),
+            ("audio-device", "声音设备不可用"),
+            ("connection-lost", "连接未建立"),
+            ("ICE-failed", "连接未建立"),
+            ("timed out", "连接未建立"),
+            ("generic-failure", "通话暂时无法继续"),
+        ):
+            with self.subTest(category=category):
+                self.assertIn(
+                    f"GUI_RECOVERY_TITLE category={category} title={title}",
+                    result.stdout,
+                )
 
     def test_create_preflight_loads_without_qml_errors(self):
         self.assert_clean_state("create")

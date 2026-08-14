@@ -353,8 +353,30 @@ int main(int argc, char **argv) {
         auto *surface = root ? root->findChild<QObject *>(
                                   QStringLiteral("recoverySurface"))
                              : nullptr;
-        if (surface)
+        if (surface) {
           surface->setProperty("smokePreview", true);
+          const std::array<QString, 8> recovery_categories{
+              QStringLiteral("permission-denied"),
+              QStringLiteral("invalid-room"),
+              QStringLiteral("screen-capture"),
+              QStringLiteral("audio-device"),
+              QStringLiteral("connection-lost"),
+              QStringLiteral("ICE-failed"),
+              QStringLiteral("timed out"),
+              QStringLiteral("generic-failure")};
+          for (const auto &category : recovery_categories) {
+            QVariant title;
+            const auto invoked = QMetaObject::invokeMethod(
+                surface, "recoveryTitle", Qt::DirectConnection,
+                Q_RETURN_ARG(QVariant, title),
+                Q_ARG(QVariant, QVariant::fromValue(category)));
+            std::cout << "GUI_RECOVERY_TITLE category="
+                      << category.toStdString() << " title="
+                      << (invoked ? title.toString().toStdString()
+                                  : std::string{"<unavailable>"})
+                      << std::endl;
+          }
+        }
       }
       std::cout << "GUI_STATE page=" << gui_smoke_state.toStdString()
                 << " qml_loaded=1" << std::endl;

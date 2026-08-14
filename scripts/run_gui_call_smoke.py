@@ -82,7 +82,8 @@ def run_probes(demo: Path, states: Iterable[str],
             raise GuiSmokeFailure(f"probe-exit:{state}", results)
         expected = (
             "GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
-            "volume_rejected_restored=1 leave=1 page=home"
+            "volume_rejected_restored=1 leave=1 page=home\n"
+            "GUI_ACTION advanced_closed=1 advanced_expanded=1"
             if state == "call-host-actions"
             else f"GUI_STATE page={state} qml_loaded=1"
         )

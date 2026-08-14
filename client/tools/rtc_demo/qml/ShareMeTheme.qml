@@ -46,6 +46,7 @@ QtObject {
     readonly property int fontMeta: 12
     readonly property int fontCaption: 11
     readonly property int fontButton: 14
+    readonly property real lineHeightBody: 1.4
 
     readonly property int controlHeight: 44
     readonly property int drawerWidth: 320

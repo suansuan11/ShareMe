@@ -22,7 +22,8 @@ class GuiCallSmokeTest(unittest.TestCase):
 
     def make_demo(self, directory: Path, fail_state: str = "",
                   idle_seconds: float = 0.0,
-                  include_object_markers: bool = True) -> Path:
+                  include_object_markers: bool = True,
+                  include_advanced_action_marker: bool = True) -> Path:
         demo = directory / "fake-demo.py"
         demo.write_text(
             "#!/usr/bin/env python3\n"
@@ -32,10 +33,13 @@ class GuiCallSmokeTest(unittest.TestCase):
             f"fail = {fail_state!r}\n"
             f"idle_seconds = {idle_seconds!r}\n"
             f"include_object_markers = {include_object_markers!r}\n"
+            f"include_advanced_action_marker = {include_advanced_action_marker!r}\n"
             "if fail and state == fail: sys.exit(3)\n"
             "if state == 'call-host-actions':\n"
             " print('GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
             "volume_rejected_restored=1 leave=1 page=home')\n"
+            " if include_advanced_action_marker:\n"
+            "  print('GUI_ACTION advanced_closed=1 advanced_expanded=1')\n"
             "else:\n"
             " print(f'GUI_STATE page={state} qml_loaded=1')\n"
             " markers = {\n"
@@ -78,6 +82,16 @@ class GuiCallSmokeTest(unittest.TestCase):
             with self.assertRaisesRegex(self.runner.GuiSmokeFailure,
                                         "probe-contract:home"):
                 self.runner.run_probes(demo, ("home",), 2.0)
+
+    def test_requires_advanced_action_marker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            demo = self.make_demo(
+                Path(temporary), include_advanced_action_marker=False
+            )
+            with self.assertRaisesRegex(
+                self.runner.GuiSmokeFailure, "probe-contract:call-host-actions"
+            ):
+                self.runner.run_probes(demo, ("call-host-actions",), 2.0)
 
     def test_atomic_artifact_contains_no_temporary_file(self):
         with tempfile.TemporaryDirectory() as temporary:

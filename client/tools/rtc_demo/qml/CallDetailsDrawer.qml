@@ -9,7 +9,7 @@ Rectangle {
     color: theme.surface
     border.width: 1
     border.color: theme.border
-    radius: 14
+    radius: theme.radiusLarge
     ShareMeTheme { id: theme }
 
     function statusLabel(status) {
@@ -34,15 +34,15 @@ Rectangle {
 
     ScrollView {
         anchors.fill: parent
-        anchors.margins: 18
+        anchors.margins: theme.spacingLg
         clip: true
         ColumnLayout {
             width: parent.width
-            spacing: 13
+            spacing: theme.spacingMd
             Text {
                 text: "通话详情"
                 color: theme.textPrimary
-                font.pixelSize: 17
+                font.pixelSize: theme.fontSectionTitle
                 font.weight: Font.Bold
             }
 
@@ -50,11 +50,11 @@ Rectangle {
                 id: connectionSection
                 objectName: "connectionSection"
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: theme.spacingSm
                 Text {
                     text: "连接"
                     color: theme.textPrimary
-                    font.pixelSize: 13
+                    font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
                 InfoRow {
@@ -73,11 +73,11 @@ Rectangle {
                 id: videoSection
                 objectName: "videoSection"
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: theme.spacingSm
                 Text {
                     text: "画面"
                     color: theme.textPrimary
-                    font.pixelSize: 13
+                    font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
                 InfoRow {
@@ -96,11 +96,11 @@ Rectangle {
                 id: audioSection
                 objectName: "audioSection"
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: theme.spacingSm
                 Text {
                     text: "声音"
                     color: theme.textPrimary
-                    font.pixelSize: 13
+                    font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
                 InfoRow {
@@ -118,18 +118,18 @@ Rectangle {
                     id: voicePanel
                     objectName: "voicePanel"
                     Layout.fillWidth: true
-                    spacing: 8
-                    Text { text: "通话声音"; color: theme.textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
+                    spacing: theme.spacingSm
+                    Text { text: "通话声音"; color: theme.textPrimary; font.pixelSize: theme.fontLabel; font.weight: Font.DemiBold }
                     Text {
                         Layout.fillWidth: true
                         text: drawer.controller.voiceQualityMessage
-                        color: drawer.controller.voiceQuality === "poor" ? "#FB7185"
-                             : drawer.controller.voiceQuality === "unstable" ? "#FBBF24"
+                        color: drawer.controller.voiceQuality === "poor" ? theme.error
+                             : drawer.controller.voiceQuality === "unstable" ? theme.warning
                              : drawer.controller.voiceQuality === "good" ? theme.cyan
                              : theme.textSecondary
-                        font.pixelSize: 11
+                        font.pixelSize: theme.fontCaption
                     }
-                    Text { text: "麦克风活动"; color: theme.textSecondary; font.pixelSize: 11 }
+                    Text { text: "麦克风活动"; color: theme.textSecondary; font.pixelSize: theme.fontCaption }
                     ProgressBar {
                         Layout.fillWidth: true
                         from: 0
@@ -139,7 +139,7 @@ Rectangle {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { text: "对方音量"; color: theme.textSecondary; font.pixelSize: 11 }
+                        Text { text: "对方音量"; color: theme.textSecondary; font.pixelSize: theme.fontCaption }
                         Slider {
                             objectName: "speakerVolumeControl"
                             function requestVolume(requested) {
@@ -157,13 +157,13 @@ Rectangle {
                             Accessible.name: "对方声音音量"
                             onMoved: requestVolume(value)
                         }
-                        Text { text: drawer.controller.speakerVolume + "%"; color: theme.textSecondary; font.pixelSize: 10 }
+                        Text { text: drawer.controller.speakerVolume + "%"; color: theme.textSecondary; font.pixelSize: theme.fontCaption }
                     }
                     Text {
                         Layout.fillWidth: true
                         text: drawer.controller.voiceProcessingSummary
                         color: theme.textMuted
-                        font.pixelSize: 10
+                        font.pixelSize: theme.fontCaption
                         wrapMode: Text.WordWrap
                     }
                 }
@@ -176,8 +176,8 @@ Rectangle {
                 objectName: "playbackSection"
                 Layout.fillWidth: true
                 visible: !drawer.controller.viewer && drawer.controller.hostControlsAvailable
-                spacing: 8
-                Text { text: "播放"; color: theme.textPrimary; font.pixelSize: 13; font.weight: Font.DemiBold }
+                spacing: theme.spacingSm
+                Text { text: "播放"; color: theme.textPrimary; font.pixelSize: theme.fontLabel; font.weight: Font.DemiBold }
                 RowLayout {
                     Layout.fillWidth: true
                     Button {
@@ -192,12 +192,15 @@ Rectangle {
                                       - drawer.controller.hostPlaybackStartMs) + " / "
                               + drawer.controller.hostPlaybackDurationMs + " ms"
                         color: theme.textSecondary
-                        font.pixelSize: 10
+                        font.pixelSize: theme.fontCaption
                         elide: Text.ElideRight
                     }
                 }
                 Slider {
                     Layout.fillWidth: true
+                    Layout.minimumHeight: theme.controlHeight
+                    implicitHeight: theme.controlHeight
+                    Accessible.name: "播放进度"
                     from: 0
                     to: Math.max(0, drawer.controller.hostPlaybackDurationMs)
                     value: Math.max(0, drawer.controller.hostPlaybackPositionMs
@@ -222,11 +225,11 @@ Rectangle {
                 objectName: "advancedSection"
                 Layout.fillWidth: true
                 visible: advancedButton.expanded
-                spacing: 8
+                spacing: theme.spacingSm
                 Text {
                     text: "高级信息"
                     color: theme.textPrimary
-                    font.pixelSize: 13
+                    font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
                 InfoRow { Layout.fillWidth: true; label: "协商编码"; value: drawer.controller.videoNegotiatedCodec }
