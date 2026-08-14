@@ -44,6 +44,35 @@ temperature, physical 1440p/4K displays, device hot-switching, and production
 packaging remain environment-dependent, unverified, or unimplemented. No
 resolution, cadence, bitrate, codec-quality, or media gate was lowered.
 
+### GUI/UX Refinement
+
+The GUI refinement stage is delivered on `codex/gui-refinement` at source tip
+`c373679163a22e5ef8bbc6ad1625846a6a20d1d5`; its evidence is recorded in
+[GUI Refinement Verification](../verification/gui-refinement.md). This is a
+GUI-only stage: tokenized QML surfaces, Chinese-first presentation, responsive
+Home/Create/Join hierarchy, active-call controls, semantic details disclosure,
+Settings, Help, Recovery, accessibility markers, and sanitized GUI contracts
+were refined without changing RTC, media, signaling, controller ownership, or
+the historical native screen/voice evidence above.
+
+On macOS 26.6.1 arm64, fresh `call-dev` CTest passed `57/57`, fresh
+`movie-call-dev` CTest passed `82/82`, the GUI QML contract passed `22/22`, the
+GUI smoke contract passed `16/16`, and the real nine-state smoke passed with
+`9` probes and `12` idle samples. Idle CPU/RSS was `0.525%` mean CPU and
+`80,672 KiB` maximum RSS against the complete-GUI baseline of `4.95%` and
+`83,440 KiB`. These are bounded offscreen process samples, not temperature or
+energy evidence.
+
+The macOS attended review is verified for the captured normal Cocoa surface and
+partial for exact compact/large logical resizing because native Accessibility
+input was unavailable. Windows native rendering, Windows DPI, human A/V
+acceptance, physical temperature, and physical display evidence remain
+environment-dependent. No RTC/media gate was lowered or replaced; the next GUI
+opportunities are safe truthful device selection, direct platform permission
+navigation, and richer health presentation after their contracts exist. See
+[GUI Refinement Verification](../verification/gui-refinement.md) for exact
+commands, artifacts, and boundaries.
+
 ### Hardware Screen Streaming Foundation
 
 `main` includes the accepted macOS ScreenCaptureKit and VideoToolbox screen

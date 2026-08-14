@@ -2,6 +2,11 @@
 
 Status: `verified-macos-gui-and-native-screen-call`
 
+The subsequent tokenized GUI/UX refinement is recorded in
+[GUI Refinement Verification](gui-refinement.md). The native screen, voice,
+and media evidence in this document is historical and unchanged by that GUI
+stage.
+
 ## Delivered product surface
 
 The RTC executable now starts as the ShareMe application when launched without
