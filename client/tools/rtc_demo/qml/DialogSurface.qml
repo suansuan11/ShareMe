@@ -37,7 +37,7 @@ Dialog {
                 implicitWidth: theme.controlHeight
                 implicitHeight: theme.controlHeight
                 accessibleDescription: dialog.closeAccessibleDescription
-                onClicked: dialog.done(Dialog.Close)
+                onClicked: dialog.reject()
             }
         }
     }
