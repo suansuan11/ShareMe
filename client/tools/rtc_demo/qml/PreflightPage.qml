@@ -5,171 +5,211 @@ import QtQuick.Layouts
 Item {
     id: page
     required property QtObject appController
+    readonly property bool createMode: appController.preflight === "create"
+    readonly property bool compact: width < 900 || height < 600
+    readonly property bool roomCodeValid: /^[A-Z2-7]{6}$/.test(
+        normalizedRoomCode(appController.roomCode))
+
+    function normalizedRoomCode(value) {
+        return value.toUpperCase().replace(/[\s-]/g, "")
+    }
+
     ShareMeTheme { id: theme }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 28
-        spacing: 18
+        anchors.margins: page.compact ? theme.spacingLg : theme.spacingXl
+        spacing: page.compact ? theme.spacingSm : theme.spacingMd
 
         RowLayout {
             Layout.fillWidth: true
-            Button {
-                text: "‹  返回"
-                flat: true
+            Layout.preferredHeight: theme.controlHeight
+            spacing: theme.spacingSm
+
+            IconControl {
+                objectName: "preflightBackButton"
+                iconName: "back"
+                accessibleDescription: "返回首页"
                 Accessible.name: "返回首页"
-                palette.buttonText: theme.textSecondary
                 onClicked: page.appController.returnHome()
             }
-            Item { Layout.fillWidth: true }
+            Text {
+                Layout.fillWidth: true
+                text: page.createMode ? "创建房间" : "加入房间"
+                color: theme.textPrimary
+                font.pixelSize: theme.fontSectionTitle
+                font.weight: Font.DemiBold
+                verticalAlignment: Text.AlignVCenter
+            }
             Text {
                 text: "ShareMe"
-                color: theme.textPrimary
-                font.pixelSize: 18
-                font.weight: Font.Bold
+                color: theme.textMuted
+                font.pixelSize: theme.fontMeta
+                verticalAlignment: Text.AlignVCenter
             }
         }
 
-        RowLayout {
+        Rectangle {
+            id: surface
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 20
+            Layout.maximumWidth: 680
+            Layout.alignment: Qt.AlignHCenter
+            color: theme.surface
+            radius: theme.radiusLarge
+            border.width: 1
+            border.color: theme.border
+            clip: true
 
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.minimumWidth: 330
-                radius: 16
-                color: "#05080D"
-                border.width: 1
-                border.color: theme.border
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 12
-                    Rectangle {
-                        width: 76; height: 76; radius: 38
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        gradient: Gradient {
-                            GradientStop { position: 0; color: theme.cyan }
-                            GradientStop { position: 1; color: "#6366F1" }
-                        }
-                        Text {
-                            anchors.centerIn: parent
-                            text: "D"
-                            color: "white"
-                            font.pixelSize: 28
-                            font.weight: Font.Bold
-                        }
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: page.appController.preflight === "create"
-                              ? "准备共享当前屏幕" : "加入后将在这里显示共享画面"
-                        color: theme.textSecondary
-                        font.pixelSize: 13
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: page.compact ? theme.spacingMd : theme.spacingXl
+                spacing: page.compact ? theme.spacingSm : theme.spacingMd
+
+                Text {
+                    Layout.fillWidth: true
+                    text: page.createMode ? "创建屏幕共享房间" : "加入屏幕共享房间"
+                    color: theme.textPrimary
+                    font.pixelSize: theme.fontPageTitle
+                    font.weight: Font.Bold
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: page.createMode
+                          ? "通话开始后，会共享当前屏幕给加入房间的参与者。"
+                          : "输入对方提供的六位房间码即可加入。"
+                    color: theme.textSecondary
+                    font.pixelSize: theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "房间"
+                    color: theme.textPrimary
+                    font.pixelSize: theme.fontSectionTitle
+                    font.weight: Font.DemiBold
+                }
+                TextField {
+                    id: roomCodeField
+                    objectName: "roomCodeField"
+                    Layout.fillWidth: true
+                    visible: !page.createMode
+                    text: page.appController.roomCode
+                    placeholderText: "例如 ABC-234"
+                    maximumLength: 8
+                    selectByMouse: true
+                    focusPolicy: Qt.StrongFocus
+                    Accessible.name: "六位房间码"
+                    onTextEdited: page.appController.roomCode = text
+                    color: theme.textPrimary
+                    placeholderTextColor: theme.textMuted
+                    background: Rectangle {
+                        implicitHeight: theme.controlHeight
+                        radius: theme.radiusMedium
+                        color: theme.surfaceRaised
+                        border.width: roomCodeField.activeFocus ? 2 : 1
+                        border.color: roomCodeField.activeFocus
+                                      ? theme.focus : theme.border
                     }
                 }
-            }
+                Text {
+                    Layout.fillWidth: true
+                    visible: page.createMode
+                    text: "当前屏幕会作为共享画面发送，不需要选择设备。"
+                    color: theme.textSecondary
+                    font.pixelSize: theme.fontMeta
+                    wrapMode: Text.WordWrap
+                }
+                StatusBanner {
+                    Layout.fillWidth: true
+                    text: page.appController.errorMessage
+                    kind: "error"
+                }
 
-            Rectangle {
-                Layout.preferredWidth: 380
-                Layout.fillHeight: true
-                radius: 16
-                color: theme.surface
-                border.width: 1
-                border.color: theme.border
+                Text {
+                    Layout.fillWidth: true
+                    text: "设备"
+                    color: theme.textPrimary
+                    font.pixelSize: theme.fontSectionTitle
+                    font.weight: Font.DemiBold
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: theme.spacingSm
 
-                ScrollView {
-                    anchors.fill: parent
-                    anchors.margins: 22
-                    clip: true
-                    ColumnLayout {
-                        width: parent.width
-                        spacing: 13
-                        Text {
-                            text: page.appController.preflight === "create"
-                                  ? "创建屏幕共享房间" : "加入屏幕共享房间"
-                            color: theme.textPrimary
-                            font.pixelSize: 22
-                            font.weight: Font.Bold
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: page.appController.preflight === "create"
-                                  ? "房间创建后，将房间码发给另一位参与者。"
-                                  : "输入对方提供的六位房间码。"
-                            color: theme.textSecondary
-                            font.pixelSize: 12
-                            wrapMode: Text.WordWrap
-                        }
-                        Text {
-                            visible: page.appController.preflight === "join"
-                            text: "房间码"
-                            color: theme.textSecondary
-                            font.pixelSize: 12
-                        }
-                        TextField {
-                            Layout.fillWidth: true
-                            visible: page.appController.preflight === "join"
-                            text: page.appController.roomCode
-                            placeholderText: "例如 ABC-234"
-                            maximumLength: 8
-                            Accessible.name: "六位房间码"
-                            onTextEdited: page.appController.roomCode = text
-                            color: theme.textPrimary
-                            placeholderTextColor: theme.textMuted
-                            background: Rectangle {
-                                implicitHeight: 44
-                                radius: 8
-                                color: theme.surfaceRaised
-                                border.width: 1
-                                border.color: parent.activeFocus ? theme.primary : theme.border
-                            }
-                        }
-                        Text { text: "共享质量"; color: theme.textSecondary; font.pixelSize: 12 }
-                        ComboBox {
-                            Layout.fillWidth: true
-                            model: ["标准 · 最高 1080p60", "高质量 · 最高 1440p60", "影院 · 最高 4K30"]
-                            currentIndex: page.appController.screenProfile === "quality" ? 1
-                                        : page.appController.screenProfile === "cinema" ? 2 : 0
-                            enabled: page.appController.preflight === "create"
-                            Accessible.name: "屏幕共享质量"
-                            onActivated: page.appController.screenProfile =
-                                         currentIndex === 1 ? "quality"
-                                         : currentIndex === 2 ? "cinema" : "standard"
-                        }
-                        Switch {
-                            text: "开启麦克风"
-                            checked: page.appController.microphoneEnabled
-                            Accessible.name: "加入时开启麦克风"
-                            onToggled: page.appController.microphoneEnabled = checked
-                        }
-                        Switch {
-                            text: "播放对方声音"
-                            checked: page.appController.speakerEnabled
-                            Accessible.name: "加入时播放对方声音"
-                            onToggled: page.appController.speakerEnabled = checked
-                        }
-                        StatusBanner {
-                            Layout.fillWidth: true
-                            text: page.appController.errorMessage
-                            kind: "error"
-                        }
-                        Item { Layout.fillHeight: true; Layout.minimumHeight: 8 }
-                        PrimaryButton {
-                            Layout.fillWidth: true
-                            text: page.appController.preflight === "create" ? "创建并开始共享" : "加入通话"
-                            Accessible.name: text
-                            onClicked: page.appController.startCall()
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: "麦克风或屏幕权限缺失时，ShareMe 会给出修复提示，不会静默降级。"
-                            color: theme.textMuted
-                            font.pixelSize: 10
-                            wrapMode: Text.WordWrap
-                        }
+                    Switch {
+                        id: microphoneIntentControl
+                        objectName: "microphoneIntentControl"
+                        Layout.fillWidth: true
+                        text: "麦克风（当前意图）"
+                        checked: page.appController.microphoneEnabled
+                        Accessible.name: "通话意图：使用麦克风"
+                        focusPolicy: Qt.StrongFocus
+                        onToggled: page.appController.microphoneEnabled = checked
                     }
+                    Switch {
+                        id: speakerIntentControl
+                        objectName: "speakerIntentControl"
+                        Layout.fillWidth: true
+                        text: "扬声器（当前意图）"
+                        checked: page.appController.speakerEnabled
+                        Accessible.name: "通话意图：播放对方声音"
+                        focusPolicy: Qt.StrongFocus
+                        onToggled: page.appController.speakerEnabled = checked
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "共享质量"
+                    color: theme.textPrimary
+                    font.pixelSize: theme.fontSectionTitle
+                    font.weight: Font.DemiBold
+                }
+                ComboBox {
+                    id: qualityProfileControl
+                    objectName: "qualityProfileControl"
+                    Layout.fillWidth: true
+                    model: ["1080p 60 · 流畅", "1440p 60 · 高画质", "4K 30 · 影院"]
+                    currentIndex: page.appController.screenProfile === "quality" ? 1
+                                : page.appController.screenProfile === "cinema" ? 2 : 0
+                    enabled: page.createMode
+                    focusPolicy: Qt.StrongFocus
+                    Accessible.name: "共享质量"
+                    onActivated: page.appController.screenProfile =
+                                 currentIndex === 1 ? "quality"
+                                 : currentIndex === 2 ? "cinema" : "standard"
+                    contentItem: Text {
+                        leftPadding: theme.spacingMd
+                        rightPadding: theme.spacingXl
+                        text: qualityProfileControl.displayText
+                        color: qualityProfileControl.enabled
+                               ? theme.textPrimary : theme.textDisabled
+                        font.pixelSize: theme.fontBody
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+                    background: Rectangle {
+                        implicitHeight: theme.controlHeight
+                        radius: theme.radiusMedium
+                        color: qualityProfileControl.enabled
+                               ? theme.surfaceRaised : theme.surfaceDisabled
+                        border.width: qualityProfileControl.activeFocus ? 2 : 1
+                        border.color: qualityProfileControl.activeFocus
+                                      ? theme.focus : theme.border
+                    }
+                }
+
+                PrimaryButton {
+                    id: preflightPrimaryButton
+                    objectName: "preflightPrimaryButton"
+                    Layout.fillWidth: true
+                    text: page.createMode ? "创建并开始共享" : "加入通话"
+                    enabled: page.createMode || page.roomCodeValid
+                    accessibleDescription: enabled ? text : "请输入有效的六位房间码"
+                    Accessible.name: enabled ? text : "请输入有效的六位房间码"
+                    onClicked: page.appController.startCall()
                 }
             }
         }

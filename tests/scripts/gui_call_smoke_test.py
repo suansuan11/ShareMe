@@ -21,7 +21,8 @@ class GuiCallSmokeTest(unittest.TestCase):
         spec.loader.exec_module(cls.runner)
 
     def make_demo(self, directory: Path, fail_state: str = "",
-                  idle_seconds: float = 0.0) -> Path:
+                  idle_seconds: float = 0.0,
+                  include_object_markers: bool = True) -> Path:
         demo = directory / "fake-demo.py"
         demo.write_text(
             "#!/usr/bin/env python3\n"
@@ -30,10 +31,20 @@ class GuiCallSmokeTest(unittest.TestCase):
             "if '--gui-smoke-state' in sys.argv else ''\n"
             f"fail = {fail_state!r}\n"
             f"idle_seconds = {idle_seconds!r}\n"
+            f"include_object_markers = {include_object_markers!r}\n"
             "if fail and state == fail: sys.exit(3)\n"
             "if state == 'call-host-actions':\n"
-            " print('GUI_ACTION microphone=1 speaker=1 drawer=1 leave=1 page=home')\n"
-            "else: print(f'GUI_STATE page={state} qml_loaded=1')\n"
+            " print('GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
+            "volume_rejected_restored=1 leave=1 page=home')\n"
+            "else:\n"
+            " print(f'GUI_STATE page={state} qml_loaded=1')\n"
+            " markers = {\n"
+            "  'home': ('createRoomButton', 'joinRoomButton', 'recentRoomAction'),\n"
+            "  'create': ('preflightPrimaryButton', 'qualityProfileControl'),\n"
+            "  'join': ('roomCodeField', 'preflightPrimaryButton'),\n"
+            " }.get(state, ())\n"
+            " if include_object_markers:\n"
+            "  for marker in markers: print(f'GUI_OBJECT {marker}=1')\n"
             "if not state: time.sleep(idle_seconds)\n",
             encoding="utf-8",
         )
@@ -58,6 +69,15 @@ class GuiCallSmokeTest(unittest.TestCase):
                 self.runner.run_probes(demo, ("home", "join"), 2.0)
             self.assertEqual(len(raised.exception.partial), 1)
             self.assertEqual(raised.exception.partial[0].state, "home")
+
+    def test_requires_home_and_preflight_object_markers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            demo = self.make_demo(
+                Path(temporary), include_object_markers=False
+            )
+            with self.assertRaisesRegex(self.runner.GuiSmokeFailure,
+                                        "probe-contract:home"):
+                self.runner.run_probes(demo, ("home",), 2.0)
 
     def test_atomic_artifact_contains_no_temporary_file(self):
         with tempfile.TemporaryDirectory() as temporary:

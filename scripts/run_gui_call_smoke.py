@@ -20,6 +20,13 @@ from process_metrics import (ProcessMetricsError, ProcessSample, ProcessSampler,
                              summarize_samples)
 
 
+_GUI_OBJECTS_BY_STATE = {
+    "home": ("createRoomButton", "joinRoomButton", "recentRoomAction"),
+    "create": ("qualityProfileControl", "preflightPrimaryButton"),
+    "join": ("roomCodeField", "preflightPrimaryButton"),
+}
+
+
 @dataclasses.dataclass(frozen=True)
 class ProbeResult:
     state: str
@@ -71,14 +78,21 @@ def run_probes(demo: Path, states: Iterable[str],
         if completed.returncode != 0:
             raise GuiSmokeFailure(f"probe-exit:{state}", results)
         expected = (
-            "GUI_ACTION microphone=1 speaker=1 drawer=1 leave=1 page=home"
+            "GUI_ACTION microphone=1 speaker=1 drawer=1 voice_panel=1 "
+            "volume_rejected_restored=1 leave=1 page=home"
             if state == "call-host-actions"
             else f"GUI_STATE page={state} qml_loaded=1"
         )
+        required_objects = tuple(
+            f"GUI_OBJECT {name}=1"
+            for name in _GUI_OBJECTS_BY_STATE.get(state, ())
+        )
         forbidden = ("TypeError:", "ReferenceError:", "Binding loop",
                      "failed to load component")
-        if expected not in completed.stdout or any(
-                item in completed.stderr for item in forbidden):
+        if (expected not in completed.stdout or
+                any(item not in completed.stdout for item in required_objects) or
+                any(
+                    item in completed.stderr for item in forbidden)):
             raise GuiSmokeFailure(f"probe-contract:{state}", results)
         results.append(ProbeResult(state, True, duration_ms))
     return results

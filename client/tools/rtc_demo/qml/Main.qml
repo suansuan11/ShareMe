@@ -9,7 +9,7 @@ ApplicationWindow {
     minimumWidth: 760
     minimumHeight: 520
     visible: true
-    color: "#090d14"
+    color: theme.background
     title: "ShareMe"
 
     ShareMeTheme { id: theme }

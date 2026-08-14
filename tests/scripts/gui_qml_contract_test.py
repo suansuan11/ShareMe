@@ -76,6 +76,36 @@ class GuiQmlContractTest(unittest.TestCase):
     def test_join_preflight_loads_without_qml_errors(self):
         self.assert_clean_state("join")
 
+    def test_home_and_preflight_expose_primary_actions(self):
+        for state, required in (
+            ("home", ("createRoomButton", "joinRoomButton")),
+            ("create", ("preflightPrimaryButton", "qualityProfileControl")),
+            ("join", ("roomCodeField", "preflightPrimaryButton")),
+        ):
+            result = self.run_state(state)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for object_name in required:
+                self.assertIn(f"GUI_OBJECT {object_name}=1", result.stdout)
+
+    def test_home_and_preflight_use_user_facing_copy(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        sources = "\n".join(
+            (qml_dir / filename).read_text(encoding="utf-8")
+            for filename in ("HomePage.qml", "PreflightPage.qml")
+        )
+        for text in (
+            "创建房间",
+            "加入房间",
+            "房间",
+            "设备",
+            "共享质量",
+            "1080p 60 · 流畅",
+            "1440p 60 · 高画质",
+            "4K 30 · 影院",
+        ):
+            with self.subTest(text=text):
+                self.assertIn(text, sources)
+
     def test_unknown_state_fails_closed(self):
         result = self.run_state("unknown")
         self.assertEqual(result.returncode, 2)

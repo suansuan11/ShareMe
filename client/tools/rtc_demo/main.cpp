@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <array>
 
 namespace {
 [[noreturn]] void exit_cli(int code) {
@@ -333,6 +334,44 @@ int main(int argc, char **argv) {
         app_controller.showJoinRoom();
       std::cout << "GUI_STATE page=" << gui_smoke_state.toStdString()
                 << " qml_loaded=1" << std::endl;
+      if (gui_smoke_state == QStringLiteral("home") ||
+          gui_smoke_state == QStringLiteral("create") ||
+          gui_smoke_state == QStringLiteral("join")) {
+        auto *root = engine.rootObjects().isEmpty()
+                         ? nullptr
+                         : engine.rootObjects().constFirst();
+        const std::array<QString, 8> object_names{
+            QStringLiteral("createRoomButton"),
+            QStringLiteral("joinRoomButton"),
+            QStringLiteral("recentRoomAction"),
+            QStringLiteral("roomCodeField"),
+            QStringLiteral("microphoneIntentControl"),
+            QStringLiteral("speakerIntentControl"),
+            QStringLiteral("qualityProfileControl"),
+            QStringLiteral("preflightPrimaryButton")};
+        const auto expected_for_state = [&](const QString &object_name) {
+          if (gui_smoke_state == QStringLiteral("home"))
+            return object_name == QStringLiteral("createRoomButton") ||
+                   object_name == QStringLiteral("joinRoomButton") ||
+                   object_name == QStringLiteral("recentRoomAction");
+          if (gui_smoke_state == QStringLiteral("create"))
+            return object_name == QStringLiteral("qualityProfileControl") ||
+                   object_name == QStringLiteral("microphoneIntentControl") ||
+                   object_name == QStringLiteral("speakerIntentControl") ||
+                   object_name == QStringLiteral("preflightPrimaryButton");
+          return object_name == QStringLiteral("roomCodeField") ||
+                 object_name == QStringLiteral("microphoneIntentControl") ||
+                 object_name == QStringLiteral("speakerIntentControl") ||
+                 object_name == QStringLiteral("qualityProfileControl") ||
+                 object_name == QStringLiteral("preflightPrimaryButton");
+        };
+        for (const auto &object_name : object_names) {
+          const auto present = root && expected_for_state(object_name) &&
+                               root->findChild<QObject *>(object_name);
+          std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
+                    << (present ? 1 : 0) << std::endl;
+        }
+      }
       QTimer::singleShot(80, &app, &QCoreApplication::quit);
     };
     if (gui_smoke_state == QStringLiteral("call-host-actions")) {
