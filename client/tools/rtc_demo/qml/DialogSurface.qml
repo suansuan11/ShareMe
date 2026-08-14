@@ -10,7 +10,7 @@ Dialog {
     anchors.centerIn: parent
     width: Math.min(480, parent ? parent.width - theme.spacingXxl : 480)
     padding: contentMargins
-    standardButtons: Dialog.Close
+    standardButtons: Dialog.NoButton
     closePolicy: Popup.CloseOnEscape
 
     ShareMeTheme { id: theme }
@@ -32,9 +32,12 @@ Dialog {
             }
             IconControl {
                 id: closeButton
+                objectName: "dialogSurfaceClose"
                 iconName: "close"
+                implicitWidth: theme.controlHeight
+                implicitHeight: theme.controlHeight
                 accessibleDescription: dialog.closeAccessibleDescription
-                onClicked: dialog.close()
+                onClicked: dialog.done(Dialog.Close)
             }
         }
     }
