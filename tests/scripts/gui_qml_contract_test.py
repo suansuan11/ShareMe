@@ -106,6 +106,27 @@ class GuiQmlContractTest(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIn(text, sources)
 
+    def test_preflight_controls_use_shared_interaction_states(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        source = (qml_dir / "PreflightPage.qml").read_text(encoding="utf-8")
+        for marker in (
+            "function interactionSurfaceColor",
+            "function interactionBorderColor",
+            "property bool pointerPressed: false",
+            "TapHandler",
+            "hoverEnabled: true",
+            "roomCodeField.pointerPressed",
+            "qualityProfileControl.down",
+            "microphoneIntentControl.down",
+            "speakerIntentControl.down",
+            "theme.surfaceHover",
+            "theme.surfacePressed",
+            "theme.surfaceDisabled",
+            "theme.focus",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+
     def test_unknown_state_fails_closed(self):
         result = self.run_state("unknown")
         self.assertEqual(result.returncode, 2)
