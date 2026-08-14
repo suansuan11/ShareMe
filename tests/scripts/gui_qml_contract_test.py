@@ -143,6 +143,12 @@ class GuiQmlContractTest(unittest.TestCase):
                 self.assertNotIn("TypeError:", result.stderr)
                 self.assertNotIn("ReferenceError:", result.stderr)
                 self.assertNotIn("failed to load component", result.stderr)
+                self.assertIn("GUI_OBJECT callPage=1", result.stdout)
+                self.assertIn("GUI_OBJECT microphoneControl=1", result.stdout)
+                self.assertIn("GUI_OBJECT speakerControl=1", result.stdout)
+                self.assertIn("GUI_OBJECT detailsControl=1", result.stdout)
+                self.assertIn("GUI_OBJECT leaveControl=1", result.stdout)
+                self.assertIn("GUI_OBJECT shareControl=0", result.stdout)
 
     def test_real_qml_controls_drive_audio_drawer_and_leave(self):
         environment = os.environ.copy()

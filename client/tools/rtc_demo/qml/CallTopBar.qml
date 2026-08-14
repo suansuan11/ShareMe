@@ -7,17 +7,22 @@ Rectangle {
     required property var controller
     property bool sessionSuspended: controller.status.startsWith("session-suspended:")
     property bool sessionResuming: controller.status === "session-resuming"
-    property string connectionLabel: sessionSuspended ? "系统暂停，等待恢复"
+    property bool screenRecovering: controller.status.startsWith("screen-capture-recovering:")
+    property bool connectionHealthy: controller.status === "connected"
+    property string connectionLabel: screenRecovering ? "正在恢复屏幕共享"
+                                     : sessionSuspended ? "系统暂停，等待恢复"
                                      : sessionResuming ? "正在恢复通话"
-                                     : controller.status.startsWith("screen-capture-recovering:")
-                                     ? "正在恢复屏幕共享"
-                                     : controller.status === "connected" ? "连接稳定"
-                                     : controller.status === "negotiating" ? "正在建立媒体连接"
+                                     : connectionHealthy ? "连接稳定"
+                                     : controller.status === "negotiating" ? "正在连接"
                                      : controller.status === "signaling" ? "正在连接房间"
                                      : controller.status === "ended" ? "通话已结束"
                                      : "连接中"
+    property color connectionColor: connectionHealthy ? theme.success
+                                    : controller.status === "ended" ? theme.textMuted
+                                    : theme.warning
     signal roomCopied()
     implicitHeight: 58
+    height: implicitHeight
     color: theme.surface
     border.width: 0
     ShareMeTheme { id: theme }
@@ -46,21 +51,23 @@ Rectangle {
         }
         Item { Layout.fillWidth: true }
         Rectangle {
-            implicitWidth: connectionRow.implicitWidth + 20
+            implicitWidth: connectionRow.implicitWidth + 16
             implicitHeight: 30
             radius: 15
-            color: bar.sessionSuspended || bar.sessionResuming ? "#2D2512" : "#10251F"
+            color: bar.connectionHealthy ? theme.successSurface
+                  : bar.controller.status === "ended" ? theme.surfaceRaised
+                  : theme.warningSurface
             RowLayout {
                 id: connectionRow
                 anchors.centerIn: parent
                 spacing: 7
                 Rectangle {
                     width: 7; height: 7; radius: 4
-                    color: bar.sessionSuspended || bar.sessionResuming ? "#F2C94C" : theme.healthy
+                    color: bar.connectionColor
                 }
                 Text {
                     text: bar.connectionLabel
-                    color: bar.sessionSuspended || bar.sessionResuming ? "#F2C94C" : theme.healthy
+                    color: bar.connectionColor
                     font.pixelSize: 11
                 }
             }
@@ -68,29 +75,42 @@ Rectangle {
         Button {
             id: roomButton
             text: bar.controller.roomId.length > 0
-                  ? "房间 " + bar.formattedRoom(bar.controller.roomId) + "  复制"
-                  : "正在创建房间"
+                  ? bar.formattedRoom(bar.controller.roomId) : "正在创建房间"
             enabled: bar.controller.roomId.length > 0
-            Accessible.name: enabled ? "复制房间码 " + bar.formattedRoom(bar.controller.roomId)
+            Accessible.name: enabled ? "复制房间码 " + text
                                      : "正在创建房间"
+            padding: 9
+            leftPadding: 12
+            rightPadding: 12
             onClicked: {
                 clipboardSource.selectAll()
                 clipboardSource.copy()
                 bar.roomCopied()
             }
-            contentItem: Text {
-                text: parent.text
-                color: parent.enabled ? theme.cyan : theme.textMuted
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+            contentItem: RowLayout {
+                spacing: 8
+                Text {
+                    Layout.fillWidth: true
+                    text: roomButton.text
+                    color: roomButton.enabled ? theme.accent : theme.textMuted
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                IconGlyph {
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    name: "copy"
+                    size: 16
+                    color: roomButton.enabled ? theme.accent : theme.textMuted
+                }
             }
             background: Rectangle {
                 radius: 15
-                color: roomButton.hovered ? "#18384F" : "#10283D"
-                border.width: 1
-                border.color: "#1B4A68"
+                color: roomButton.hovered ? theme.surfaceHover : theme.accentSubtle
+                border.width: roomButton.activeFocus ? 2 : 1
+                border.color: roomButton.activeFocus ? theme.focus : theme.borderStrong
             }
         }
     }

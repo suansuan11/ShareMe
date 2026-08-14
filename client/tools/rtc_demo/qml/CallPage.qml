@@ -13,37 +13,54 @@ Item {
 
     Rectangle { anchors.fill: parent; color: theme.background }
 
-    ColumnLayout {
-        anchors.fill: parent
-        spacing: 0
-        CallTopBar {
-            Layout.fillWidth: true
+    CallTopBar {
+        id: topBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        controller: page.controller
+        onRoomCopied: copyToast.restart()
+    }
+
+    Item {
+        id: stageArea
+        anchors.top: topBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+
+        VideoStage {
+            anchors.fill: parent
             controller: page.controller
-            onRoomCopied: copyToast.restart()
         }
-        Item {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            VideoStage {
-                anchors.fill: parent
-                anchors.margins: 14
-                anchors.rightMargin: !page.compact && page.detailsOpen ? 342 : 14
-                controller: page.controller
-            }
-            CallDetailsDrawer {
-                visible: page.detailsOpen
-                controller: page.controller
-                compact: page.compact
-                width: page.compact ? parent.width - 28 : 314
-                height: page.compact ? Math.min(330, parent.height - 28) : parent.height - 28
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: 14
-            }
+
+        CallDetailsDrawer {
+            id: detailsDrawer
+            visible: page.detailsOpen
+            z: 2
+            controller: page.controller
+            compact: page.compact
+            width: page.compact
+                   ? Math.max(0, stageArea.width - 28)
+                   : Math.min(theme.drawerWidth, Math.max(0, stageArea.width - 28))
+            height: page.compact
+                    ? Math.min(320, Math.max(180, stageArea.height * 0.52))
+                    : Math.max(0, stageArea.height - 28)
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: 14
+            anchors.bottomMargin: 14
         }
+
         CallControlDock {
-            Layout.fillWidth: true
+            id: controlDock
+            z: 3
             controller: page.controller
+            width: Math.max(0, Math.min(stageArea.width - 32, implicitWidth))
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: page.compact && page.detailsOpen
+                                ? detailsDrawer.height + 22 : 16
             detailsOpen: page.detailsOpen
             onToggleDetails: page.detailsOpen = !page.detailsOpen
             onLeaveRequested: page.appController.leaveCall()
@@ -51,9 +68,12 @@ Item {
     }
 
     Rectangle {
+        z: 4
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 88
+        anchors.bottomMargin: page.compact && page.detailsOpen
+                            ? detailsDrawer.height + controlDock.height + 38
+                            : controlDock.height + 28
         width: copyText.implicitWidth + 24
         height: 34
         radius: 9

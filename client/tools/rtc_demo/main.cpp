@@ -371,6 +371,23 @@ int main(int argc, char **argv) {
           std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
                     << (present ? 1 : 0) << std::endl;
         }
+      } else if (gui_smoke_state == QStringLiteral("call-host") ||
+                 gui_smoke_state == QStringLiteral("call-viewer")) {
+        auto *root = engine.rootObjects().isEmpty()
+                         ? nullptr
+                         : engine.rootObjects().constFirst();
+        const std::array<QString, 6> object_names{
+            QStringLiteral("callPage"),
+            QStringLiteral("microphoneControl"),
+            QStringLiteral("speakerControl"),
+            QStringLiteral("detailsControl"),
+            QStringLiteral("leaveControl"),
+            QStringLiteral("shareControl")};
+        for (const auto &object_name : object_names) {
+          const auto present = root && root->findChild<QObject *>(object_name);
+          std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
+                    << (present ? 1 : 0) << std::endl;
+        }
       }
       QTimer::singleShot(80, &app, &QCoreApplication::quit);
     };

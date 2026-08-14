@@ -2,112 +2,80 @@ import QtQuick
 import QtQuick.Controls
 import QtMultimedia
 
-Rectangle {
+Item {
     id: stage
     required property var controller
     property bool captureRecovering: controller.status.startsWith("screen-capture-recovering:")
     property bool sessionTransition: controller.status.startsWith("session-suspended:")
                                      || controller.status === "session-resuming"
-    radius: 14
-    color: "#03060A"
-    border.width: 1
-    border.color: theme.border
-    clip: true
     ShareMeTheme { id: theme }
+
+    Rectangle {
+        anchors.fill: parent
+        color: theme.background
+    }
 
     VideoOutput {
         id: videoOutput
         anchors.fill: parent
-        anchors.margins: 2
         fillMode: VideoOutput.PreserveAspectFit
         Component.onCompleted: stage.controller.setVideoSink(videoSink)
     }
 
-    Rectangle {
+    Row {
+        id: statusRow
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.margins: 14
-        implicitWidth: liveRow.implicitWidth + 18
-        implicitHeight: 28
-        radius: 8
-        color: "#132A23"
-        visible: stage.controller.status === "connected"
-                 || stage.captureRecovering
-                 || stage.controller.remoteVideoAvailable
-        Row {
-            id: liveRow
-            anchors.centerIn: parent
-            spacing: 7
-            Rectangle { width: 7; height: 7; radius: 4; color: theme.healthy }
-            Text {
-                text: stage.sessionTransition ? "系统恢复检查中"
-                                              : stage.captureRecovering ? "正在恢复屏幕共享"
-                                              : stage.controller.viewer ? "正在接收屏幕" : "正在共享屏幕"
-                color: theme.healthy
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
-            }
+        spacing: 7
+        visible: !stage.sessionTransition
+                 && (stage.controller.status === "connected"
+                  || stage.captureRecovering
+                  || stage.controller.remoteVideoAvailable)
+        Rectangle { width: 6; height: 6; radius: 3; color: stage.captureRecovering ? theme.warning : theme.success }
+        Text {
+            text: stage.captureRecovering ? "正在恢复屏幕共享"
+                                          : stage.controller.viewer ? "正在接收屏幕" : "正在共享屏幕"
+            color: stage.captureRecovering ? theme.warning : theme.textSecondary
+            font.pixelSize: 11
         }
     }
 
     Column {
+        id: stageMessage
         anchors.centerIn: parent
-        spacing: 12
-        visible: stage.controller.viewer
-                 ? !stage.controller.remoteVideoAvailable
-                 : stage.controller.status !== "connected"
-                   && !stage.sessionTransition
-        Rectangle {
-            width: 64; height: 64; radius: 20
-            anchors.horizontalCenter: parent.horizontalCenter
-            color: theme.surfaceRaised
-            border.width: 1
-            border.color: theme.border
-            Text {
-                anchors.centerIn: parent
-                text: stage.controller.viewer ? "▣" : "↗"
-                color: theme.cyan
-                font.pixelSize: 27
-                font.weight: Font.Bold
-            }
-        }
+        spacing: 6
+        visible: stage.captureRecovering
+                 || (stage.controller.viewer
+                     ? !stage.controller.remoteVideoAvailable
+                     : stage.controller.status !== "connected"
+                       && !stage.sessionTransition)
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: stage.captureRecovering ? "正在恢复屏幕共享"
-                                          : stage.controller.viewer ? "等待主持人共享屏幕" : "正在准备屏幕共享"
+                                          : stage.controller.viewer ? "正在等待屏幕共享…" : "正在准备屏幕共享…"
             color: theme.textPrimary
-            font.pixelSize: 16
+            font.pixelSize: 14
             font.weight: Font.DemiBold
         }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: stage.captureRecovering ? "语音连接保持工作，画面会自动恢复"
-                                          : stage.controller.viewer ? "语音连接会保持独立工作" : "房间创建后即可邀请另一位参与者"
+            visible: stage.captureRecovering
+            text: "语音连接保持工作，画面会自动恢复"
             color: theme.textMuted
             font.pixelSize: 11
         }
     }
 
-    Rectangle {
+    Text {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: 18
+        anchors.bottomMargin: 24
         visible: stage.sessionTransition
-        implicitWidth: lifecycleMessage.implicitWidth + 28
-        implicitHeight: 38
-        radius: 12
-        color: "#D91B2028"
-        border.width: 1
-        border.color: "#5A6675"
-        Text {
-            id: lifecycleMessage
-            anchors.centerIn: parent
-            text: stage.controller.status === "session-resuming"
-                  ? "正在恢复通话"
-                  : "语音与画面连接会在系统恢复后检查"
-            color: theme.textPrimary
-            font.pixelSize: 11
-            font.weight: Font.DemiBold
-        }
+        text: stage.controller.status === "session-resuming"
+              ? "正在恢复通话"
+              : "语音与画面连接会在系统恢复后检查"
+        color: theme.textSecondary
+        font.pixelSize: 11
     }
 }
