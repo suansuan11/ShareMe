@@ -17,33 +17,33 @@ Button {
         : symbol === "▣" ? "share" : ""
     readonly property bool resolvedMuted: iconName.length === 0
                                          && (symbol === "╱" || symbol === "×")
-    implicitWidth: 44
-    implicitHeight: 44
+    implicitWidth: theme.iconControlSize
+    implicitHeight: theme.iconControlSize
     hoverEnabled: true
     Accessible.name: accessibleDescription
     Accessible.description: accessibleDescription
-    ToolTip.text: accessibleDescription
-    ToolTip.visible: (hovered || activeFocus) && ToolTip.text.length > 0
     focusPolicy: Qt.StrongFocus
 
     ShareMeTheme { id: theme }
     contentItem: IconGlyph {
         name: control.resolvedIconName
-        size: 20
+        size: 18
+        strokeWidth: theme.iconStrokeWidth
         color: !control.enabled ? theme.textDisabled
                : control.destructive ? theme.error
                : control.active ? theme.accent : theme.textPrimary
         muted: control.muted || control.resolvedMuted
     }
     background: Rectangle {
-        radius: theme.radiusMedium
+        radius: theme.radiusSmall
         color: !control.enabled ? theme.surfaceDisabled
               : control.destructive ? (control.down || control.hovered
                                        ? theme.errorSurface : theme.surfaceRaised)
               : control.active ? theme.accentSubtle
               : control.down ? theme.surfacePressed
-              : control.hovered ? theme.surfaceHover : theme.surfaceRaised
-        border.width: control.activeFocus ? 2 : 1
+              : control.hovered ? theme.surfaceHover : "transparent"
+        border.width: control.activeFocus ? 2
+                      : control.destructive || control.active ? 1 : 0
         border.color: control.activeFocus ? theme.focus
                       : control.destructive ? theme.error
                       : control.active ? theme.accent : theme.border

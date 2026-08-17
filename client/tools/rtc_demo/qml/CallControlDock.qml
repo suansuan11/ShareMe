@@ -8,8 +8,8 @@ Rectangle {
     property bool detailsOpen: false
     signal toggleDetails()
     signal leaveRequested()
-    implicitHeight: 76
-    implicitWidth: controlsRow.implicitWidth + 24
+    implicitHeight: 60
+    implicitWidth: controlsRow.implicitWidth + 20
     height: implicitHeight
     radius: theme.radiusLarge
     color: theme.surface
@@ -20,7 +20,7 @@ Rectangle {
     RowLayout {
         id: controlsRow
         anchors.centerIn: parent
-        spacing: 10
+        spacing: theme.spacingSm
         IconControl {
             objectName: "microphoneControl"
             iconName: "microphone"

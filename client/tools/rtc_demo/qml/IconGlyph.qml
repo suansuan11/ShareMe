@@ -6,22 +6,24 @@ Item {
     property real size: 20
     property color color: "#EDF2F7"
     property bool muted: false
+    property real strokeWidth: 1.4
     implicitWidth: size
     implicitHeight: size
 
     function drawMicrophone(context) {
         context.beginPath()
-        context.moveTo(9, 5)
+        context.moveTo(12, 4)
+        context.arc(12, 7, 3, -Math.PI / 2, Math.PI, true)
         context.lineTo(9, 12)
         context.arc(12, 12, 3, Math.PI, 0, false)
-        context.lineTo(15, 5)
-        context.arc(12, 5, 3, 0, Math.PI, true)
+        context.lineTo(15, 7)
+        context.arc(12, 7, 3, 0, -Math.PI / 2, true)
         context.stroke()
         context.beginPath()
-        context.moveTo(6, 11)
-        context.arc(12, 11, 6, 0, Math.PI, false)
+        context.moveTo(6.5, 11.5)
+        context.arc(12, 11.5, 5.5, 0, Math.PI, false)
         context.moveTo(12, 17)
-        context.lineTo(12, 20)
+        context.lineTo(12, 19.5)
         context.moveTo(9, 20)
         context.lineTo(15, 20)
         context.stroke()
@@ -31,14 +33,16 @@ Item {
         context.beginPath()
         context.moveTo(4, 10)
         context.lineTo(8, 10)
-        context.lineTo(13, 6)
-        context.lineTo(13, 18)
+        context.lineTo(13, 6.5)
+        context.lineTo(13, 17.5)
         context.lineTo(8, 14)
         context.lineTo(4, 14)
         context.closePath()
         context.stroke()
         context.beginPath()
         context.arc(13, 12, 4, -Math.PI / 3, Math.PI / 3, false)
+        context.moveTo(16.5, 7.5)
+        context.arc(13, 12, 6.2, -Math.PI / 4, Math.PI / 4, false)
         context.stroke()
     }
 
@@ -81,13 +85,18 @@ Item {
 
     function drawSettings(context) {
         context.beginPath()
-        context.arc(12, 12, 3, 0, Math.PI * 2, false)
+        context.moveTo(5, 7)
+        context.lineTo(19, 7)
+        context.moveTo(5, 12)
+        context.lineTo(19, 12)
+        context.moveTo(5, 17)
+        context.lineTo(19, 17)
         context.stroke()
-        for (var angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
-            context.moveTo(12 + Math.cos(angle) * 5, 12 + Math.sin(angle) * 5)
-            context.lineTo(12 + Math.cos(angle) * 8, 12 + Math.sin(angle) * 8)
-        }
-        context.stroke()
+        context.beginPath()
+        context.arc(9, 7, 1.8, 0, Math.PI * 2, false)
+        context.arc(15, 12, 1.8, 0, Math.PI * 2, false)
+        context.arc(11, 17, 1.8, 0, Math.PI * 2, false)
+        context.fill()
     }
 
     function drawHelp(context) {
@@ -163,7 +172,7 @@ Item {
             context.scale(width / 24, height / 24)
             context.strokeStyle = glyph.color
             context.fillStyle = glyph.color
-            context.lineWidth = 1.8
+            context.lineWidth = glyph.strokeWidth
             context.lineCap = "round"
             context.lineJoin = "round"
             if (glyph.name === "microphone")
@@ -205,4 +214,5 @@ Item {
     onWidthChanged: canvas.requestPaint()
     onHeightChanged: canvas.requestPaint()
     onMutedChanged: canvas.requestPaint()
+    onStrokeWidthChanged: canvas.requestPaint()
 }

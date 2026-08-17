@@ -49,6 +49,8 @@ QtObject {
     readonly property real lineHeightBody: 1.4
 
     readonly property int controlHeight: 44
+    readonly property int iconControlSize: 40
+    readonly property real iconStrokeWidth: 1.4
     readonly property int drawerWidth: 320
     readonly property int motionFast: 160
 

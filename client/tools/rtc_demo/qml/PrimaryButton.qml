@@ -5,13 +5,11 @@ Button {
     id: control
     property bool secondary: false
     property string accessibleDescription: text
-    implicitWidth: Math.max(132, contentItem.implicitWidth + 36)
+    implicitWidth: Math.max(116, contentItem.implicitWidth + 28)
     implicitHeight: theme.controlHeight
     hoverEnabled: true
     Accessible.name: accessibleDescription
     Accessible.description: accessibleDescription
-    ToolTip.text: accessibleDescription
-    ToolTip.visible: hovered && ToolTip.text.length > 0
     focusPolicy: Qt.StrongFocus
     font.pixelSize: theme.fontButton
     font.weight: Font.DemiBold

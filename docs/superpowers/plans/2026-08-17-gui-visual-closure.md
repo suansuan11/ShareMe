@@ -28,11 +28,11 @@
 - Modify: `client/tools/rtc_demo/qml/CallTopBar.qml`
 - Test: `tests/scripts/gui_qml_contract_test.py`
 
-- [ ] Add RED executable/source contracts that reject automatic tooltips and require compact shared-control geometry.
-- [ ] Run the focused GUI contract and observe the intended failures.
-- [ ] Implement 17-18 px thin line icons, 40 px tertiary icon controls, compact button geometry, and visible focus without hover bubbles.
-- [ ] Rebuild the demo and run the focused GUI contract.
-- [ ] Commit `style: close GUI control language`.
+- [x] Add RED executable/source contracts that reject automatic tooltips and require compact shared-control geometry.
+- [x] Run the focused GUI contract and observe the intended failures.
+- [x] Implement 17-18 px thin line icons, 40 px tertiary icon controls, compact button geometry, and visible focus without hover bubbles.
+- [x] Rebuild the demo and run the focused GUI contract.
+- [x] Commit `style: close GUI control language`.
 
 ### Task 2: Home and preflight density
 

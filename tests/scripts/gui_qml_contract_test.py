@@ -497,8 +497,6 @@ class GuiQmlContractTest(unittest.TestCase):
             "hoverEnabled: true",
             "Accessible.name:",
             "Accessible.description:",
-            "ToolTip.text:",
-            "ToolTip.visible: (hovered || activeFocus)",
             "roomButton.down",
             "!roomButton.enabled",
             "theme.surfacePressed",
@@ -510,6 +508,30 @@ class GuiQmlContractTest(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, room_control)
+        self.assertNotIn("ToolTip.", room_control)
+
+    def test_primary_controls_avoid_redundant_hover_prompts(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        for filename in (
+            "IconControl.qml",
+            "PrimaryButton.qml",
+            "CallTopBar.qml",
+        ):
+            with self.subTest(filename=filename):
+                source = (qml_dir / filename).read_text(encoding="utf-8")
+                self.assertNotIn("ToolTip.", source)
+
+    def test_visual_closure_uses_compact_shared_geometry(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        theme = (qml_dir / "ShareMeTheme.qml").read_text(encoding="utf-8")
+        icons = (qml_dir / "IconControl.qml").read_text(encoding="utf-8")
+        dock = (qml_dir / "CallControlDock.qml").read_text(encoding="utf-8")
+        glyph = (qml_dir / "IconGlyph.qml").read_text(encoding="utf-8")
+        self.assertIn("readonly property int iconControlSize: 40", theme)
+        self.assertIn("readonly property real iconStrokeWidth: 1.4", theme)
+        self.assertIn("implicitWidth: theme.iconControlSize", icons)
+        self.assertIn("implicitHeight: 60", dock)
+        self.assertIn("property real strokeWidth: 1.4", glyph)
 
     def test_real_qml_controls_drive_audio_drawer_and_leave(self):
         environment = os.environ.copy()

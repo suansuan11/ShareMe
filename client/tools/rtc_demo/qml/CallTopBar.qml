@@ -86,8 +86,6 @@ Rectangle {
             Accessible.name: enabled ? "复制房间码 " + text
                                      : "正在创建房间"
             Accessible.description: enabled ? "复制当前房间码" : "房间码正在创建"
-            ToolTip.text: enabled ? "复制房间码" : "正在创建房间"
-            ToolTip.visible: (hovered || activeFocus) && ToolTip.text.length > 0
             focusPolicy: Qt.StrongFocus
             padding: 9
             leftPadding: 12
