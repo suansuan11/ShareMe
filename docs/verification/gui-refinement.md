@@ -214,3 +214,39 @@ The historical native media evidence and its claims remain in
   operation exists.
 - A richer connection-health presentation remains parked until a stable
   user-facing controller contract exists.
+
+## 2026-08-17 Visual Closure Addendum
+
+The interrupted visual-polish work was completed at implementation tip
+`c268ac8`. The final surface uses compact 40-pixel tertiary controls, thin
+line icons, concise Chinese copy, a 60-pixel call dock, and fully themed
+quality popup, movie playback button/seek control, microphone meter, speaker
+volume, and advanced disclosure. Automatic hover tooltips were removed from
+the shared buttons; accessibility names remain available to assistive tools.
+
+The bounded screenshot seam now uses an isolated temporary INI store and
+requires an unused `.png` path under an existing parent. It therefore cannot
+read or persist the user's recent-room preference, overwrite an existing
+artifact, or silently write a non-PNG target. The automated smoke covers 11
+states and an eight-image visual matrix: default Home/Create/Join/Call/Details,
+compact Create/Details, and compact Details with the room-copy toast fully
+opaque. The last state requires both `toast_visible=1` and
+`toast_above_dock=1`; the retained ignored proof is
+`out/gui-visual-closure/verified-matrix-2/call-details-copy-compact.png`.
+
+Fresh macOS evidence after the closure:
+
+- `call-dev`: `57/57` CTest passed.
+- `movie-call-dev`: `82/82` CTest passed.
+- GUI QML contract: `30/30`; GUI smoke contract: `17/17`.
+- Real offscreen GUI smoke: `11` probes and `4` one-second idle samples;
+  visual matrix: `8/8` PNGs at the required `1100x700` and `760x520` sizes.
+- Every retained image was manually inspected for clipping, native-white
+  fallback controls, popup/tooltips, icon weight, hierarchy, toast/dock
+  overlap, and primary-action visibility.
+
+This addendum verifies QML rendering and bounded macOS/offscreen behavior. It
+does not claim Windows native rendering/DPI, human keyboard or pointer
+acceptance, two-person visual/acoustic quality, physical display scanout,
+temperature, energy, or any RTC/media change. MotionFixture was not requested
+or started for this GUI gate.

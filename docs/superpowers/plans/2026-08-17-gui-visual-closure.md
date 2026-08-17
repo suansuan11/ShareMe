@@ -69,9 +69,9 @@
 - Modify: this checklist.
 - Generated ignored: `build/gui-closure-dev/`, `out/gui-visual-closure/`.
 
-- [ ] Fresh-build the branch and run complete CTest, GUI/QML contracts, GUI smoke, Go race/vet, workflow, validator, portability scan, and `git diff --check`.
-- [ ] Capture default Home/Create/Join/Call/Details and logical compact Create screenshots without MotionFixture.
-- [ ] Inspect every screenshot for clipping, tooltip bubbles, white native controls, hierarchy, icon consistency, and action visibility; iterate until clean.
-- [ ] Complete independent read-only review and fix every Critical/Important issue.
-- [ ] Record macOS verified, Windows environment-dependent, and human acoustic/media boundaries truthfully.
-- [ ] Commit `docs: finalize GUI visual closure`; push and integrate only after the full gate passes.
+- [x] Fresh-build the branch and run complete CTest, GUI/QML contracts, GUI smoke, Go race/vet, workflow, validator, portability scan, and `git diff --check`.
+- [x] Capture default Home/Create/Join/Call/Details and logical compact Create screenshots without MotionFixture.
+- [x] Inspect every screenshot for clipping, tooltip bubbles, white native controls, hierarchy, icon consistency, and action visibility; iterate until clean.
+- [x] Complete independent read-only review and fix every Critical/Important issue.
+- [x] Record macOS verified, Windows environment-dependent, and human acoustic/media boundaries truthfully.
+- [x] Commit `docs: finalize GUI visual closure`; push and integrate only after the full gate passes.

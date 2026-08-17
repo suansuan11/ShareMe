@@ -46,6 +46,17 @@ resolution, cadence, bitrate, codec-quality, or media gate was lowered.
 
 ### GUI/UX Refinement
 
+The visual-closure continuation is complete on `codex/gui-refinement` at
+implementation tip `c268ac8`. It replaces oversized icon buttons, redundant
+hover prompts, native-white fallback controls, and loose page density with a
+compact, consistent desktop surface. Screenshot acceptance is now preference-
+isolated and covers 11 runtime states plus an eight-image default/compact
+matrix, including a fully opaque room-copy toast proven above the compact call
+dock. Fresh macOS `call-dev` and `movie-call-dev` suites passed `57/57` and
+`82/82`; no RTC, signaling, capture, codec, bitrate, resolution, or audio
+policy changed. Windows native/DPI and human visual/acoustic acceptance remain
+environment-dependent.
+
 The GUI refinement stage is delivered on `codex/gui-refinement` at source tip
 `c373679163a22e5ef8bbc6ad1625846a6a20d1d5`; its evidence is recorded in
 [GUI Refinement Verification](../verification/gui-refinement.md). This is a
