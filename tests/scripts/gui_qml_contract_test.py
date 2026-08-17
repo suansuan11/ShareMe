@@ -382,7 +382,7 @@ class GuiQmlContractTest(unittest.TestCase):
             "创建房间",
             "加入房间",
             "房间",
-            "设备",
+            "声音",
             "共享质量",
             "1080p 60 · 流畅",
             "1440p 60 · 高画质",
@@ -390,6 +390,16 @@ class GuiQmlContractTest(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertIn(text, sources)
+
+    def test_entry_flow_copy_is_concise_and_not_debug_like(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        home = (qml_dir / "HomePage.qml").read_text(encoding="utf-8")
+        preflight = (qml_dir / "PreflightPage.qml").read_text(encoding="utf-8")
+        self.assertIn('text: "共享屏幕，保持交流。"', home)
+        self.assertNotIn("一起共享，\\n一起交流。", home)
+        self.assertNotIn("当前意图", preflight)
+        self.assertIn("Layout.maximumWidth: 600", preflight)
+        self.assertIn("Layout.maximumHeight: 500", preflight)
 
     def test_preflight_controls_use_shared_interaction_states(self):
         qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"

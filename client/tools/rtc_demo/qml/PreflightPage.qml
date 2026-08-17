@@ -68,8 +68,12 @@ Item {
         Rectangle {
             id: surface
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.maximumWidth: 680
+            Layout.fillHeight: false
+            Layout.maximumWidth: 600
+            Layout.maximumHeight: 500
+            Layout.preferredHeight: page.compact
+                                    ? Math.max(360, Math.min(416, page.height - 104))
+                                    : page.createMode ? 420 : 460
             Layout.alignment: Qt.AlignHCenter
             color: theme.surface
             radius: theme.radiusLarge
@@ -79,15 +83,15 @@ Item {
 
             ColumnLayout {
                 anchors.fill: parent
-                anchors.margins: page.compact ? theme.spacingMd : theme.spacingXl
+                anchors.margins: page.compact ? theme.spacingMd : 20
                 spacing: page.compact ? theme.spacingSm : theme.spacingMd
 
                 Text {
                     Layout.fillWidth: true
                     text: page.createMode ? "创建屏幕共享房间" : "加入屏幕共享房间"
                     color: theme.textPrimary
-                    font.pixelSize: theme.fontPageTitle
-                    font.weight: Font.Bold
+                    font.pixelSize: theme.fontPageTitle - 2
+                    font.weight: Font.DemiBold
                 }
                 Text {
                     Layout.fillWidth: true
@@ -101,9 +105,9 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "房间"
+                    text: page.createMode ? "共享内容" : "房间码"
                     color: theme.textPrimary
-                    font.pixelSize: theme.fontSectionTitle
+                    font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
                 TextField {
@@ -145,7 +149,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     visible: page.createMode
-                    text: "当前屏幕会作为共享画面发送，不需要选择设备。"
+                    text: "当前屏幕"
                     color: theme.textSecondary
                     font.pixelSize: theme.fontMeta
                     wrapMode: Text.WordWrap
@@ -158,9 +162,9 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "设备"
+                    text: "声音"
                     color: theme.textPrimary
-                    font.pixelSize: theme.fontSectionTitle
+                    font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
                 RowLayout {
@@ -171,7 +175,7 @@ Item {
                         id: microphoneIntentControl
                         objectName: "microphoneIntentControl"
                         Layout.fillWidth: true
-                        text: "麦克风（当前意图）"
+                        text: "麦克风"
                         checked: page.appController.microphoneEnabled
                         Accessible.name: "通话意图：使用麦克风"
                         Accessible.description: checked ? "当前已开启" : "当前已关闭"
@@ -234,7 +238,7 @@ Item {
                         id: speakerIntentControl
                         objectName: "speakerIntentControl"
                         Layout.fillWidth: true
-                        text: "扬声器（当前意图）"
+                        text: "播放对方声音"
                         checked: page.appController.speakerEnabled
                         Accessible.name: "通话意图：播放对方声音"
                         Accessible.description: checked ? "当前已开启" : "当前已关闭"
@@ -299,7 +303,7 @@ Item {
                     Layout.fillWidth: true
                     text: "共享质量"
                     color: theme.textPrimary
-                    font.pixelSize: theme.fontSectionTitle
+                    font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
                 }
                 ComboBox {
@@ -317,6 +321,15 @@ Item {
                     onActivated: page.appController.screenProfile =
                                  currentIndex === 1 ? "quality"
                                  : currentIndex === 2 ? "cinema" : "standard"
+                    indicator: IconGlyph {
+                        x: qualityProfileControl.width - width - theme.spacingMd
+                        y: (qualityProfileControl.height - height) / 2
+                        size: 16
+                        name: "chevron"
+                        strokeWidth: theme.iconStrokeWidth
+                        color: qualityProfileControl.enabled
+                               ? theme.textSecondary : theme.textDisabled
+                    }
                     contentItem: Text {
                         leftPadding: theme.spacingMd
                         rightPadding: theme.spacingXl

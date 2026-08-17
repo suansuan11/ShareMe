@@ -41,11 +41,11 @@
 - Modify: `client/tools/rtc_demo/qml/PreflightPage.qml`
 - Test: `tests/scripts/gui_qml_contract_test.py`
 
-- [ ] Add RED contracts for concise copy, absence of “当前意图”, compact action surfaces, and primary-action availability at 760x520.
-- [ ] Run the Home/Create/Join normal and compact states and observe the intended failures.
-- [ ] Implement the centered compact workspace and remove duplicate headings/copy without changing inputs or actions.
-- [ ] Build and run Home/Create/Join contracts at both sizes.
-- [ ] Commit `style: compact GUI entry flow`.
+- [x] Add RED contracts for concise copy, absence of “当前意图”, compact action surfaces, and primary-action availability at 760x520.
+- [x] Run the Home/Create/Join normal and compact states and observe the intended failures.
+- [x] Implement the centered compact workspace and remove duplicate headings/copy without changing inputs or actions.
+- [x] Build and run Home/Create/Join contracts at both sizes.
+- [x] Commit `style: compact GUI entry flow`.
 
 ### Task 3: Active call and details polish
 

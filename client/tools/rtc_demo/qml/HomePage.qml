@@ -48,20 +48,19 @@ Item {
 
             ColumnLayout {
                 anchors.centerIn: parent
-                width: Math.min(parent.width, 620)
-                spacing: theme.spacingLg
+                width: Math.min(parent.width, 640)
+                spacing: theme.spacingMd
 
                 Text {
                     Layout.fillWidth: true
-                    text: "一起共享，\n一起交流。"
+                    text: "共享屏幕，保持交流。"
                     color: theme.textPrimary
-                    font.pixelSize: theme.fontDisplay + 8
-                    font.weight: Font.Bold
-                    lineHeight: 0.98
+                    font.pixelSize: theme.fontDisplay + 2
+                    font.weight: Font.DemiBold
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: "屏幕共享与语音通话，使用房间码即可开始。"
+                    text: "创建房间，或输入房间码加入。"
                     color: theme.textSecondary
                     font.pixelSize: theme.fontBody
                     lineHeight: 1.35
@@ -88,7 +87,7 @@ Item {
                 }
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: visible ? 64 : 0
+                    implicitHeight: visible ? 56 : 0
                     visible: page.appController.recentRoom.length > 0
                     color: theme.surface
                     radius: theme.radiusMedium

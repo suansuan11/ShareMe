@@ -160,6 +160,14 @@ Item {
         context.fill()
     }
 
+    function drawChevron(context) {
+        context.beginPath()
+        context.moveTo(7, 10)
+        context.lineTo(12, 15)
+        context.lineTo(17, 10)
+        context.stroke()
+    }
+
     Canvas {
         id: canvas
         anchors.fill: parent
@@ -197,6 +205,8 @@ Item {
                 glyph.drawWarning(context)
             else if (glyph.name === "share")
                 glyph.drawShare(context)
+            else if (glyph.name === "chevron")
+                glyph.drawChevron(context)
             if (glyph.muted) {
                 context.beginPath()
                 context.moveTo(4, 4)
