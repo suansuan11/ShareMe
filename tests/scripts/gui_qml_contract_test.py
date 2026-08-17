@@ -125,7 +125,10 @@ class GuiQmlContractTest(unittest.TestCase):
                 environment,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assert_exact_line(result.stdout, "GUI_SCREENSHOT saved=1")
+            self.assert_exact_line(
+                result.stdout,
+                "GUI_SCREENSHOT saved=1 preferences_ephemeral=1 recent_room_empty=1",
+            )
             self.assertTrue(screenshot.is_file())
             self.assertGreater(screenshot.stat().st_size, 1_000)
 
@@ -143,6 +146,37 @@ class GuiQmlContractTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             data = screenshot.read_bytes()
             self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack(">II", data[16:24]), (760, 520))
+
+    def test_gui_capture_rejects_overwrite_and_non_png_targets(self):
+        environment = os.environ.copy()
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        with tempfile.TemporaryDirectory() as directory:
+            existing = Path(directory) / "existing.png"
+            existing.write_bytes(b"keep")
+            for target in (existing, Path(directory) / "home.jpg"):
+                with self.subTest(target=target.name):
+                    result = self.run_demo(
+                        [str(self.demo), "--gui-smoke-state", "home",
+                         "--gui-screenshot", str(target)], environment,
+                    )
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(existing.read_bytes(), b"keep")
+
+    def test_compact_call_details_capture_is_supported(self):
+        environment = os.environ.copy()
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        with tempfile.TemporaryDirectory() as directory:
+            screenshot = Path(directory) / "call-details-compact.png"
+            result = self.run_demo(
+                [str(self.demo), "--server", "ws://127.0.0.1:18080/v1/ws",
+                 "--role", "host", "--source", "test", "--audio", "synthetic",
+                 "--no-audio-playout", "--gui-smoke-state", "call-host-details",
+                 "--gui-window-size", "760x520", "--gui-screenshot", str(screenshot)],
+                environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = screenshot.read_bytes()
             self.assertEqual(struct.unpack(">II", data[16:24]), (760, 520))
 
     def test_shared_visual_primitives_are_registered(self):

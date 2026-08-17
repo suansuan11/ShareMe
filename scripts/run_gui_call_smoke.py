@@ -8,6 +8,7 @@ import json
 import os
 import re
 import subprocess
+import struct
 import sys
 import tempfile
 import time
@@ -36,6 +37,14 @@ _GUI_OBJECTS_BY_STATE = {
                   "detailsControl", "leaveControl", "shareControl",
                   "connectionSection", "videoSection", "audioSection",
                   "advancedSection"),
+    "call-host-details": ("callPage", "microphoneControl", "speakerControl",
+                          "detailsControl", "leaveControl", "shareControl",
+                          "connectionSection", "videoSection", "audioSection",
+                          "advancedSection", "copyToastSurface"),
+    "call-host-details-copy": ("callPage", "microphoneControl", "speakerControl",
+                               "detailsControl", "leaveControl", "shareControl",
+                               "connectionSection", "videoSection", "audioSection",
+                               "advancedSection", "copyToastSurface"),
     "call-viewer": ("callPage", "microphoneControl", "speakerControl",
                     "detailsControl", "leaveControl", "shareControl",
                     "connectionSection", "videoSection", "audioSection",
@@ -45,7 +54,8 @@ _GUI_OBJECT_MARKERS_BY_STATE = {
     state: tuple(f"GUI_OBJECT {name}=1" for name in names)
     for state, names in _GUI_OBJECTS_BY_STATE.items()
 }
-for _call_state in ("call-host", "call-viewer"):
+for _call_state in ("call-host", "call-host-details", "call-host-details-copy",
+                    "call-viewer"):
     _GUI_OBJECT_MARKERS_BY_STATE[_call_state] = tuple(
         marker if not marker.endswith("shareControl=1")
         else "GUI_OBJECT shareControl=0"
@@ -54,9 +64,20 @@ for _call_state in ("call-host", "call-viewer"):
 
 GUI_PROBE_STATES = (
     "home", "create", "join", "settings", "help", "recovery",
-    "call-host", "call-viewer", "call-host-actions",
+    "call-host", "call-host-details", "call-host-details-copy", "call-viewer",
+    "call-host-actions",
 )
-GUI_SMOKE_PROBE_COUNT = 9
+GUI_SMOKE_PROBE_COUNT = 11
+GUI_VISUAL_MATRIX = (
+    ("home", "home.png", "1100x700"),
+    ("create", "create.png", "1100x700"),
+    ("join", "join.png", "1100x700"),
+    ("call-host", "call-host.png", "1100x700"),
+    ("call-host-details", "call-details.png", "1100x700"),
+    ("create", "create-compact.png", "760x520"),
+    ("call-host-details", "call-details-compact.png", "760x520"),
+    ("call-host-details-copy", "call-details-copy-compact.png", "760x520"),
+)
 
 _GUI_RECOVERY_MARKERS = (
     "GUI_RECOVERY_TITLE category=permission-denied title=\u9700\u8981\u68c0\u67e5\u6743\u9650",
@@ -173,6 +194,8 @@ def run_probes(demo: Path, states: Iterable[str],
         )
         expected_lines = tuple(expected.splitlines())
         required_markers = _GUI_OBJECT_MARKERS_BY_STATE.get(state, ())
+        if state == "call-host-details-copy":
+            required_markers += ("GUI_LAYOUT toast_visible=1 toast_above_dock=1",)
         if state == "recovery":
             required_markers += _GUI_RECOVERY_MARKERS
         forbidden = ("TypeError:", "ReferenceError:", "Binding loop",
@@ -186,6 +209,37 @@ def run_probes(demo: Path, states: Iterable[str],
             raise GuiSmokeFailure(f"probe-contract:{state}", results)
         results.append(ProbeResult(state, True, duration_ms))
     return results
+
+
+def capture_visual_matrix(demo: Path, directory: Path,
+                          timeout_seconds: float) -> list[dict]:
+    directory.mkdir(parents=True, exist_ok=True)
+    environment = os.environ.copy()
+    environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+    captures: list[dict] = []
+    for state, filename, size in GUI_VISUAL_MATRIX:
+        target = directory / filename
+        if target.exists():
+            raise GuiSmokeFailure("visual-target-exists", [])
+        completed = subprocess.run(
+            _arguments(demo, state) + ["--gui-window-size", size,
+                                       "--gui-screenshot", str(target)],
+            capture_output=True, text=True, encoding="utf-8", errors="strict",
+            timeout=timeout_seconds, check=False, env=environment,
+        )
+        marker = "GUI_SCREENSHOT saved=1 preferences_ephemeral=1 recent_room_empty=1"
+        if completed.returncode != 0 or not _has_exact_lines(completed.stdout, (marker,)):
+            raise GuiSmokeFailure(f"visual-capture:{state}", [])
+        data = target.read_bytes()
+        if data[:8] != b"\x89PNG\r\n\x1a\n" or len(data) < 24:
+            raise GuiSmokeFailure(f"visual-png:{state}", [])
+        width, height = struct.unpack(">II", data[16:24])
+        expected_width, expected_height = map(int, size.split("x"))
+        if (width, height) != (expected_width, expected_height):
+            raise GuiSmokeFailure(f"visual-size:{state}", [])
+        captures.append({"state": state, "file": filename,
+                         "width": width, "height": height})
+    return captures
 
 
 def launch_idle_demo(demo: Path) -> subprocess.Popen:
@@ -266,6 +320,7 @@ def main() -> int:
     parser.add_argument("--demo", type=Path, required=True)
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--idle-sample-seconds", type=float, default=3.0)
+    parser.add_argument("--screenshot-directory", type=Path)
     args = parser.parse_args()
     demo = args.demo.resolve()
     if not demo.is_file() or args.idle_sample_seconds < 1.0:
@@ -278,12 +333,15 @@ def main() -> int:
         if len(probes) != GUI_SMOKE_PROBE_COUNT:
             raise GuiSmokeFailure("probe-count", probes)
         idle = sample_idle_process(demo, args.idle_sample_seconds)
+        captures = (capture_visual_matrix(demo, args.screenshot_directory, 5.0)
+                    if args.screenshot_directory else [])
         artifact = {
             "schema": "gui-call-smoke-v1",
             "status": "verified",
             "platform": sys.platform,
             "probes": [dataclasses.asdict(item) for item in probes],
             "idle": idle,
+            "visualMatrix": captures,
             "boundaries": {
                 "nativeMedia": "separate-screen-stream-gate",
                 "physicalTemperature": "unverified",

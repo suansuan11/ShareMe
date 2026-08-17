@@ -86,7 +86,8 @@ class WindowsGuiAcceptanceTest(unittest.TestCase):
         self.assertEqual(
             self.runner.PROBE_STATES,
             ("home", "create", "join", "settings", "help", "recovery",
-             "call-host", "call-viewer", "call-host-actions"),
+             "call-host", "call-host-details", "call-host-details-copy",
+             "call-viewer", "call-host-actions"),
         )
 
     def test_windows_probe_count_matches_gui_smoke_contract(self):
@@ -231,7 +232,8 @@ class WindowsGuiAcceptanceTest(unittest.TestCase):
             )
             probes = [probe_type(state, True, 1) for state in (
                 "home", "create", "join", "settings", "help", "recovery",
-                "call-host", "call-viewer", "call-host-actions",
+                "call-host", "call-host-details", "call-viewer",
+                "call-host-details-copy", "call-host-actions",
             )]
             with mock.patch.object(
                 self.runner, "run_probes", return_value=probes
@@ -254,7 +256,7 @@ class WindowsGuiAcceptanceTest(unittest.TestCase):
                 self.assertEqual(self.runner.main(), 1)
             payload = json.loads(artifact.read_text(encoding="utf-8"))
             self.assertEqual(payload["failure"], "fixture-decode")
-            self.assertEqual(len(payload["probes"]), 9)
+            self.assertEqual(len(payload["probes"]), 11)
             self.assertEqual(list(root.glob("*.tmp")), [])
 
 

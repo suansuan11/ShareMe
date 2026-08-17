@@ -263,10 +263,30 @@ Rectangle {
                 RowLayout {
                     Layout.fillWidth: true
                     Button {
+                        id: playbackToggleControl
+                        objectName: "playbackToggleControl"
                         text: drawer.controller.hostPlaybackState === "playing" ? "暂停" : "继续"
                         onClicked: drawer.controller.hostPlaybackState === "playing"
                                    ? drawer.controller.pauseHostPlayback()
                                    : drawer.controller.resumeHostPlayback()
+                        contentItem: Text {
+                            text: playbackToggleControl.text
+                            color: theme.textPrimary
+                            font.pixelSize: theme.fontCaption
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            implicitWidth: 56
+                            implicitHeight: 34
+                            radius: theme.radiusSmall
+                            color: playbackToggleControl.down ? theme.surfacePressed
+                                  : playbackToggleControl.hovered ? theme.surfaceHover
+                                  : theme.surfaceRaised
+                            border.width: playbackToggleControl.activeFocus ? 2 : 1
+                            border.color: playbackToggleControl.activeFocus
+                                          ? theme.focus : theme.border
+                        }
                     }
                     Text {
                         Layout.fillWidth: true
@@ -279,6 +299,8 @@ Rectangle {
                     }
                 }
                 Slider {
+                    id: playbackSeekControl
+                    objectName: "playbackSeekControl"
                     Layout.fillWidth: true
                     Layout.minimumHeight: theme.controlHeight
                     implicitHeight: theme.controlHeight
@@ -289,6 +311,35 @@ Rectangle {
                                        - drawer.controller.hostPlaybackStartMs)
                     onMoved: drawer.controller.seekHostPlayback(
                                  drawer.controller.hostPlaybackStartMs + Math.round(value))
+                    background: Rectangle {
+                        x: playbackSeekControl.leftPadding
+                        y: playbackSeekControl.topPadding
+                           + playbackSeekControl.availableHeight / 2 - height / 2
+                        width: playbackSeekControl.availableWidth
+                        height: 4
+                        radius: height / 2
+                        color: theme.surfaceRaised
+                        Rectangle {
+                            width: parent.width * playbackSeekControl.visualPosition
+                            height: parent.height
+                            radius: height / 2
+                            color: theme.accent
+                        }
+                    }
+                    handle: Rectangle {
+                        x: playbackSeekControl.leftPadding
+                           + playbackSeekControl.visualPosition
+                           * (playbackSeekControl.availableWidth - width)
+                        y: playbackSeekControl.topPadding
+                           + playbackSeekControl.availableHeight / 2 - height / 2
+                        width: 14
+                        height: 14
+                        radius: width / 2
+                        color: theme.textPrimary
+                        border.width: playbackSeekControl.activeFocus ? 2 : 1
+                        border.color: playbackSeekControl.activeFocus
+                                      ? theme.focus : theme.borderStrong
+                    }
                 }
             }
 

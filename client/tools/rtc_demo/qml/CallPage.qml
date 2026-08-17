@@ -9,7 +9,16 @@ Item {
     required property var controller
     property bool detailsOpen: false
     property bool compact: width < 900
+    property bool smokeCopyToastVisible: false
+    readonly property bool copyToastVisible:
+        copyToastSurface.visible && copyToastSurface.opacity >= 0.99
+    readonly property bool copyToastAboveDock:
+        copyToastSurface.y + copyToastSurface.height <= topBar.height + controlDock.y
     ShareMeTheme { id: theme }
+
+    function showCopyToast() {
+        copyToast.restart()
+    }
 
     Rectangle { anchors.fill: parent; color: theme.background }
 
@@ -19,7 +28,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         controller: page.controller
-        onRoomCopied: copyToast.restart()
+        onRoomCopied: page.showCopyToast()
     }
 
     Item {
@@ -68,20 +77,23 @@ Item {
     }
 
     Rectangle {
+        id: copyToastSurface
+        objectName: "copyToastSurface"
         z: 4
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: page.compact && page.detailsOpen
-                            ? detailsDrawer.height + controlDock.height + 38
-                            : controlDock.height + 28
+        anchors.bottomMargin: stageArea.height - controlDock.y + theme.spacingMd
         width: copyText.implicitWidth + 24
         height: 34
         radius: 9
         color: theme.surfaceRaised
-        opacity: copyToast.running ? 1 : 0
+        opacity: copyToast.running || page.smokeCopyToastVisible ? 1 : 0
         visible: opacity > 0
         Text { id: copyText; anchors.centerIn: parent; text: "房间码已复制"; color: theme.textPrimary; font.pixelSize: 11 }
-        Behavior on opacity { NumberAnimation { duration: 140 } }
+        Behavior on opacity {
+            enabled: !page.smokeCopyToastVisible
+            NumberAnimation { duration: 140 }
+        }
     }
     Timer { id: copyToast; interval: 1600 }
 }

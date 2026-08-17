@@ -353,6 +353,42 @@ Item {
                                           qualityProfileControl.enabled,
                                           qualityProfileControl.activeFocus)
                     }
+                    delegate: ItemDelegate {
+                        required property var model
+                        required property int index
+                        width: qualityProfileControl.width
+                        height: 40
+                        highlighted: qualityProfileControl.highlightedIndex === index
+                        contentItem: Text {
+                            text: model[qualityProfileControl.textRole]
+                            color: parent.highlighted ? theme.textPrimary : theme.textSecondary
+                            font.pixelSize: theme.fontMeta
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            color: parent.highlighted ? theme.surfaceHover : theme.surface
+                            radius: theme.radiusSmall
+                        }
+                    }
+                    popup: Popup {
+                        y: qualityProfileControl.height + 4
+                        width: qualityProfileControl.width
+                        implicitHeight: contentItem.implicitHeight + 8
+                        padding: 4
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: qualityProfileControl.popup.visible
+                                   ? qualityProfileControl.delegateModel : null
+                            currentIndex: qualityProfileControl.highlightedIndex
+                        }
+                        background: Rectangle {
+                            color: theme.surface
+                            radius: theme.radiusMedium
+                            border.width: 1
+                            border.color: theme.borderStrong
+                        }
+                    }
                 }
 
                 PrimaryButton {

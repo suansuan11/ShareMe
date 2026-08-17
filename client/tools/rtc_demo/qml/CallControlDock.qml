@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 Rectangle {
     id: dock
+    objectName: "controlDock"
     required property var controller
     property bool detailsOpen: false
     signal toggleDetails()

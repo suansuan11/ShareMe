@@ -31,7 +31,7 @@ class GuiCallSmokeTest(unittest.TestCase):
         demo = directory / "fake-demo.py"
         demo.write_text(
             "#!/usr/bin/env python3\n"
-            "import sys, time\n"
+            "import struct, sys, time, zlib\n"
             "state = sys.argv[sys.argv.index('--gui-smoke-state') + 1] "
             "if '--gui-smoke-state' in sys.argv else ''\n"
             f"fail = {fail_state!r}\n"
@@ -73,6 +73,30 @@ class GuiCallSmokeTest(unittest.TestCase):
             "      'GUI_OBJECT videoSection=1',\n"
             "      'GUI_OBJECT audioSection=1',\n"
             "      'GUI_OBJECT advancedSection=1'),\n"
+            "  'call-host-details': (\n"
+            "      'GUI_OBJECT callPage=1',\n"
+            "      'GUI_OBJECT microphoneControl=1',\n"
+            "      'GUI_OBJECT speakerControl=1',\n"
+            "      'GUI_OBJECT detailsControl=1',\n"
+            "      'GUI_OBJECT leaveControl=1',\n"
+            "      'GUI_OBJECT shareControl=0',\n"
+            "      'GUI_OBJECT connectionSection=1',\n"
+            "      'GUI_OBJECT videoSection=1',\n"
+            "      'GUI_OBJECT audioSection=1',\n"
+            "      'GUI_OBJECT advancedSection=1',\n"
+            "      'GUI_OBJECT copyToastSurface=1'),\n"
+            "  'call-host-details-copy': (\n"
+            "      'GUI_OBJECT callPage=1',\n"
+            "      'GUI_OBJECT microphoneControl=1',\n"
+            "      'GUI_OBJECT speakerControl=1',\n"
+            "      'GUI_OBJECT detailsControl=1',\n"
+            "      'GUI_OBJECT leaveControl=1',\n"
+            "      'GUI_OBJECT shareControl=0',\n"
+            "      'GUI_OBJECT connectionSection=1',\n"
+            "      'GUI_OBJECT videoSection=1',\n"
+            "      'GUI_OBJECT audioSection=1',\n"
+            "      'GUI_OBJECT advancedSection=1',\n"
+            "      'GUI_OBJECT copyToastSurface=1'),\n"
             "  'call-viewer': (\n"
             "      'GUI_OBJECT callPage=1',\n"
             "      'GUI_OBJECT microphoneControl=1',\n"
@@ -98,8 +122,21 @@ class GuiCallSmokeTest(unittest.TestCase):
             "   'GUI_RECOVERY_TITLE category=timed out title=\\u8fde\\u63a5\\u672a\\u5efa\\u7acb',\n"
             "   'GUI_RECOVERY_TITLE category=generic-failure title=\\u901a\\u8bdd\\u6682\\u65f6\\u65e0\\u6cd5\\u7ee7\\u7eed',\n"
             "  ): print(marker)\n"
+            " if state == 'call-host-details-copy':\n"
+            "  print('GUI_LAYOUT toast_visible=1 toast_above_dock=1')\n"
             "if extra_output:\n"
             " for line in extra_output.splitlines(): print(line)\n"
+            "if '--gui-screenshot' in sys.argv:\n"
+            " path = sys.argv[sys.argv.index('--gui-screenshot') + 1]\n"
+            " size = sys.argv[sys.argv.index('--gui-window-size') + 1]\n"
+            " width, height = map(int, size.split('x'))\n"
+            " raw = b''.join(b'\\x00' + b'\\x00\\x00\\x00' * width for _ in range(height))\n"
+            " def chunk(kind, data):\n"
+            "  body = kind + data\n"
+            "  return struct.pack('>I', len(data)) + body + struct.pack('>I', zlib.crc32(body))\n"
+            " png = b'\\x89PNG\\r\\n\\x1a\\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')\n"
+            " open(path, 'wb').write(png)\n"
+            " print('GUI_SCREENSHOT saved=1 preferences_ephemeral=1 recent_room_empty=1')\n"
             "if not state: time.sleep(idle_seconds)\n",
             encoding="utf-8",
         )
@@ -116,7 +153,7 @@ class GuiCallSmokeTest(unittest.TestCase):
                              ["home", "create", "call-host-actions"])
             self.assertTrue(all(item.passed for item in results))
 
-    def test_all_nine_probe_states_are_enforced(self):
+    def test_all_eleven_probe_states_are_enforced(self):
         with tempfile.TemporaryDirectory() as temporary:
             demo = self.make_demo(Path(temporary))
             results = self.runner.run_probes(
@@ -129,6 +166,19 @@ class GuiCallSmokeTest(unittest.TestCase):
             self.assertEqual(
                 len(results), self.runner.GUI_SMOKE_PROBE_COUNT
             )
+
+    def test_visual_matrix_covers_default_and_compact_surfaces(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = self.make_demo(root)
+            captures = self.runner.capture_visual_matrix(demo, root / "shots", 2.0)
+            self.assertEqual(len(captures), len(self.runner.GUI_VISUAL_MATRIX))
+            self.assertIn({"state": "call-host-details",
+                           "file": "call-details-compact.png",
+                           "width": 760, "height": 520}, captures)
+            self.assertIn({"state": "call-host-details-copy",
+                           "file": "call-details-copy-compact.png",
+                           "width": 760, "height": 520}, captures)
 
     def test_gui_object_marker_requires_an_exact_line(self):
         completed = self.runner.subprocess.CompletedProcess(

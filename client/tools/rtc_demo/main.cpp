@@ -5,11 +5,13 @@
 
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QVariant>
 
@@ -17,6 +19,7 @@
 #include <filesystem>
 #include <iostream>
 #include <array>
+#include <memory>
 
 namespace {
 [[noreturn]] void exit_cli(int code) {
@@ -157,6 +160,7 @@ int main(int argc, char **argv) {
       gui_smoke_state != QStringLiteral("recovery") &&
       gui_smoke_state != QStringLiteral("call-host") &&
       gui_smoke_state != QStringLiteral("call-host-details") &&
+      gui_smoke_state != QStringLiteral("call-host-details-copy") &&
       gui_smoke_state != QStringLiteral("call-viewer") &&
       gui_smoke_state != QStringLiteral("call-host-actions")) {
     std::cerr << "invalid --gui-smoke-state" << std::endl;
@@ -306,8 +310,28 @@ int main(int argc, char **argv) {
       controller->setScreenEncoderMode(config.screen_encoder);
     return controller;
   };
-  QSettings settings;
-  shareme::tools::AppPreferences preferences(settings);
+  std::unique_ptr<QTemporaryDir> gui_settings_directory;
+  std::unique_ptr<QSettings> settings;
+  if (!gui_screenshot_path.isEmpty()) {
+    const QFileInfo screenshot_info(gui_screenshot_path);
+    if (screenshot_info.suffix().compare(QStringLiteral("png"),
+                                         Qt::CaseInsensitive) != 0 ||
+        screenshot_info.exists() || !screenshot_info.dir().exists()) {
+      std::cerr << "unsafe --gui-screenshot target" << std::endl;
+      return 2;
+    }
+    gui_settings_directory = std::make_unique<QTemporaryDir>();
+    if (!gui_settings_directory->isValid()) {
+      std::cerr << "failed to isolate GUI screenshot preferences" << std::endl;
+      return 2;
+    }
+    settings = std::make_unique<QSettings>(
+        gui_settings_directory->filePath(QStringLiteral("ShareMe.ini")),
+        QSettings::IniFormat);
+  } else {
+    settings = std::make_unique<QSettings>();
+  }
+  shareme::tools::AppPreferences preferences(*settings);
   shareme::tools::ShareMeAppController app_controller(factory, &preferences);
   QQmlApplicationEngine engine;
   engine.setInitialProperties(
@@ -410,13 +434,21 @@ int main(int argc, char **argv) {
           }
         }
       }
-      if (gui_smoke_state == QStringLiteral("call-host-details")) {
+      if (gui_smoke_state == QStringLiteral("call-host-details") ||
+          gui_smoke_state == QStringLiteral("call-host-details-copy")) {
         auto *details = root ? root->findChild<QObject *>(
                                   QStringLiteral("detailsControl"))
                              : nullptr;
         if (details)
           static_cast<void>(QMetaObject::invokeMethod(
               details, "clicked", Qt::DirectConnection));
+        if (gui_smoke_state == QStringLiteral("call-host-details-copy")) {
+          auto *call_page = root ? root->findChild<QObject *>(
+                                      QStringLiteral("callPage"))
+                                 : nullptr;
+          if (call_page)
+            call_page->setProperty("smokeCopyToastVisible", true);
+        }
       }
       std::cout << "GUI_STATE page=" << gui_smoke_state.toStdString()
                 << " qml_loaded=1" << std::endl;
@@ -468,8 +500,9 @@ int main(int argc, char **argv) {
                   << (present ? 1 : 0) << std::endl;
       } else if (gui_smoke_state == QStringLiteral("call-host") ||
                  gui_smoke_state == QStringLiteral("call-host-details") ||
+                 gui_smoke_state == QStringLiteral("call-host-details-copy") ||
                  gui_smoke_state == QStringLiteral("call-viewer")) {
-        const std::array<QString, 10> object_names{
+        const std::array<QString, 11> object_names{
             QStringLiteral("callPage"),
             QStringLiteral("microphoneControl"),
             QStringLiteral("speakerControl"),
@@ -479,15 +512,30 @@ int main(int argc, char **argv) {
             QStringLiteral("connectionSection"),
             QStringLiteral("videoSection"),
             QStringLiteral("audioSection"),
-            QStringLiteral("advancedSection")};
+            QStringLiteral("advancedSection"),
+            QStringLiteral("copyToastSurface")};
         for (const auto &object_name : object_names) {
           const auto present = root && root->findChild<QObject *>(object_name);
           std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
                     << (present ? 1 : 0) << std::endl;
         }
+        if (gui_smoke_state == QStringLiteral("call-host-details-copy")) {
+          QTimer::singleShot(170, &app, [root] {
+            auto *call_page = root ? root->findChild<QObject *>(
+                                        QStringLiteral("callPage")) : nullptr;
+            std::cout << "GUI_LAYOUT toast_visible="
+                      << (call_page && call_page->property("copyToastVisible").toBool() ? 1 : 0)
+                      << " toast_above_dock="
+                      << (call_page && call_page->property("copyToastAboveDock").toBool() ? 1 : 0)
+                      << std::endl;
+          });
+        }
       }
       if (!gui_screenshot_path.isEmpty()) {
-        QTimer::singleShot(40, &app, [&engine, gui_screenshot_path] {
+        const int capture_delay =
+            gui_smoke_state == QStringLiteral("call-host-details-copy") ? 190 : 40;
+        QTimer::singleShot(capture_delay, &app, [&engine, &app_controller,
+                                      gui_screenshot_path] {
           auto *window = engine.rootObjects().isEmpty()
                              ? nullptr
                              : qobject_cast<QQuickWindow *>(
@@ -496,10 +544,14 @@ int main(int argc, char **argv) {
                              window->grabWindow().save(gui_screenshot_path,
                                                        "PNG");
           std::cout << "GUI_SCREENSHOT saved=" << (saved ? 1 : 0)
+                    << " preferences_ephemeral=1 recent_room_empty="
+                    << (app_controller.recentRoom().isEmpty() ? 1 : 0)
                     << std::endl;
         });
       }
-      QTimer::singleShot(100, &app, &QCoreApplication::quit);
+      const int quit_delay =
+          gui_smoke_state == QStringLiteral("call-host-details-copy") ? 250 : 100;
+      QTimer::singleShot(quit_delay, &app, &QCoreApplication::quit);
     };
     if (gui_smoke_state == QStringLiteral("call-host-actions")) {
       QTimer::singleShot(120, &app, [&] {

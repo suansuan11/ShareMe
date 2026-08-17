@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 Rectangle {
     id: bar
+    objectName: "callTopBar"
     required property var controller
     property bool sessionSuspended: controller.status.startsWith("session-suspended:")
     property bool sessionResuming: controller.status === "session-resuming"
@@ -74,6 +75,7 @@ Rectangle {
         }
         Button {
             id: roomButton
+            objectName: "roomCodeControl"
             text: bar.controller.roomId.length > 0
                   ? bar.formattedRoom(bar.controller.roomId) : "正在创建房间"
             enabled: bar.controller.roomId.length > 0
