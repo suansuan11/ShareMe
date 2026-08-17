@@ -8,6 +8,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QSettings>
 #include <QTimer>
 #include <QVariant>
@@ -104,6 +105,14 @@ int main(int argc, char **argv) {
           "Run a bounded GUI state smoke and exit (home, create, join, settings, "
           "help, recovery, call-host, call-viewer, or call-host-actions)"),
       QStringLiteral("state"));
+  QCommandLineOption gui_screenshot_option(
+      QStringList{QStringLiteral("gui-screenshot")},
+      QStringLiteral("Save the bounded GUI smoke window as PNG"),
+      QStringLiteral("path"));
+  QCommandLineOption gui_window_size_option(
+      QStringList{QStringLiteral("gui-window-size")},
+      QStringLiteral("Resize the bounded GUI smoke window (WIDTHxHEIGHT)"),
+      QStringLiteral("size"));
   parser.addOption(server_option);
   parser.addOption(role_option);
   parser.addOption(room_option);
@@ -120,6 +129,8 @@ int main(int argc, char **argv) {
   parser.addOption(duration_option);
   parser.addOption(validate_option);
   parser.addOption(gui_smoke_state_option);
+  parser.addOption(gui_screenshot_option);
+  parser.addOption(gui_window_size_option);
   if (!parser.parse(app.arguments())) {
     std::cerr << parser.errorText().toStdString() << std::endl;
     exit_cli(2);
@@ -130,6 +141,13 @@ int main(int argc, char **argv) {
   }
 
   const auto gui_smoke_state = parser.value(gui_smoke_state_option);
+  const auto gui_screenshot_path = parser.value(gui_screenshot_option);
+  if ((parser.isSet(gui_screenshot_option) ||
+       parser.isSet(gui_window_size_option)) &&
+      !parser.isSet(gui_smoke_state_option)) {
+    std::cerr << "GUI capture options require --gui-smoke-state" << std::endl;
+    exit_cli(2);
+  }
   if (parser.isSet(gui_smoke_state_option) &&
       gui_smoke_state != QStringLiteral("home") &&
       gui_smoke_state != QStringLiteral("create") &&
@@ -138,6 +156,7 @@ int main(int argc, char **argv) {
       gui_smoke_state != QStringLiteral("help") &&
       gui_smoke_state != QStringLiteral("recovery") &&
       gui_smoke_state != QStringLiteral("call-host") &&
+      gui_smoke_state != QStringLiteral("call-host-details") &&
       gui_smoke_state != QStringLiteral("call-viewer") &&
       gui_smoke_state != QStringLiteral("call-host-actions")) {
     std::cerr << "invalid --gui-smoke-state" << std::endl;
@@ -298,6 +317,19 @@ int main(int argc, char **argv) {
                         QStringLiteral("Main"));
   if (engine.rootObjects().isEmpty())
     return EXIT_FAILURE;
+  if (parser.isSet(gui_window_size_option)) {
+    const auto parts = parser.value(gui_window_size_option).split('x');
+    bool width_ok = false;
+    bool height_ok = false;
+    const int width = parts.size() == 2 ? parts[0].toInt(&width_ok) : 0;
+    const int height = parts.size() == 2 ? parts[1].toInt(&height_ok) : 0;
+    auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    if (!window || !width_ok || !height_ok || width <= 0 || height <= 0) {
+      std::cerr << "invalid --gui-window-size" << std::endl;
+      return 2;
+    }
+    window->resize(width, height);
+  }
   if (!launch.interactive) {
     shareme::tools::AppSessionConfig config;
     config.server_url = QUrl(parser.value(server_option));
@@ -378,6 +410,14 @@ int main(int argc, char **argv) {
           }
         }
       }
+      if (gui_smoke_state == QStringLiteral("call-host-details")) {
+        auto *details = root ? root->findChild<QObject *>(
+                                  QStringLiteral("detailsControl"))
+                             : nullptr;
+        if (details)
+          static_cast<void>(QMetaObject::invokeMethod(
+              details, "clicked", Qt::DirectConnection));
+      }
       std::cout << "GUI_STATE page=" << gui_smoke_state.toStdString()
                 << " qml_loaded=1" << std::endl;
       if (gui_smoke_state == QStringLiteral("home") ||
@@ -427,6 +467,7 @@ int main(int argc, char **argv) {
         std::cout << "GUI_OBJECT " << object_name.toStdString() << "="
                   << (present ? 1 : 0) << std::endl;
       } else if (gui_smoke_state == QStringLiteral("call-host") ||
+                 gui_smoke_state == QStringLiteral("call-host-details") ||
                  gui_smoke_state == QStringLiteral("call-viewer")) {
         const std::array<QString, 10> object_names{
             QStringLiteral("callPage"),
@@ -445,7 +486,20 @@ int main(int argc, char **argv) {
                     << (present ? 1 : 0) << std::endl;
         }
       }
-      QTimer::singleShot(80, &app, &QCoreApplication::quit);
+      if (!gui_screenshot_path.isEmpty()) {
+        QTimer::singleShot(40, &app, [&engine, gui_screenshot_path] {
+          auto *window = engine.rootObjects().isEmpty()
+                             ? nullptr
+                             : qobject_cast<QQuickWindow *>(
+                                   engine.rootObjects().constFirst());
+          const bool saved = window &&
+                             window->grabWindow().save(gui_screenshot_path,
+                                                       "PNG");
+          std::cout << "GUI_SCREENSHOT saved=" << (saved ? 1 : 0)
+                    << std::endl;
+        });
+      }
+      QTimer::singleShot(100, &app, &QCoreApplication::quit);
     };
     if (gui_smoke_state == QStringLiteral("call-host-actions")) {
       QTimer::singleShot(120, &app, [&] {

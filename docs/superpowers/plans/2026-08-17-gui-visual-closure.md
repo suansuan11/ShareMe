@@ -55,11 +55,11 @@
 - Modify: `client/tools/rtc_demo/qml/CallPage.qml`
 - Test: `tests/scripts/gui_qml_contract_test.py`
 
-- [ ] Add RED contracts for a 60 px dock, themed meter/slider/disclosure, compact normal summary, and preserved advanced diagnostics.
-- [ ] Run call-host, call-viewer, and call-host-actions and observe the intended failures.
-- [ ] Implement the compact dock, themed controls, and simplified normal details while preserving all actions and advanced values.
-- [ ] Build and run call state/action contracts.
-- [ ] Commit `style: finish active call surfaces`.
+- [x] Add RED contracts for a 60 px dock, themed meter/slider/disclosure, compact normal summary, and preserved advanced diagnostics.
+- [x] Run call-host, call-viewer, and call-host-actions and observe the intended failures.
+- [x] Implement the compact dock, themed controls, and simplified normal details while preserving all actions and advanced values.
+- [x] Build and run call state/action contracts.
+- [x] Commit `style: finish active call surfaces`.
 
 ### Task 4: Rendered acceptance, review, and handoff
 

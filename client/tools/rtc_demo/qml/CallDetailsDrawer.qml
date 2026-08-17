@@ -74,7 +74,7 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: theme.spacingSm
                 Text {
-                    text: "连接"
+                    text: "通话概况"
                     color: theme.textPrimary
                     font.pixelSize: theme.fontLabel
                     font.weight: Font.DemiBold
@@ -89,11 +89,22 @@ Rectangle {
                     label: "状态"
                     value: drawer.statusLabel(drawer.controller.status)
                 }
+                InfoRow {
+                    Layout.fillWidth: true
+                    label: "共享"
+                    value: drawer.sourceLabel(drawer.controller.videoSource)
+                }
+                InfoRow {
+                    Layout.fillWidth: true
+                    label: "质量"
+                    value: drawer.profileLabel(drawer.controller.screenProfile)
+                }
             }
 
             ColumnLayout {
                 id: videoSection
                 objectName: "videoSection"
+                visible: false
                 Layout.fillWidth: true
                 spacing: theme.spacingSm
                 Text {
@@ -141,7 +152,6 @@ Rectangle {
                     objectName: "voicePanel"
                     Layout.fillWidth: true
                     spacing: theme.spacingSm
-                    Text { text: "通话声音"; color: theme.textPrimary; font.pixelSize: theme.fontLabel; font.weight: Font.DemiBold }
                     Text {
                         Layout.fillWidth: true
                         text: drawer.controller.voiceQualityMessage
@@ -153,16 +163,33 @@ Rectangle {
                     }
                     Text { text: "麦克风活动"; color: theme.textSecondary; font.pixelSize: theme.fontCaption }
                     ProgressBar {
+                        id: voiceMeter
+                        objectName: "voiceMeter"
                         Layout.fillWidth: true
                         from: 0
                         to: 100
                         value: drawer.controller.microphoneLevel
                         Accessible.name: "麦克风活动"
+                        background: Rectangle {
+                            implicitHeight: 4
+                            radius: height / 2
+                            color: theme.surfaceRaised
+                        }
+                        contentItem: Item {
+                            implicitHeight: 4
+                            Rectangle {
+                                width: parent.width * voiceMeter.visualPosition
+                                height: parent.height
+                                radius: height / 2
+                                color: theme.accent
+                            }
+                        }
                     }
                     RowLayout {
                         Layout.fillWidth: true
                         Text { text: "对方音量"; color: theme.textSecondary; font.pixelSize: theme.fontCaption }
                         Slider {
+                            id: speakerVolumeControl
                             objectName: "speakerVolumeControl"
                             function requestVolume(requested) {
                                 value = requested
@@ -178,6 +205,39 @@ Rectangle {
                             enabled: drawer.controller.speakerVolumeAvailable
                             Accessible.name: "对方声音音量"
                             onMoved: requestVolume(value)
+                            background: Rectangle {
+                                x: speakerVolumeControl.leftPadding
+                                y: speakerVolumeControl.topPadding
+                                   + speakerVolumeControl.availableHeight / 2 - height / 2
+                                implicitWidth: 160
+                                implicitHeight: 4
+                                width: speakerVolumeControl.availableWidth
+                                height: implicitHeight
+                                radius: height / 2
+                                color: theme.surfaceRaised
+                                Rectangle {
+                                    width: parent.width * speakerVolumeControl.visualPosition
+                                    height: parent.height
+                                    radius: height / 2
+                                    color: speakerVolumeControl.enabled
+                                           ? theme.accent : theme.textDisabled
+                                }
+                            }
+                            handle: Rectangle {
+                                x: speakerVolumeControl.leftPadding
+                                   + speakerVolumeControl.visualPosition
+                                   * (speakerVolumeControl.availableWidth - width)
+                                y: speakerVolumeControl.topPadding
+                                   + speakerVolumeControl.availableHeight / 2 - height / 2
+                                implicitWidth: 16
+                                implicitHeight: 16
+                                radius: width / 2
+                                color: speakerVolumeControl.enabled
+                                       ? theme.textPrimary : theme.textDisabled
+                                border.width: speakerVolumeControl.activeFocus ? 2 : 1
+                                border.color: speakerVolumeControl.activeFocus
+                                              ? theme.focus : theme.borderStrong
+                            }
                         }
                         Text { text: drawer.controller.speakerVolume + "%"; color: theme.textSecondary; font.pixelSize: theme.fontCaption }
                     }
@@ -240,6 +300,26 @@ Rectangle {
                 text: expanded ? "收起高级信息 ︿" : "高级信息 ﹀"
                 Accessible.name: text
                 onClicked: expanded = !expanded
+                hoverEnabled: true
+                focusPolicy: Qt.StrongFocus
+                contentItem: Text {
+                    text: advancedButton.expanded ? "收起高级信息" : "高级信息"
+                    color: advancedButton.enabled
+                           ? theme.textSecondary : theme.textDisabled
+                    font.pixelSize: theme.fontMeta
+                    horizontalAlignment: Text.AlignLeft
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    implicitHeight: 40
+                    radius: theme.radiusSmall
+                    color: advancedButton.down ? theme.surfacePressed
+                          : advancedButton.hovered ? theme.surfaceHover
+                          : theme.surfaceRaised
+                    border.width: advancedButton.activeFocus ? 2 : 1
+                    border.color: advancedButton.activeFocus
+                                  ? theme.focus : theme.border
+                }
             }
 
             ColumnLayout {

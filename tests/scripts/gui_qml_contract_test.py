@@ -4,7 +4,9 @@ import argparse
 import os
 import re
 import subprocess
+import struct
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -112,6 +114,37 @@ class GuiQmlContractTest(unittest.TestCase):
     def test_home_loads_without_qml_errors(self):
         self.assert_clean_state("home")
 
+    def test_gui_state_can_capture_its_own_window_for_visual_review(self):
+        environment = os.environ.copy()
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        with tempfile.TemporaryDirectory() as directory:
+            screenshot = Path(directory) / "home.png"
+            result = self.run_demo(
+                [str(self.demo), "--gui-smoke-state", "home",
+                 "--gui-screenshot", str(screenshot)],
+                environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assert_exact_line(result.stdout, "GUI_SCREENSHOT saved=1")
+            self.assertTrue(screenshot.is_file())
+            self.assertGreater(screenshot.stat().st_size, 1_000)
+
+    def test_gui_capture_supports_the_logical_compact_window(self):
+        environment = os.environ.copy()
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        with tempfile.TemporaryDirectory() as directory:
+            screenshot = Path(directory) / "create-compact.png"
+            result = self.run_demo(
+                [str(self.demo), "--gui-smoke-state", "create",
+                 "--gui-window-size", "760x520",
+                 "--gui-screenshot", str(screenshot)],
+                environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = screenshot.read_bytes()
+            self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+            self.assertEqual(struct.unpack(">II", data[16:24]), (760, 520))
+
     def test_shared_visual_primitives_are_registered(self):
         qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
         for filename in ("IconGlyph.qml", "DialogSurface.qml"):
@@ -155,9 +188,10 @@ class GuiQmlContractTest(unittest.TestCase):
         ):
             with self.subTest(object_name=object_name):
                 self.assertIn(f'objectName: "{object_name}"', source)
-        for title in ("连接", "画面", "声音", "高级信息"):
+        for title in ("通话概况", "声音", "高级信息"):
             with self.subTest(title=title):
                 self.assertIn(f'text: "{title}"', source)
+        self.assertNotIn('text: "通话声音"', source)
         self.assertIn("property bool expanded: false", source)
         self.assertIn("visible: advancedButton.expanded", source)
         self.assertNotIn("value: drawer.controller.status", source)
@@ -542,6 +576,18 @@ class GuiQmlContractTest(unittest.TestCase):
         self.assertIn("implicitWidth: theme.iconControlSize", icons)
         self.assertIn("implicitHeight: 60", dock)
         self.assertIn("property real strokeWidth: 1.4", glyph)
+
+    def test_call_details_themes_meter_volume_and_disclosure(self):
+        qml_dir = Path(__file__).parents[2] / "client" / "tools" / "rtc_demo" / "qml"
+        source = (qml_dir / "CallDetailsDrawer.qml").read_text(encoding="utf-8")
+        self.assertIn('objectName: "voiceMeter"', source)
+        self.assertIn('objectName: "speakerVolumeControl"', source)
+        self.assertIn("handle: Rectangle", source)
+        self.assertIn('objectName: "advancedControl"', source)
+        advanced = source[source.index('objectName: "advancedControl"'):]
+        self.assertIn("contentItem: Text", advanced)
+        self.assertIn("background: Rectangle", advanced)
+        self.assertIn("theme.surfaceRaised", advanced)
 
     def test_real_qml_controls_drive_audio_drawer_and_leave(self):
         environment = os.environ.copy()
